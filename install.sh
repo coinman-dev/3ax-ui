@@ -342,6 +342,33 @@ setup_ip_certificate() {
     return 0
 }
 
+generate_self_signed_cert() {
+    local host="$1"
+    local certPath="/root/cert/self-signed"
+    mkdir -p "$certPath"
+    local certFile="${certPath}/fullchain.cer"
+    local keyFile="${certPath}/private.key"
+
+    echo -e "${yellow}Generating self-signed SSL certificate for ${host}...${plain}"
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$keyFile" \
+        -out "$certFile" \
+        -days 3650 \
+        -subj "/CN=${host}" \
+        -addext "subjectAltName=IP:${host}" \
+        2>/dev/null
+
+    if [[ $? -eq 0 ]]; then
+        ${xui_folder}/x-ui cert -webCert "$certFile" -webCertKey "$keyFile" >/dev/null 2>&1
+        echo -e "${green}✓ Self-signed certificate generated (valid 10 years).${plain}"
+        echo -e "${yellow}  Note: Browser will show a security warning — this is expected for self-signed certs.${plain}"
+        return 0
+    else
+        echo -e "${red}Failed to generate self-signed certificate.${plain}"
+        return 1
+    fi
+}
+
 # Comprehensive manual SSL certificate issuance via acme.sh
 ssl_cert_issue() {
     local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep 'webBasePath:' | awk -F': ' '{print $2}' | tr -d '[:space:]' | sed 's#^/##')
@@ -568,7 +595,8 @@ prompt_and_setup_ssl() {
             SSL_HOST="${server_ip}"
             echo -e "${green}✓ Let's Encrypt IP certificate configured successfully${plain}"
         else
-            echo -e "${red}✗ IP certificate setup failed. Please check port 80 is open.${plain}"
+            echo -e "${red}✗ IP certificate setup failed. Falling back to self-signed certificate.${plain}"
+            generate_self_signed_cert "${server_ip}"
             SSL_HOST="${server_ip}"
         fi
         ;;
@@ -917,8 +945,8 @@ config_awg_defaults() {
 
     # If no IPv6 default route, scan all interfaces for global IPv6
     if [[ -z "$ext_iface_ipv6" ]]; then
-        ext_iface_ipv6=$(ip -6 addr show scope global 2>/dev/null \
-            | grep -B2 'inet6' | grep -oP '^\d+:\s+\K[^:@]+' | head -1)
+        ext_iface_ipv6=$(ip -o -6 addr show scope global 2>/dev/null \
+            | awk '{print $2}' | grep -v '^lo$' | head -1)
     fi
 
     # Primary external interface: prefer the one with IPv6
@@ -944,9 +972,9 @@ config_awg_defaults() {
             | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
         # Update ext_iface_ipv6 to the interface where we found it
         if [[ -n "$ipv6_addr_on_iface" ]]; then
-            ext_iface_ipv6=$(ip -6 addr show scope global 2>/dev/null \
-                | grep -B2 "$(echo "$ipv6_addr_on_iface" | cut -d/ -f1)" \
-                | grep -oP '^\d+:\s+\K[^:@]+' | head -1)
+            local ipv6_bare="${ipv6_addr_on_iface%%/*}"
+            ext_iface_ipv6=$(ip -o -6 addr show scope global 2>/dev/null \
+                | grep "$ipv6_bare" | awk '{print $2}' | head -1)
             ext_iface="${ext_iface_ipv6:-$ext_iface}"
         fi
     fi
