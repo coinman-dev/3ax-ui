@@ -850,8 +850,11 @@ install_amneziawg() {
                 echo -e "${yellow}The panel will work but the tunnel will not start until you install amneziawg manually.${plain}"
                 echo -e "${yellow}See: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
             fi
+            # Load kernel module immediately without requiring reboot
+            modprobe amneziawg 2>/dev/null || true
         else
             echo -e "${green}AmneziaWG (awg) already installed.${plain}"
+            modprobe amneziawg 2>/dev/null || true
         fi
         install_ndppd
     # Method 2: other distros — try to install wireguard as fallback
@@ -1351,3 +1354,39 @@ echo -e "${green}Running...${plain}"
 install_base
 install_amneziawg
 install_x-ui $1
+
+# Secure Boot warning
+# Try mokutil first, fall back to reading EFI variable directly
+check_secure_boot() {
+    if command -v mokutil &>/dev/null; then
+        mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"
+        return $?
+    fi
+    # No mokutil: read SecureBoot EFI variable directly (byte 4 = 1 means enabled)
+    local sb_var
+    sb_var=$(find /sys/firmware/efi/efivars -name "SecureBoot-*" 2>/dev/null | head -1)
+    if [[ -n "$sb_var" ]]; then
+        [[ "$(od -An -tu1 -j4 -N1 "$sb_var" 2>/dev/null | tr -d ' ')" == "1" ]]
+        return $?
+    fi
+    # No EFI at all — Secure Boot not active
+    return 1
+}
+
+if check_secure_boot; then
+    echo -e ""
+    echo -e "┌───────────────────────────────────────────────────────┐"
+    echo -e "│  ${red}⚠  WARNING: Secure Boot is ENABLED${plain}                  │"
+    echo -e "├───────────────────────────────────────────────────────┤"
+    echo -e "│  AmneziaWG kernel module cannot be loaded while       │"
+    echo -e "│  Secure Boot is active. AWG tunnels will NOT work.    │"
+    echo -e "│                                                       │"
+    echo -e "│  To fix this:                                         │"
+    echo -e "│  1. Go to your VPS provider control panel             │"
+    echo -e "│  2. Find server settings → Disable Secure Boot        │"
+    echo -e "│  3. Reboot the server                                 │"
+    echo -e "│  4. AmneziaWG will start working automatically        │"
+    echo -e "│                                                       │"
+    echo -e "│  The panel and all other features work normally.      │"
+    echo -e "└───────────────────────────────────────────────────────┘"
+fi
