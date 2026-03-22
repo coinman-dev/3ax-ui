@@ -807,51 +807,22 @@ install_amneziawg() {
             if [[ "${release}" == "ubuntu" ]]; then
                 add-apt-repository -y ppa:amnezia/ppa 2>/dev/null && \
                 apt-get update -q && \
-                apt-get install -y -q amneziawg && \
+                apt-get install -y amneziawg && \
                 echo -e "${green}AmneziaWG installed successfully via PPA.${plain}" || \
-                echo -e "${yellow}PPA install failed, trying fallback...${plain}"
+                echo -e "${red}PPA install failed. Install amneziawg manually: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
             elif [[ "${release}" == "debian" || "${release}" == "armbian" ]]; then
                 apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 57290828 2>/dev/null || true
                 echo "deb https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" >> /etc/apt/sources.list
                 echo "deb-src https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" >> /etc/apt/sources.list
                 apt-get update -q && \
-                apt-get install -y -q amneziawg && \
+                apt-get install -y amneziawg && \
                 echo -e "${green}AmneziaWG installed successfully.${plain}" || \
-                echo -e "${yellow}Debian install failed, trying fallback...${plain}"
+                echo -e "${red}Install failed. Install amneziawg manually: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
             fi
-            # Fallback: download prebuilt awg tools + install DKMS kernel module
             if ! command -v awg &>/dev/null; then
-                echo -e "${yellow}Installing amneziawg-tools from prebuilt release...${plain}"
-                apt-get install -y -q unzip linux-headers-$(uname -r) dkms git 2>/dev/null || true
-                local tmp_dir
-                tmp_dir=$(mktemp -d)
-                # Install userspace tools (awg, awg-quick) from prebuilt release
-                local tools_url
-                tools_url=$(curl -fsSL "https://api.github.com/repos/amnezia-vpn/amneziawg-tools/releases/latest" | grep '"browser_download_url"' | grep 'ubuntu' | sed -E 's/.*"([^"]+)".*/\1/')
-                if [[ -n "$tools_url" ]]; then
-                    curl -fsSL -o "$tmp_dir/awg-tools.zip" "$tools_url" && \
-                    unzip -q "$tmp_dir/awg-tools.zip" -d "$tmp_dir/" && \
-                    find "$tmp_dir" -name "awg" -not -name "*.sha256" -exec cp {} /usr/local/bin/awg \; && \
-                    find "$tmp_dir" -name "awg-quick" -not -name "*.sha256" -exec cp {} /usr/local/bin/awg-quick \; && \
-                    chmod +x /usr/local/bin/awg /usr/local/bin/awg-quick && \
-                    echo -e "${green}awg and awg-quick installed.${plain}"
-                fi
-                # Install kernel module via DKMS
-                echo -e "${yellow}Installing AmneziaWG kernel module via DKMS...${plain}"
-                git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-linux-kernel-module.git "$tmp_dir/kmod"
-                if [[ -d "$tmp_dir/kmod" ]]; then
-                    local ver
-                    ver=$(cat "$tmp_dir/kmod/src/version.h" 2>/dev/null | grep -oP '"\K[^"]+' | head -1 || echo "1.0")
-                    mkdir -p "/usr/src/amneziawg-$ver"
-                    cp -r "$tmp_dir/kmod/src/"* "/usr/src/amneziawg-$ver/"
-                    dkms add -m amneziawg -v "$ver" 2>/dev/null || true
-                    dkms build -m amneziawg -v "$ver" && \
-                    dkms install -m amneziawg -v "$ver" && \
-                    modprobe amneziawg 2>/dev/null && \
-                    echo -e "${green}AmneziaWG kernel module installed.${plain}" || \
-                    echo -e "${yellow}DKMS build failed. The panel will work but tunnel requires manual kernel module installation.${plain}"
-                fi
-                rm -rf "$tmp_dir"
+                echo -e "${yellow}Warning: 'awg' binary not found after installation.${plain}"
+                echo -e "${yellow}The panel will work but the tunnel will not start until you install amneziawg manually.${plain}"
+                echo -e "${yellow}See: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
             fi
         else
             echo -e "${green}AmneziaWG (awg) already installed.${plain}"
