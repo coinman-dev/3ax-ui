@@ -804,31 +804,37 @@ install_amneziawg() {
                 echo -e "${green}AmneziaWG installed successfully.${plain}" || \
                 echo -e "${yellow}AmneziaVPN PPA not available, trying DKMS build...${plain}"
             fi
-            # Fallback: build amneziawg-tools from source
+            # Fallback: download prebuilt awg tools + install DKMS kernel module
             if ! command -v awg &>/dev/null; then
-                echo -e "${yellow}Building amneziawg-tools from source...${plain}"
-                apt-get install -y -q linux-headers-$(uname -r) dkms build-essential git 2>/dev/null || true
+                echo -e "${yellow}Installing amneziawg-tools from prebuilt release...${plain}"
+                apt-get install -y -q unzip linux-headers-$(uname -r) dkms git 2>/dev/null || true
                 local tmp_dir
                 tmp_dir=$(mktemp -d)
-                git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-linux-kernel-module.git "$tmp_dir/amneziawg" 2>/dev/null
-                if [[ -d "$tmp_dir/amneziawg" ]]; then
-                    cd "$tmp_dir/amneziawg"
-                    # Build and install the DKMS module
-                    make -C src dkms-install 2>/dev/null || true
-                    # Build userspace tools
-                    if [[ -d src/tools ]]; then
-                        make -C src/tools 2>/dev/null && \
-                        cp src/tools/awg /usr/local/bin/awg && \
-                        chmod +x /usr/local/bin/awg && \
-                        echo -e "${green}awg binary installed.${plain}"
-                    fi
-                    # Install awg-quick
-                    if [[ -f src/tools/awg-quick ]]; then
-                        cp src/tools/awg-quick /usr/local/bin/awg-quick && \
-                        chmod +x /usr/local/bin/awg-quick && \
-                        echo -e "${green}awg-quick installed.${plain}"
-                    fi
-                    cd - &>/dev/null
+                # Install userspace tools (awg, awg-quick) from prebuilt release
+                local tools_url
+                tools_url=$(curl -fsSL "https://api.github.com/repos/amnezia-vpn/amneziawg-tools/releases/latest" | grep '"browser_download_url"' | grep 'ubuntu' | sed -E 's/.*"([^"]+)".*/\1/')
+                if [[ -n "$tools_url" ]]; then
+                    curl -fsSL -o "$tmp_dir/awg-tools.zip" "$tools_url" && \
+                    unzip -q "$tmp_dir/awg-tools.zip" -d "$tmp_dir/" && \
+                    find "$tmp_dir" -name "awg" -not -name "*.sha256" -exec cp {} /usr/local/bin/awg \; && \
+                    find "$tmp_dir" -name "awg-quick" -not -name "*.sha256" -exec cp {} /usr/local/bin/awg-quick \; && \
+                    chmod +x /usr/local/bin/awg /usr/local/bin/awg-quick && \
+                    echo -e "${green}awg and awg-quick installed.${plain}"
+                fi
+                # Install kernel module via DKMS
+                echo -e "${yellow}Installing AmneziaWG kernel module via DKMS...${plain}"
+                git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-linux-kernel-module.git "$tmp_dir/kmod"
+                if [[ -d "$tmp_dir/kmod" ]]; then
+                    local ver
+                    ver=$(cat "$tmp_dir/kmod/src/version.h" 2>/dev/null | grep -oP '"\K[^"]+' | head -1 || echo "1.0")
+                    mkdir -p "/usr/src/amneziawg-$ver"
+                    cp -r "$tmp_dir/kmod/src/"* "/usr/src/amneziawg-$ver/"
+                    dkms add -m amneziawg -v "$ver" 2>/dev/null || true
+                    dkms build -m amneziawg -v "$ver" && \
+                    dkms install -m amneziawg -v "$ver" && \
+                    modprobe amneziawg 2>/dev/null && \
+                    echo -e "${green}AmneziaWG kernel module installed.${plain}" || \
+                    echo -e "${yellow}DKMS build failed. The panel will work but tunnel requires manual kernel module installation.${plain}"
                 fi
                 rm -rf "$tmp_dir"
             fi
