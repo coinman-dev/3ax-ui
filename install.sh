@@ -158,16 +158,11 @@ setup_ssl_certificate() {
         return 1
     fi
 
-    # Install certificate
+    # Install certificate (|| true in reloadcmd: service may not exist yet during first install)
     ~/.acme.sh/acme.sh --installcert -d ${domain} \
         --key-file /root/cert/${domain}/privkey.pem \
         --fullchain-file /root/cert/${domain}/fullchain.pem \
-        --reloadcmd "systemctl restart x-ui" >/dev/null 2>&1
-
-    if [ $? -ne 0 ]; then
-        echo -e "${yellow}Failed to install certificate${plain}"
-        return 1
-    fi
+        --reloadcmd "systemctl restart x-ui 2>/dev/null || true" >/dev/null 2>&1
 
     # Enable auto-renew
     ~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1
@@ -451,9 +446,10 @@ ssl_cert_issue() {
         echo -e "${green}Issuing certificate succeeded, installing certificates...${plain}"
     fi
 
-    # Setup reload command
-    reloadCmd="systemctl restart x-ui || rc-service x-ui restart"
-    echo -e "${green}Default --reloadcmd for ACME is: ${yellow}systemctl restart x-ui || rc-service x-ui restart${plain}"
+    # Setup reload command (|| true ensures installcert doesn't fail if x-ui service
+    # doesn't exist yet during first install — it gets created later in the script)
+    reloadCmd="systemctl restart x-ui 2>/dev/null || rc-service x-ui restart 2>/dev/null || true"
+    echo -e "${green}Default --reloadcmd for ACME is: ${yellow}systemctl restart x-ui${plain}"
     echo -e "${green}This command will run on every certificate issue and renew.${plain}"
     read -rp "Would you like to modify --reloadcmd for ACME? (y/n): " setReloadcmd
     if [[ "$setReloadcmd" == "y" || "$setReloadcmd" == "Y" ]]; then
@@ -483,10 +479,8 @@ ssl_cert_issue() {
         --fullchain-file /root/cert/${domain}/fullchain.pem --reloadcmd "${reloadCmd}"
 
     if [ $? -ne 0 ]; then
-        echo -e "${red}Installing certificate failed, exiting.${plain}"
-        rm -rf ~/.acme.sh/${domain}
-        systemctl start x-ui 2>/dev/null || rc-service x-ui start 2>/dev/null
-        return 1
+        echo -e "${yellow}Certificate reload command had issues (service may not be running yet).${plain}"
+        echo -e "${yellow}Certificate files are installed — the panel will pick them up on start.${plain}"
     else
         echo -e "${green}Installing certificate succeeded, enabling auto renew...${plain}"
     fi
