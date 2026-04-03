@@ -570,10 +570,18 @@ prompt_and_setup_ssl() {
         # User chose Let's Encrypt IP certificate option
         echo -e "${green}Using Let's Encrypt for IP certificate (shortlived profile)...${plain}"
 
-        # Ask for optional IPv6
+        # Auto-detect IPv6 and offer to include it
         local ipv6_addr=""
-        read -rp "Do you have an IPv6 address to include? (leave empty to skip): " ipv6_addr
-        ipv6_addr="${ipv6_addr// /}"  # Trim whitespace
+        local detected_ipv6=""
+        detected_ipv6=$(ip -6 addr show scope global 2>/dev/null \
+            | grep -oP 'inet6\s+\K[0-9a-f:]+(?=/\d+)' | grep -v '^fe80' | head -1)
+        if [[ -n "$detected_ipv6" ]]; then
+            echo -e "${green}IPv6 address detected: ${detected_ipv6}${plain}"
+            read -rp "Include it in the certificate? (y/n, default: n): " ipv6_choice
+            if [[ "${ipv6_choice,,}" == "y" ]]; then
+                ipv6_addr="$detected_ipv6"
+            fi
+        fi
 
         # Stop panel if running (port 80 needed)
         if [[ $release == "alpine" ]]; then
