@@ -92,8 +92,9 @@
 "ultraDark" = "ウルトラダーク"
 "dashboard" = "ダッシュボード"
 "inbounds" = "インバウンド一覧"
-"settings" = "パネル設定"
+"settings" = "3X-UI設定"
 "xray" = "Xray設定"
+"awg" = "AWG設定"
 "logout" = "ログアウト"
 "link" = "リンク管理"
 

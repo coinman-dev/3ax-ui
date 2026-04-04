@@ -92,8 +92,9 @@
 "ultraDark" = "超暗色"
 "dashboard" = "系统状态"
 "inbounds" = "入站列表"
-"settings" = "面板设置"
+"settings" = "3X-UI 设置"
 "xray" = "Xray 设置"
+"awg" = "AWG 设置"
 "logout" = "退出登录"
 "link" = "管理"
 

@@ -92,8 +92,9 @@
 "ultraDark" = "Ultra Dark"
 "dashboard" = "Overview"
 "inbounds" = "Inbounds"
-"settings" = "Panel Settings"
+"settings" = "3X-UI Settings"
 "xray" = "Xray Configs"
+"awg" = "AWG Settings"
 "logout" = "Log Out"
 "link" = "Manage"
 
