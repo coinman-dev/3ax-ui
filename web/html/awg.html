@@ -98,7 +98,7 @@
                       <a-form-item label="External Interface:">
                         <a-select v-model="server.externalInterface"
                           style="width: 100%"
-                          placeholder="eth0"
+                          :placeholder="defaultInterface || 'auto-detect'"
                           :not-found-content="'No interfaces found'">
                           <a-select-option v-for="iface in ipv4Interfaces" :key="iface.name" :value="iface.name">
                             [[ iface.name ]]
@@ -133,7 +133,7 @@
                       <a-form-item label="External Interface:">
                         <a-select v-model="server.ipv6ExternalInterface"
                           style="width: 100%"
-                          :placeholder="'Same as IPv4 (' + (server.externalInterface || 'eth0') + ')'"
+                          :placeholder="'Same as IPv4 (' + (server.externalInterface || defaultInterface || 'auto') + ')'"
                           allow-clear
                           :disabled="!server.ipv6Enabled"
                           :not-found-content="'No interfaces found'">
@@ -219,7 +219,16 @@
                 </a-collapse-panel>
               </a-collapse>
 
-              <div style="margin-top: 16px; text-align: right;">
+              <div style="margin-top: 16px; display: flex; justify-content: space-between;">
+                <a-popconfirm
+                  title="{{ i18n "pages.awg.resetConfirm" }}"
+                  @confirm="resetToDefaults"
+                  ok-text="{{ i18n "confirm" }}"
+                  cancel-text="{{ i18n "cancel" }}">
+                  <a-button type="danger" icon="undo" :loading="resetting" ghost>
+                    {{ i18n "pages.awg.resetDefaults" }}
+                  </a-button>
+                </a-popconfirm>
                 <a-button type="primary" icon="save" @click="saveServer" :loading="saving">
                   Save Settings
                 </a-button>
@@ -251,6 +260,7 @@
       loading: true,
       serverLoaded: false,
       saving: false,
+      resetting: false,
       toggling: false,
       activePanel: ['network'],
       server: new AwgServer(),
@@ -271,6 +281,12 @@
       ipv6Interfaces() {
         return this.networkInterfaces.filter(i => i.ipv6);
       },
+      defaultInterface() {
+        if (this.ipv4Interfaces.length > 0) {
+          return this.ipv4Interfaces[0].name;
+        }
+        return '';
+      },
     },
     methods: {
       async loadData() {
@@ -287,6 +303,16 @@
         const msg = await HttpUtil.get('panel/api/awg/server');
         if (msg.success) {
           this.server = new AwgServer(msg.obj);
+        }
+      },
+      async resetToDefaults() {
+        this.resetting = true;
+        const msg = await HttpUtil.postJson('panel/api/awg/server/reset', {});
+        this.resetting = false;
+        if (msg.success) {
+          this.server = new AwgServer(msg.obj);
+          await this.loadStatus();
+          this.$message.success('{{ i18n "pages.awg.resetSuccess" }}');
         }
       },
       async loadStatus() {

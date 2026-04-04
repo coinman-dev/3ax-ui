@@ -25,6 +25,8 @@ func (s *AwgService) GetServer() (*model.AwgServer, error) {
 		return nil, err
 	}
 
+	needSave := false
+
 	// Generate keys if missing
 	if server.PrivateKey == "" {
 		priv, pub, err := awg.GenerateKeyPair()
@@ -33,6 +35,16 @@ func (s *AwgService) GetServer() (*model.AwgServer, error) {
 		}
 		server.PrivateKey = priv
 		server.PublicKey = pub
+		needSave = true
+	}
+
+	// Auto-detect external interface if not set
+	if server.ExternalInterface == "" {
+		server.ExternalInterface = awg.DetectDefaultInterface()
+		needSave = true
+	}
+
+	if needSave {
 		if err := db.Save(&server).Error; err != nil {
 			return nil, err
 		}
@@ -53,6 +65,74 @@ func (s *AwgService) SaveServer(server *model.AwgServer) error {
 		return s.applyServerConfig(server)
 	}
 	return nil
+}
+
+// ResetToDefaults resets all AWG server settings to defaults (as if freshly installed),
+// regenerates keys, detects the correct network interface, and removes all clients.
+func (s *AwgService) ResetToDefaults() (*model.AwgServer, error) {
+	server, err := s.GetServer()
+	if err != nil {
+		return nil, err
+	}
+
+	// Stop interface if running
+	if server.Enable {
+		awg.StopNdppd()
+		_ = awg.InterfaceDown(server.InterfaceName)
+	}
+
+	db := database.GetDB()
+
+	// Delete all clients
+	if err := db.Where("server_id = ?", server.Id).Delete(&model.AwgClient{}).Error; err != nil {
+		return nil, err
+	}
+
+	// Generate new keys
+	priv, pub, err := awg.GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("generate server keys: %w", err)
+	}
+
+	// Detect interface
+	detectedIface := awg.DetectDefaultInterface()
+
+	// Reset to defaults
+	server.Enable = false
+	server.InterfaceName = "awg0"
+	server.ListenPort = 51820
+	server.MTU = 1420
+	server.PrivateKey = priv
+	server.PublicKey = pub
+	server.IPv4Address = "10.66.66.1/24"
+	server.IPv4Pool = "10.66.66.0/24"
+	server.IPv6Enabled = false
+	server.IPv6Address = ""
+	server.IPv6Pool = ""
+	server.IPv6Gateway = ""
+	server.Jc = 4
+	server.Jmin = 50
+	server.Jmax = 1000
+	server.S1 = 0
+	server.S2 = 0
+	server.H1 = 1
+	server.H2 = 2
+	server.H3 = 3
+	server.H4 = 4
+	server.DNS = "1.1.1.1,2606:4700:4700::1111"
+	server.ExternalInterface = detectedIface
+	server.IPv6ExternalInterface = ""
+	server.PostUp = ""
+	server.PostDown = ""
+	server.Endpoint = ""
+	server.TrafficReset = "never"
+	server.UpdatedAt = time.Now().UnixMilli()
+
+	if err := db.Save(server).Error; err != nil {
+		return nil, err
+	}
+
+	return server, nil
 }
 
 // ToggleServer enables or disables the AWG interface.
@@ -257,10 +337,10 @@ func (s *AwgService) AddClient(client *model.AwgClient) error {
 
 	// Auto-enable server when first client is added
 	if !server.Enable {
-		server.Enable = true
-		if err := db.Save(server).Error; err != nil {
+		if err := db.Model(server).Update("enable", true).Error; err != nil {
 			logger.Warning("Failed to auto-enable AWG server:", err)
 		}
+		server.Enable = true
 	}
 
 	// Apply config to running server
@@ -642,7 +722,7 @@ func (s *AwgService) ipv6Iface(server *model.AwgServer) string {
 	if server.ExternalInterface != "" {
 		return server.ExternalInterface
 	}
-	return "eth0"
+	return awg.DetectDefaultInterface()
 }
 
 // applyManualNDP adds per-client NDP proxy entries.

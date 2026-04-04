@@ -23,6 +23,7 @@ func (a *AwgController) initRouter(g *gin.RouterGroup) {
 	g.GET("/server", a.getServer)
 	g.POST("/server", a.saveServer)
 	g.POST("/server/toggle", a.toggleServer)
+	g.POST("/server/reset", a.resetServer)
 	g.GET("/server/status", a.getServerStatus)
 	g.GET("/interfaces", a.getInterfaces)
 
@@ -65,6 +66,15 @@ func (a *AwgController) toggleServer(c *gin.Context) {
 	}
 	err := a.awgService.ToggleServer(body.Enable)
 	jsonMsg(c, "AWG server toggled", err)
+}
+
+func (a *AwgController) resetServer(c *gin.Context) {
+	server, err := a.awgService.ResetToDefaults()
+	if err != nil {
+		jsonMsg(c, "reset AWG server", err)
+		return
+	}
+	jsonObj(c, server, nil)
 }
 
 func (a *AwgController) getServerStatus(c *gin.Context) {

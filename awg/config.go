@@ -2,10 +2,40 @@ package awg
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 )
+
+// DetectDefaultInterface returns the first non-loopback, non-tunnel, UP interface
+// that has a routable IP address. Falls back to "eth0" only if nothing is found.
+func DetectDefaultInterface() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "eth0"
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if strings.HasPrefix(iface.Name, "awg") || strings.HasPrefix(iface.Name, "wg") ||
+			strings.HasPrefix(iface.Name, "docker") || strings.HasPrefix(iface.Name, "br-") ||
+			strings.HasPrefix(iface.Name, "veth") {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil || len(addrs) == 0 {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLinkLocalUnicast() && ipNet.IP.To4() != nil {
+				return iface.Name
+			}
+		}
+	}
+	return "eth0"
+}
 
 // GenerateServerConfig builds the awg0.conf content from server settings and clients.
 func GenerateServerConfig(server *model.AwgServer, clients []model.AwgClient) string {
@@ -141,14 +171,14 @@ func ipv6Iface(server *model.AwgServer) string {
 	if server.ExternalInterface != "" {
 		return server.ExternalInterface
 	}
-	return "eth0"
+	return DetectDefaultInterface()
 }
 
 // GenerateDefaultPostUp creates default iptables rules for the server.
 func GenerateDefaultPostUp(server *model.AwgServer) string {
 	iface := server.ExternalInterface
 	if iface == "" {
-		iface = "eth0"
+		iface = DetectDefaultInterface()
 	}
 	name := server.InterfaceName
 	if name == "" {
@@ -180,7 +210,7 @@ func GenerateDefaultPostUp(server *model.AwgServer) string {
 func GenerateDefaultPostDown(server *model.AwgServer) string {
 	iface := server.ExternalInterface
 	if iface == "" {
-		iface = "eth0"
+		iface = DetectDefaultInterface()
 	}
 	name := server.InterfaceName
 	if name == "" {

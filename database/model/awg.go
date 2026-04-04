@@ -38,7 +38,7 @@ type AwgServer struct {
 	DNS string `json:"dns" gorm:"default:'1.1.1.1,2606:4700:4700::1111'"`
 
 	// External interface for NAT (IPv4)
-	ExternalInterface string `json:"externalInterface" gorm:"default:'eth0'"`
+	ExternalInterface string `json:"externalInterface" gorm:"default:''"`
 
 	// External interface for NDP proxy / IPv6 forwarding (may differ from IPv4)
 	IPv6ExternalInterface string `json:"ipv6ExternalInterface" gorm:"default:''"`

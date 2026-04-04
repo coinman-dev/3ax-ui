@@ -589,6 +589,11 @@
 "ipPool" = "IP Pool Subnet"
 "poolSize" = "Pool Size"
 
+[pages.awg]
+"resetDefaults" = "Reset to Defaults"
+"resetConfirm" = "This will reset all AWG settings to defaults, regenerate keys, and delete all clients. Continue?"
+"resetSuccess" = "AWG settings have been reset to defaults"
+
 [pages.settings.security]
 "admin" = "Admin credentials"
 "twoFactor" = "Two-factor authentication"
