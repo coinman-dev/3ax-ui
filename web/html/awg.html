@@ -20,15 +20,6 @@
   .dark .ant-badge-status-text {
     color: rgba(255, 255, 255, 0.85);
   }
-  /* Fix ghost danger button in dark theme */
-  .dark .ant-btn-danger.ant-btn-background-ghost {
-    color: #ff7875;
-    border-color: #ff7875;
-  }
-  .dark .ant-btn-danger.ant-btn-background-ghost:hover {
-    color: #ff4d4f;
-    border-color: #ff4d4f;
-  }
 </style>
 {{ template "page/head_end" .}}
 
@@ -42,7 +33,9 @@
 
           <!-- Server Settings Card -->
           <a-col :span="24">
-            <a-card hoverable>
+            <a-card hoverable
+              :head-style="{ borderBottom: 'none' }"
+              :body-style="{ padding: 0 }">
               <template #title>
                 <a-space direction="horizontal">
                   <a-icon type="cloud-server"></a-icon>
@@ -60,8 +53,36 @@
                     :loading="toggling" checked-children="ON" un-checked-children="OFF" />
                 </a-space>
               </template>
+            </a-card>
+          </a-col>
 
-              <a-collapse v-model="activePanel" :bordered="false">
+          <!-- Action Buttons Card -->
+          <a-col :span="24">
+            <a-card hoverable>
+              <a-space direction="horizontal">
+                <a-button type="primary" icon="save" @click="saveServer" :loading="saving">
+                  Save Settings
+                </a-button>
+                <a-popconfirm
+                  @confirm="resetToDefaults"
+                  ok-text="{{ i18n "confirm" }}"
+                  cancel-text="{{ i18n "cancel" }}">
+                  <template slot="title">
+                    <p style="margin:0">{{ i18n "pages.awg.resetConfirm1" }}</p>
+                    <p style="margin:4px 0 0">{{ i18n "pages.awg.resetConfirm2" }}</p>
+                  </template>
+                  <a-button type="danger" icon="undo" :loading="resetting">
+                    {{ i18n "pages.awg.resetDefaults" }}
+                  </a-button>
+                </a-popconfirm>
+              </a-space>
+            </a-card>
+          </a-col>
+
+          <!-- Settings Panels -->
+          <a-col :span="24">
+            <a-card hoverable>
+              <a-collapse v-model="activePanel">
                 <a-collapse-panel key="network" header="Network Settings">
                   <a-row :gutter="16">
                     <a-col :sm="24" :md="8">
@@ -144,6 +165,11 @@
                         <a-input v-model="server.ipv6Gateway" placeholder="fe80::1" :disabled="!server.ipv6Enabled" />
                       </a-form-item>
                     </a-col>
+                    <a-col :sm="24" :md="6">
+                      <a-form-item label="DNS (for clients):">
+                        <a-input v-model="server.dns" placeholder="1.1.1.1,2606:4700:4700::1111" />
+                      </a-form-item>
+                    </a-col>
                     <a-col :sm="24" :md="5">
                       <a-form-item label="External Interface:">
                         <a-select v-model="server.ipv6ExternalInterface"
@@ -156,11 +182,6 @@
                             [[ iface.name ]]
                           </a-select-option>
                         </a-select>
-                      </a-form-item>
-                    </a-col>
-                    <a-col :sm="24" :md="6">
-                      <a-form-item label="DNS (for clients):">
-                        <a-input v-model="server.dns" placeholder="1.1.1.1,2606:4700:4700::1111" />
                       </a-form-item>
                     </a-col>
                   </a-row>
@@ -229,24 +250,6 @@
                   </a-form-item>
                 </a-collapse-panel>
               </a-collapse>
-
-              <div style="margin-top: 16px; display: flex; justify-content: space-between;">
-                <a-popconfirm
-                  @confirm="resetToDefaults"
-                  ok-text="{{ i18n "confirm" }}"
-                  cancel-text="{{ i18n "cancel" }}">
-                  <template slot="title">
-                    <p style="margin:0">{{ i18n "pages.awg.resetConfirm1" }}</p>
-                    <p style="margin:4px 0 0">{{ i18n "pages.awg.resetConfirm2" }}</p>
-                  </template>
-                  <a-button type="danger" icon="undo" :loading="resetting" ghost>
-                    {{ i18n "pages.awg.resetDefaults" }}
-                  </a-button>
-                </a-popconfirm>
-                <a-button type="primary" icon="save" @click="saveServer" :loading="saving">
-                  Save Settings
-                </a-button>
-              </div>
             </a-card>
           </a-col>
 
