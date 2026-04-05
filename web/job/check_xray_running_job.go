@@ -1,10 +1,10 @@
-// Package job provides background job implementations for the 3x-ui web panel,
+// Package job provides background job implementations for the 3AX-UI web panel,
 // including traffic monitoring, system checks, and periodic maintenance tasks.
 package job
 
 import (
-	"github.com/mhsanaei/3x-ui/v2/logger"
-	"github.com/mhsanaei/3x-ui/v2/web/service"
+	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/web/service"
 )
 
 // CheckXrayRunningJob monitors Xray process health and restarts it if it crashes.

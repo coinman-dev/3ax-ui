@@ -3,8 +3,8 @@ package controller
 import (
 	"strconv"
 
-	"github.com/mhsanaei/3x-ui/v2/database/model"
-	"github.com/mhsanaei/3x-ui/v2/web/service"
+	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/web/service"
 
 	"github.com/gin-gonic/gin"
 )

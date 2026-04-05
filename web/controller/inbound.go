@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mhsanaei/3x-ui/v2/database/model"
-	"github.com/mhsanaei/3x-ui/v2/web/service"
-	"github.com/mhsanaei/3x-ui/v2/web/session"
-	"github.com/mhsanaei/3x-ui/v2/web/websocket"
+	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/web/service"
+	"github.com/coinman-dev/3ax-ui/v2/web/session"
+	"github.com/coinman-dev/3ax-ui/v2/web/websocket"
 
 	"github.com/gin-gonic/gin"
 )

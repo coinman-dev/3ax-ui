@@ -5,7 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/mhsanaei/3x-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/database/model"
 )
 
 // DetectDefaultInterface returns the first non-loopback, non-tunnel, UP interface

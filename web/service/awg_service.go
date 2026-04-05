@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/mhsanaei/3x-ui/v2/awg"
-	"github.com/mhsanaei/3x-ui/v2/database"
-	"github.com/mhsanaei/3x-ui/v2/database/model"
-	"github.com/mhsanaei/3x-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/awg"
+	"github.com/coinman-dev/3ax-ui/v2/database"
+	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/logger"
 )
 
 type AwgService struct{}
@@ -513,59 +513,62 @@ func (s *AwgService) UpdateTrafficStats() {
 		clientMap[clients[i].PublicKey] = &clients[i]
 	}
 
-	for _, peer := range peers {
-		client, ok := clientMap[peer.PublicKey]
-		if !ok {
-			continue
-		}
-
-		// Calculate delta (peer stats are cumulative since interface up)
-		newUp := peer.TransferTx // from server perspective: TX to peer = client's upload perspective is reversed
-		newDown := peer.TransferRx
-
-		updates := map[string]any{}
-
-		// Update traffic if changed
-		if newUp != client.Upload || newDown != client.Download {
-			allTimeDelta := int64(0)
-			if newUp > client.Upload {
-				allTimeDelta += newUp - client.Upload
-			}
-			if newDown > client.Download {
-				allTimeDelta += newDown - client.Download
+	db.Transaction(func(tx *gorm.DB) error {
+		for _, peer := range peers {
+			client, ok := clientMap[peer.PublicKey]
+			if !ok {
+				continue
 			}
 
-			updates["upload"] = newUp
-			updates["download"] = newDown
-			updates["all_time"] = client.AllTime + allTimeDelta
-		}
+			// Calculate delta (peer stats are cumulative since interface up)
+			newUp := peer.TransferTx // from server perspective: TX to peer = client's upload perspective is reversed
+			newDown := peer.TransferRx
 
-		// Update last online from handshake timestamp (seconds → milliseconds)
-		if peer.LatestHandshake > 0 {
-			handshakeMs := peer.LatestHandshake * 1000
-			if handshakeMs != client.LastOnline {
-				updates["last_online"] = handshakeMs
+			updates := map[string]any{}
+
+			// Update traffic if changed
+			if newUp != client.Upload || newDown != client.Download {
+				allTimeDelta := int64(0)
+				if newUp > client.Upload {
+					allTimeDelta += newUp - client.Upload
+				}
+				if newDown > client.Download {
+					allTimeDelta += newDown - client.Download
+				}
+
+				updates["upload"] = newUp
+				updates["download"] = newDown
+				updates["all_time"] = client.AllTime + allTimeDelta
+			}
+
+			// Update last online from handshake timestamp (seconds → milliseconds)
+			if peer.LatestHandshake > 0 {
+				handshakeMs := peer.LatestHandshake * 1000
+				if handshakeMs != client.LastOnline {
+					updates["last_online"] = handshakeMs
+				}
+			}
+
+			// Update last known endpoint IP
+			if peer.Endpoint != "" && peer.Endpoint != "(none)" {
+				// Strip port from endpoint (e.g. "1.2.3.4:51820" → "1.2.3.4")
+				ep := peer.Endpoint
+				if idx := strings.LastIndex(ep, ":"); idx > 0 {
+					ep = ep[:idx]
+				}
+				// Strip brackets from IPv6 (e.g. "[::1]" → "::1")
+				ep = strings.TrimPrefix(strings.TrimSuffix(ep, "]"), "[")
+				if ep != client.LastIP {
+					updates["last_ip"] = ep
+				}
+			}
+
+			if len(updates) > 0 {
+				tx.Model(client).Updates(updates)
 			}
 		}
-
-		// Update last known endpoint IP
-		if peer.Endpoint != "" && peer.Endpoint != "(none)" {
-			// Strip port from endpoint (e.g. "1.2.3.4:51820" → "1.2.3.4")
-			ep := peer.Endpoint
-			if idx := strings.LastIndex(ep, ":"); idx > 0 {
-				ep = ep[:idx]
-			}
-			// Strip brackets from IPv6 (e.g. "[::1]" → "::1")
-			ep = strings.TrimPrefix(strings.TrimSuffix(ep, "]"), "[")
-			if ep != client.LastIP {
-				updates["last_ip"] = ep
-			}
-		}
-
-		if len(updates) > 0 {
-			db.Model(client).Updates(updates)
-		}
-	}
+		return nil
+	})
 
 	// Auto-renew, activate delayed-start, and enforce limits
 	needReconfig := s.autoRenewClients(db)

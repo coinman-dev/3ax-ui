@@ -3,13 +3,13 @@ package controller
 import (
 	"net/http"
 
-	"github.com/mhsanaei/3x-ui/v2/web/service"
-	"github.com/mhsanaei/3x-ui/v2/web/session"
+	"github.com/coinman-dev/3ax-ui/v2/web/service"
+	"github.com/coinman-dev/3ax-ui/v2/web/session"
 
 	"github.com/gin-gonic/gin"
 )
 
-// APIController handles the main API routes for the 3x-ui panel, including inbounds and server management.
+// APIController handles the main API routes for the 3AX-UI panel, including inbounds and server management.
 type APIController struct {
 	BaseController
 	inboundController *InboundController

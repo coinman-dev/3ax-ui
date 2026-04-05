@@ -4,18 +4,20 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
-	"github.com/mhsanaei/3x-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/logger"
 )
 
 const ndppdConfigPath = "/etc/ndppd.conf"
 
-// GenerateNdppdConfig creates ndppd.conf content for proxying IPv6 NDP
-// between the external interface and the AWG tunnel interface.
-func GenerateNdppdConfig(externalIface, tunnelIface, ipv6Pool string) string {
-	return fmt.Sprintf(`route-ttl 30000
+const awgSectionBegin = "# --- BEGIN AWG ---"
+const awgSectionEnd = "# --- END AWG ---"
 
+// generateAwgSection builds the AWG-managed ndppd proxy block with markers.
+func generateAwgSection(externalIface, tunnelIface, ipv6Pool string) string {
+	return fmt.Sprintf(`%s
 proxy %s {
     router yes
     timeout 500
@@ -24,14 +26,35 @@ proxy %s {
         iface %s
     }
 }
-`, externalIface, ipv6Pool, tunnelIface)
+%s`, awgSectionBegin, externalIface, ipv6Pool, tunnelIface, awgSectionEnd)
 }
 
-// ApplyNdppdConfig writes the config and restarts ndppd.
-func ApplyNdppdConfig(externalIface, tunnelIface, ipv6Pool string) error {
-	config := GenerateNdppdConfig(externalIface, tunnelIface, ipv6Pool)
+// awgSectionRegex matches the AWG-managed block including markers.
+var awgSectionRegex = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(awgSectionBegin) + `.*?` + regexp.QuoteMeta(awgSectionEnd))
 
-	if err := os.WriteFile(ndppdConfigPath, []byte(config), 0644); err != nil {
+// ApplyNdppdConfig updates only the AWG section in ndppd.conf, preserving other rules.
+// If the file doesn't exist or has no AWG section, the section is appended.
+func ApplyNdppdConfig(externalIface, tunnelIface, ipv6Pool string) error {
+	newSection := generateAwgSection(externalIface, tunnelIface, ipv6Pool)
+
+	existing, err := os.ReadFile(ndppdConfigPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read ndppd config: %w", err)
+	}
+
+	var result string
+	if len(existing) > 0 && awgSectionRegex.Match(existing) {
+		// Replace existing AWG section
+		result = awgSectionRegex.ReplaceAllString(string(existing), newSection)
+	} else if len(existing) > 0 {
+		// Append AWG section to existing config
+		result = strings.TrimRight(string(existing), "\n") + "\n\n" + newSection + "\n"
+	} else {
+		// New file: add route-ttl header + AWG section
+		result = "route-ttl 30000\n\n" + newSection + "\n"
+	}
+
+	if err := os.WriteFile(ndppdConfigPath, []byte(result), 0644); err != nil {
 		return fmt.Errorf("write ndppd config: %w", err)
 	}
 
@@ -47,9 +70,27 @@ func ApplyNdppdConfig(externalIface, tunnelIface, ipv6Pool string) error {
 	return nil
 }
 
-// StopNdppd stops the ndppd service.
+// StopNdppd removes the AWG section from ndppd.conf and restarts (or stops) ndppd.
 func StopNdppd() {
-	_ = exec.Command("systemctl", "stop", "ndppd").Run()
+	existing, err := os.ReadFile(ndppdConfigPath)
+	if err != nil {
+		// No config file — just stop the service
+		_ = exec.Command("systemctl", "stop", "ndppd").Run()
+		return
+	}
+
+	cleaned := awgSectionRegex.ReplaceAllString(string(existing), "")
+	cleaned = strings.TrimSpace(cleaned)
+
+	if cleaned == "" || cleaned == "route-ttl 30000" {
+		// Nothing left — remove file and stop service
+		_ = os.Remove(ndppdConfigPath)
+		_ = exec.Command("systemctl", "stop", "ndppd").Run()
+	} else {
+		// Other rules remain — write back and restart
+		_ = os.WriteFile(ndppdConfigPath, []byte(cleaned+"\n"), 0644)
+		_ = exec.Command("systemctl", "restart", "ndppd").Run()
+	}
 }
 
 // AddProxyNDP adds a single IPv6 NDP proxy entry (fallback method without ndppd).

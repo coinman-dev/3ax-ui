@@ -1,7 +1,7 @@
 package job
 
 import (
-	"github.com/mhsanaei/3x-ui/v2/web/service"
+	"github.com/coinman-dev/3ax-ui/v2/web/service"
 )
 
 // AwgTrafficJob periodically collects AmneziaWG peer traffic stats and updates the database.

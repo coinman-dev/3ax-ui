@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mhsanaei/3x-ui/v2/config"
-	"github.com/mhsanaei/3x-ui/v2/database"
-	"github.com/mhsanaei/3x-ui/v2/database/model"
-	"github.com/mhsanaei/3x-ui/v2/logger"
-	"github.com/mhsanaei/3x-ui/v2/util/common"
-	"github.com/mhsanaei/3x-ui/v2/util/json_util"
-	"github.com/mhsanaei/3x-ui/v2/xray"
+	"github.com/coinman-dev/3ax-ui/v2/config"
+	"github.com/coinman-dev/3ax-ui/v2/database"
+	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/util/common"
+	"github.com/coinman-dev/3ax-ui/v2/util/json_util"
+	"github.com/coinman-dev/3ax-ui/v2/xray"
 
 	"gorm.io/gorm"
 )

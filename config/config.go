@@ -1,4 +1,4 @@
-// Package config provides configuration management utilities for the 3x-ui panel,
+// Package config provides configuration management utilities for the 3AX-UI panel,
 // including version information, logging levels, database paths, and environment variable handling.
 package config
 
@@ -30,12 +30,12 @@ const (
 	Error   LogLevel = "error"
 )
 
-// GetVersion returns the version string of the 3x-ui application.
+// GetVersion returns the version string of the 3AX-UI application.
 func GetVersion() string {
 	return strings.TrimSpace(version)
 }
 
-// GetName returns the name of the 3x-ui application.
+// GetName returns the name of the 3AX-UI application.
 func GetName() string {
 	return strings.TrimSpace(name)
 }

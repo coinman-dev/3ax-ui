@@ -1,4 +1,4 @@
-// Package sub provides subscription server functionality for the 3x-ui panel,
+// Package sub provides subscription server functionality for the 3AX-UI panel,
 // including HTTP/HTTPS servers for serving subscription links and JSON configurations.
 package sub
 
@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mhsanaei/3x-ui/v2/logger"
-	"github.com/mhsanaei/3x-ui/v2/util/common"
-	webpkg "github.com/mhsanaei/3x-ui/v2/web"
-	"github.com/mhsanaei/3x-ui/v2/web/locale"
-	"github.com/mhsanaei/3x-ui/v2/web/middleware"
-	"github.com/mhsanaei/3x-ui/v2/web/network"
-	"github.com/mhsanaei/3x-ui/v2/web/service"
+	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/util/common"
+	webpkg "github.com/coinman-dev/3ax-ui/v2/web"
+	"github.com/coinman-dev/3ax-ui/v2/web/locale"
+	"github.com/coinman-dev/3ax-ui/v2/web/middleware"
+	"github.com/coinman-dev/3ax-ui/v2/web/network"
+	"github.com/coinman-dev/3ax-ui/v2/web/service"
 
 	"github.com/gin-gonic/gin"
 )
