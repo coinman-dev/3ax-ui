@@ -12,11 +12,11 @@ import (
 	"path"
 	"slices"
 
-	"github.com/google/uuid"
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/util/crypto"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
+	"github.com/google/uuid"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
