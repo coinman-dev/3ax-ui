@@ -16,6 +16,13 @@
   .dark .ant-calendar-disabled-cell .ant-calendar-date:hover {
     background: transparent;
   }
+  /* Match content margins used by other pages (index, inbounds, settings, xray) */
+  @media (min-width: 769px) {
+    .awg-page .ant-layout-content { margin: 24px 16px; }
+  }
+  @media (max-width: 768px) {
+    .awg-page .ant-layout-content { margin: 8px 8px; }
+  }
   /* Fix badge text color in dark theme */
   .dark .ant-badge-status-text {
     color: rgba(255, 255, 255, 0.85);
