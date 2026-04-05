@@ -47,17 +47,17 @@
                 <a-space direction="horizontal">
                   <a-icon type="cloud-server"></a-icon>
                   <span>AmneziaWG Server</span>
-                  <a-tag v-if="status.awgInstalled" color="green">v[[ status.awgVersion ]]</a-tag>
-                  <a-tag v-else color="red">Not Installed</a-tag>
                 </a-space>
               </template>
               <template #extra>
                 <a-space direction="horizontal">
+                  <a-switch :checked="server.enable" @change="toggleServer"
+                    :loading="toggling" checked-children="ON" un-checked-children="OFF" />
+                  <a-tag v-if="status.awgInstalled" color="green">v[[ status.awgVersion ]]</a-tag>
+                  <a-tag v-else color="red">Not Installed</a-tag>
                   <a-badge :status="status.running ? 'processing' : 'default'"
                     :text="status.running ? 'Running' : 'Stopped'"
                     :color="status.running ? 'green' : 'grey'" />
-                  <a-switch :checked="server.enable" @change="toggleServer"
-                    :loading="toggling" checked-children="ON" un-checked-children="OFF" />
                 </a-space>
               </template>
             </a-card>
