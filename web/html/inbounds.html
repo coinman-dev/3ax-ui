@@ -806,15 +806,15 @@
                 total: c.totalGB || 0,
                 expiryTime: c.expiryTime || 0,
               }));
-              // Add AWG online clients to a separate map (not mixed with Xray onlineClients)
+              // Track AWG online clients by UUID (not email) to ensure cross-protocol uniqueness
               const now = Date.now();
               const awgOnline = [];
               for (const c of awgMsg.obj) {
                 if (c.lastOnline && (now - c.lastOnline) < 180000) {
-                  awgOnline.push(c.email);
+                  awgOnline.push(c.uuid);
                 }
                 if (c.lastOnline > 0) {
-                  this.lastOnlineMap[c.email] = c.lastOnline;
+                  this.lastOnlineMap[c.uuid] = c.lastOnline;
                 }
               }
               this.awgOnlineClients = awgOnline;
@@ -900,7 +900,8 @@
               }
               if (client.enable) {
                 active.push(client.email);
-                if (this.isClientOnline(client.email, dbInbound.protocol)) online.push(client.email);
+                const clientId = dbInbound.protocol === 'amneziawg' ? client.id : client.email;
+                if (this.isClientOnline(clientId, dbInbound.protocol)) online.push(client.email);
               } else {
                 deactive.push(client.email);
               }
