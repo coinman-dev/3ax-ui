@@ -250,6 +250,7 @@
 <textarea id="subscription-links" style="display:none">{{ range .result }}{{ . }}
 {{ end }}</textarea>
 
+<script>window.__defaultTheme__ = '{{ .defaultTheme }}';</script>
 {{template "component/aThemeSwitch" .}}
 <script src="{{ .base_path }}assets/js/subscription.js?{{ .cur_ver }}"></script>
 

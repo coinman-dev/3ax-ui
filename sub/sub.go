@@ -179,6 +179,11 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		SubRoutingRules = ""
 	}
 
+	SubTheme, err := s.settingService.GetSubTheme()
+	if err != nil {
+		SubTheme = "dark"
+	}
+
 	// set per-request localizer from headers/cookies
 	engine.Use(locale.LocalizerMiddleware())
 
@@ -258,7 +263,7 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	s.sub = NewSUBController(
 		g, LinksPath, JsonPath, subJsonEnable, Encrypt, ShowInfo, RemarkModel, SubUpdates,
 		SubJsonFragment, SubJsonNoises, SubJsonMux, SubJsonRules, SubTitle, SubSupportUrl,
-		SubProfileUrl, SubAnnounce, SubEnableRouting, SubRoutingRules)
+		SubProfileUrl, SubAnnounce, SubEnableRouting, SubRoutingRules, SubTheme)
 
 	return engine, nil
 }

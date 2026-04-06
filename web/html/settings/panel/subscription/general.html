@@ -71,6 +71,16 @@
                 <a-switch v-model="allSetting.subShowInfo"></a-switch>
             </template>
         </a-setting-list-item>
+        <a-setting-list-item paddings="small">
+            <template #title>{{ i18n "menu.theme" }}</template>
+            <template #description>{{ i18n "subscription.pageThemeDesc" }}</template>
+            <template #control>
+                <a-select v-model="allSetting.subTheme" style="width:110px">
+                    <a-select-option value="dark">{{ i18n "menu.dark" }}</a-select-option>
+                    <a-select-option value="light">Light</a-select-option>
+                </a-select>
+            </template>
+        </a-setting-list-item>
         <a-divider>{{ i18n "pages.xray.basicTemplate"}}</a-divider>
         <a-setting-list-item paddings="small">
             <template #title>{{ i18n "pages.settings.subTitle"}}</template>

@@ -40,13 +40,23 @@
 {{define "component/aThemeSwitch"}}
 <script>
   function createThemeSwitcher() {
-    const isDarkTheme = localStorage.getItem('dark-mode') === 'true';
+    const stored = localStorage.getItem('dark-mode');
+    // If the user has never set a preference, fall back to the server-supplied default
+    // (window.__defaultTheme__) and then to 'dark' as the global default.
+    const isDarkTheme = stored !== null
+      ? stored === 'true'
+      : (typeof window.__defaultTheme__ !== 'undefined'
+          ? window.__defaultTheme__ === 'dark'
+          : true);
     const isUltra = localStorage.getItem('isUltraDarkThemeEnabled') === 'true';
     if (isUltra) {
       document.documentElement.setAttribute('data-theme', 'ultra-dark');
     }
     const theme = isDarkTheme ? 'dark' : 'light';
     document.querySelector('body').setAttribute('class', theme);
+    // Tell Dark Reader (and the browser) about the current color scheme
+    const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]');
+    if (colorSchemeMeta) colorSchemeMeta.setAttribute('content', theme);
     return {
       animationsOff() {
         document.documentElement.setAttribute('data-theme-animations', 'off');
@@ -76,8 +86,11 @@
       toggleTheme() {
         this.isDarkTheme = !this.isDarkTheme;
         localStorage.setItem('dark-mode', this.isDarkTheme);
-        document.querySelector('body').setAttribute('class', this.isDarkTheme ? 'dark' : 'light');
+        const newTheme = this.isDarkTheme ? 'dark' : 'light';
+        document.querySelector('body').setAttribute('class', newTheme);
         document.getElementById('message').className = themeSwitcher.currentTheme;
+        const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]');
+        if (colorSchemeMeta) colorSchemeMeta.setAttribute('content', newTheme);
       },
       toggleUltra() {
         this.isUltra = !this.isUltra;

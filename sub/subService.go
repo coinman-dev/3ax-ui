@@ -26,15 +26,26 @@ type SubService struct {
 	showInfo       bool
 	remarkModel    string
 	datepicker     string
+	subTheme       string
 	inboundService service.InboundService
 	settingService service.SettingService
 }
 
+// wrapIPv6 wraps a bare IPv6 address in square brackets so it is valid inside a URI.
+// Plain hostnames and IPv4 addresses are returned unchanged.
+func wrapIPv6(addr string) string {
+	if ip := net.ParseIP(addr); ip != nil && ip.To4() == nil {
+		return "[" + addr + "]"
+	}
+	return addr
+}
+
 // NewSubService creates a new subscription service with the given configuration.
-func NewSubService(showInfo bool, remarkModel string) *SubService {
+func NewSubService(showInfo bool, remarkModel string, subTheme string) *SubService {
 	return &SubService{
 		showInfo:    showInfo,
 		remarkModel: remarkModel,
+		subTheme:    subTheme,
 	}
 }
 
@@ -508,7 +519,7 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 		return strings.Join(links, "\n")
 	}
 
-	link := fmt.Sprintf("vless://%s@%s:%d", uuid, address, port)
+	link := fmt.Sprintf("vless://%s@%s:%d", uuid, wrapIPv6(address), port)
 	url, _ := url.Parse(link)
 	q := url.Query()
 
@@ -703,7 +714,7 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 		return links
 	}
 
-	link := fmt.Sprintf("trojan://%s@%s:%d", password, address, port)
+	link := fmt.Sprintf("trojan://%s@%s:%d", password, wrapIPv6(address), port)
 
 	url, _ := url.Parse(link)
 	q := url.Query()
@@ -870,7 +881,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 		return links
 	}
 
-	link := fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), address, inbound.Port)
+	link := fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), wrapIPv6(address), inbound.Port)
 	url, _ := url.Parse(link)
 	q := url.Query()
 
@@ -1032,6 +1043,7 @@ type PageData struct {
 	SubUrl       string
 	SubJsonUrl   string
 	Result       []string
+	DefaultTheme string
 }
 
 // ResolveRequest extracts scheme and host info from request/headers consistently.
@@ -1184,16 +1196,23 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		SubUrl:       subURL,
 		SubJsonUrl:   subJsonURL,
 		Result:       subs,
+		DefaultTheme: s.subTheme,
 	}
 }
 
 func getHostFromXFH(s string) (string, error) {
 	if strings.Contains(s, ":") {
-		realHost, _, err := net.SplitHostPort(s)
-		if err != nil {
-			return "", err
+		h, _, err := net.SplitHostPort(s)
+		if err == nil {
+			return h, nil
 		}
-		return realHost, nil
+		// IPv6 literal without port, e.g. "[2a10::1]"
+		if len(s) > 1 && s[0] == '[' {
+			if end := strings.LastIndex(s, "]"); end != -1 {
+				return s[1:end], nil
+			}
+		}
+		return "", err
 	}
 	return s, nil
 }

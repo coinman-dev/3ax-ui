@@ -49,8 +49,9 @@ func NewSUBController(
 	subAnnounce string,
 	subEnableRouting bool,
 	subRoutingRules string,
+	subTheme string,
 ) *SUBController {
-	sub := NewSubService(showInfo, rModel)
+	sub := NewSubService(showInfo, rModel, subTheme)
 	a := &SUBController{
 		subTitle:         subTitle,
 		subSupportUrl:    subSupportUrl,
@@ -137,6 +138,7 @@ func (a *SUBController) subs(c *gin.Context) {
 				"subUrl":       page.SubUrl,
 				"subJsonUrl":   page.SubJsonUrl,
 				"result":       page.Result,
+				"defaultTheme": page.DefaultTheme,
 			})
 			return
 		}

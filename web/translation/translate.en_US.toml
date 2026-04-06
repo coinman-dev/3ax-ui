@@ -85,6 +85,7 @@
 "inactive" = "Inactive"
 "unlimited" = "Unlimited"
 "noExpiry" = "No expiry"
+"pageThemeDesc" = "Default theme for the subscription info page."
 
 [menu]
 "theme" = "Theme"

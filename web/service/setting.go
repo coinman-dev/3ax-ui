@@ -70,6 +70,7 @@ var defaultValueMap = map[string]string{
 	"subEncrypt":                  "true",
 	"subShowInfo":                 "true",
 	"subURI":                      "",
+	"subTheme":                    "dark",
 	"subJsonPath":                 "/json/",
 	"subJsonURI":                  "",
 	"subJsonFragment":             "",
@@ -551,6 +552,10 @@ func (s *SettingService) GetSubShowInfo() (bool, error) {
 	return s.getBool("subShowInfo")
 }
 
+func (s *SettingService) GetSubTheme() (string, error) {
+	return s.getString("subTheme")
+}
+
 func (s *SettingService) GetPageSize() (int, error) {
 	return s.getInt("pageSize")
 }
@@ -767,6 +772,7 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 		"subTitle":      func() (any, error) { return s.GetSubTitle() },
 		"subURI":        func() (any, error) { return s.GetSubURI() },
 		"subJsonURI":    func() (any, error) { return s.GetSubJsonURI() },
+		"subTheme":      func() (any, error) { return s.GetSubTheme() },
 		"remarkModel":   func() (any, error) { return s.GetRemarkModel() },
 		"datepicker":    func() (any, error) { return s.GetDatepicker() },
 		"ipLimitEnable": func() (any, error) { return s.GetIpLimitEnable() },
@@ -805,15 +811,24 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 		if subDomain == "" {
 			subDomain = extractHostname(host)
 		}
+		// Strip brackets from IPv6 literals so net.JoinHostPort doesn't double-wrap them.
+		if len(subDomain) > 1 && subDomain[0] == '[' && subDomain[len(subDomain)-1] == ']' {
+			subDomain = subDomain[1 : len(subDomain)-1]
+		}
 		if subTLS {
 			subURI = "https://"
 		} else {
 			subURI = "http://"
 		}
 		if (subPort == 443 && subTLS) || (subPort == 80 && !subTLS) {
-			subURI += subDomain
+			// For bare host in URL: IPv6 needs brackets, hostname/IPv4 does not.
+			if ip := net.ParseIP(subDomain); ip != nil && ip.To4() == nil {
+				subURI += "[" + subDomain + "]"
+			} else {
+				subURI += subDomain
+			}
 		} else {
-			subURI += fmt.Sprintf("%s:%d", subDomain, subPort)
+			subURI += net.JoinHostPort(subDomain, strconv.Itoa(subPort))
 		}
 		if subEnable && result["subURI"].(string) == "" {
 			result["subURI"] = subURI + subPath
