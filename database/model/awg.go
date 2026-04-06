@@ -88,7 +88,7 @@ type AwgClient struct {
 	// Traffic stats
 	Upload   int64 `json:"upload" gorm:"default:0"`
 	Download int64 `json:"download" gorm:"default:0"`
-	TotalGB  int64 `json:"totalGB" gorm:"default:0"` // limit in bytes, 0 = unlimited
+	TotalGB  int64 `json:"totalGB" gorm:"default:0"` // traffic limit in bytes (0 = unlimited); UI stores bytes, compare against Upload+Download
 	AllTime  int64 `json:"allTime" gorm:"default:0"`
 
 	ExpiryTime int64 `json:"expiryTime" gorm:"default:0"` // 0 = never

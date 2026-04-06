@@ -806,6 +806,10 @@
                 total: c.totalGB || 0,
                 expiryTime: c.expiryTime || 0,
               }));
+              // Aggregate inbound-level traffic from all AWG clients
+              inbound.up = awgMsg.obj.reduce((sum, c) => sum + (c.upload || 0), 0);
+              inbound.down = awgMsg.obj.reduce((sum, c) => sum + (c.download || 0), 0);
+              inbound.allTime = awgMsg.obj.reduce((sum, c) => sum + (c.allTime || 0), 0);
               // Track AWG online clients by UUID (not email) to ensure cross-protocol uniqueness
               const now = Date.now();
               const awgOnline = [];
@@ -1272,7 +1276,7 @@
             name: client.email,
             comment: client.comment || '',
             enable: client.enable,
-            totalGB: client._totalGB || 0,
+            totalGB: client.totalGB || 0,
             expiryTime: client.expiryTime || 0,
             reset: client.reset || 0,
             limitIp: client.limitIp || 0,
@@ -1302,7 +1306,7 @@
           name: client.email,
           comment: client.comment || '',
           enable: client.enable,
-          totalGB: client._totalGB || 0,
+          totalGB: client.totalGB || 0,
           expiryTime: client.expiryTime || 0,
           reset: client.reset || 0,
           limitIp: client.limitIp || 0,
