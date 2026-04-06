@@ -2,6 +2,7 @@
 .idea/
 .vscode/
 .cache/
+.claude/
 .sync*
 
 # Ignore log files
@@ -20,7 +21,6 @@ target/
 node_modules/
 
 # Ignore compiled binaries
-main
 /3ax-ui
 /3x-ui
 

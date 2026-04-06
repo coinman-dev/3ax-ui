@@ -40,11 +40,13 @@ const (
 // GetVersion returns the version string of the 3AX-UI application.
 // If the version was injected via ldflags it is returned as-is;
 // otherwise the embedded config/version file is used.
+// A leading "v" is stripped so templates can add their own prefix without doubling it.
 func GetVersion() string {
-	if v := strings.TrimSpace(version); v != "" {
-		return v
+	v := strings.TrimSpace(version)
+	if v == "" {
+		v = strings.TrimSpace(embeddedVersion)
 	}
-	return strings.TrimSpace(embeddedVersion)
+	return strings.TrimPrefix(v, "v")
 }
 
 // IsBeta reports whether the current build is a pre-release
