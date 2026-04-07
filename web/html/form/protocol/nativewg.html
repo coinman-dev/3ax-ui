@@ -4,12 +4,6 @@
     <a-form-item>
       <template slot="label">
         <a-tooltip>
-          <template slot="title">
-            <span>{{ i18n "pages.inbounds.lastReset" }}: [[ dbInbound.lastTrafficResetTime && dbInbound.lastTrafficResetTime > 0 ? IntlUtil.formatDate(dbInbound.lastTrafficResetTime) : '-' ]]</span>
-        </a-tooltip>
-      </template>
-      <template slot="label">
-        <a-tooltip>
           <template slot="title"><span>{{ i18n "pages.inbounds.lastReset" }}: [[ dbInbound.lastTrafficResetTime && dbInbound.lastTrafficResetTime > 0 ? IntlUtil.formatDate(dbInbound.lastTrafficResetTime) : '-' ]]</span></template>
           {{ i18n "pages.inbounds.periodicTrafficResetTitle" }}
           <a-icon type="question-circle"></a-icon>
