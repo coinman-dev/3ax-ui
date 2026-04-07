@@ -12,11 +12,7 @@
     <a-form-item label='{{ i18n "protocol" }}'>
         <a-select v-model="inbound.protocol" :disabled="isEdit"
             :dropdown-class-name="themeSwitcher.currentTheme">
-            <a-select-option v-for="p in Protocols" :key="p" :value="p">[[
-                p === 'wireguard' ? 'Wireguard (Xray NAT66)' :
-                p === 'amneziawg' ? 'AmneziaWG (Native IPv6)' :
-                p === 'nativewg' ? 'Wireguard (Native IPv6)' : p
-                ]]</a-select-option>
+            <a-select-option v-for="p in Protocols" :key="p" :value="p">[[ p === 'wireguard' ? 'Wireguard (Xray NAT66)' : p === 'amneziawg' ? 'AmneziaWG (Native IPv6)' : p === 'nativewg' ? 'Wireguard (Native IPv6)' : p ]]</a-select-option>
         </a-select>
     </a-form-item>
 
