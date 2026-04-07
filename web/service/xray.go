@@ -114,8 +114,8 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		if !inbound.Enable {
 			continue
 		}
-		// Skip AmneziaWG — it's not an Xray protocol
-		if inbound.Protocol == model.AmneziaWG {
+		// Skip AmneziaWG and NativeWG — they are not Xray protocols
+		if inbound.Protocol == model.AmneziaWG || inbound.Protocol == model.NativeWG {
 			continue
 		}
 		// get settings clients

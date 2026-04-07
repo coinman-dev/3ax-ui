@@ -957,6 +957,30 @@ update_x-ui() {
 └───────────────────────────────────────────────────────┘"
 }
 
+ensure_wireguard_native() {
+    if command -v wg &>/dev/null; then
+        modprobe wireguard 2>/dev/null || true
+        return
+    fi
+    echo -e "${yellow}wireguard-tools not found, installing...${plain}"
+    case "${release}" in
+        ubuntu | debian | armbian)
+            apt-get install -y -q wireguard-tools 2>/dev/null || true
+            ;;
+        fedora | amzn | rhel | almalinux | rocky | ol | centos)
+            dnf install -y wireguard-tools 2>/dev/null || yum install -y wireguard-tools 2>/dev/null || true
+            ;;
+        arch | manjaro | parch)
+            pacman -Syu --noconfirm wireguard-tools 2>/dev/null || true
+            ;;
+        alpine)
+            apk add wireguard-tools 2>/dev/null || true
+            ;;
+    esac
+    modprobe wireguard 2>/dev/null || true
+}
+
 echo -e "${green}Running...${plain}"
 install_base
+ensure_wireguard_native
 update_x-ui $1

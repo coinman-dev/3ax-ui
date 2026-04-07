@@ -41,6 +41,8 @@ func initModels() error {
 		&model.HistoryOfSeeders{},
 		&model.AwgServer{},
 		&model.AwgClient{},
+		&model.WgServer{},
+		&model.WgClient{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {

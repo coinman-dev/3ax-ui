@@ -1,4 +1,4 @@
-package awg
+package wg
 
 import "github.com/coinman-dev/3ax-ui/v2/shared/crypto"
 

@@ -22,6 +22,7 @@ const (
 	Mixed       Protocol = "mixed"
 	WireGuard   Protocol = "wireguard"
 	AmneziaWG   Protocol = "amneziawg"
+	NativeWG    Protocol = "nativewg"
 )
 
 // User represents a user account in the 3AX-UI panel.

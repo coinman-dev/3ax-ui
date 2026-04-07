@@ -252,6 +252,40 @@ uninstall() {
     echo -e "${green}AmneziaWG cleanup complete.${plain}"
     # --- End AmneziaWG cleanup ---
 
+    # --- WireGuard Native cleanup ---
+    echo -e "${yellow}Cleaning up WireGuard Native components...${plain}"
+
+    # Stop WG interface(s)
+    for conf in /etc/wireguard/*.conf; do
+        if [[ -f "$conf" ]]; then
+            iface=$(basename "$conf" .conf)
+            echo "Stopping WireGuard interface: $iface"
+            wg-quick down "$conf" 2>/dev/null || true
+        fi
+    done
+
+    # Remove WG config directory
+    rm -rf /etc/wireguard/
+
+    # Ask if user wants to uninstall wireguard-tools
+    confirm "Do you want to uninstall wireguard-tools package?" "y"
+    if [[ $? == 0 ]]; then
+        if command -v apt-get &>/dev/null; then
+            apt-get remove -y wireguard-tools 2>/dev/null
+            apt-get autoremove -y 2>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum remove -y wireguard-tools 2>/dev/null
+        elif command -v dnf &>/dev/null; then
+            dnf remove -y wireguard-tools 2>/dev/null
+        elif command -v apk &>/dev/null; then
+            apk del wireguard-tools 2>/dev/null
+        fi
+        echo -e "${green}wireguard-tools removed.${plain}"
+    fi
+
+    echo -e "${green}WireGuard Native cleanup complete.${plain}"
+    # --- End WireGuard Native cleanup ---
+
     rm /etc/x-ui/ -rf
     rm ${xui_folder}/ -rf
 

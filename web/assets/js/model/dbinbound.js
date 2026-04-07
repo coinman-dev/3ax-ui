@@ -67,6 +67,19 @@ class DBInbound {
         return this.protocol === Protocols.AMNEZIAWG;
     }
 
+    get isNativewg() {
+        return this.protocol === Protocols.NATIVEWG;
+    }
+
+    get protocolDisplayName() {
+        switch (this.protocol) {
+            case Protocols.WIREGUARD:  return 'Wireguard (Xray NAT66)';
+            case Protocols.AMNEZIAWG:  return 'AmneziaWG (Native IPv6)';
+            case Protocols.NATIVEWG:   return 'Wireguard (Native IPv6)';
+            default: return this.protocol;
+        }
+    }
+
     get address() {
         let address = location.hostname;
         if (!ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0") {
@@ -129,6 +142,7 @@ class DBInbound {
             case Protocols.VLESS:
             case Protocols.TROJAN:
             case Protocols.AMNEZIAWG:
+            case Protocols.NATIVEWG:
                 return true;
             case Protocols.SHADOWSOCKS:
                 return this.toInbound().isSSMultiUser;

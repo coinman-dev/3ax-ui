@@ -1,0 +1,121 @@
+{{define "form/nativewg"}}
+<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+  <template v-if="isEdit || (inbound.settings && inbound.settings.clients && inbound.settings.clients.length > 0)">
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip>
+          <template slot="title">
+            <span>{{ i18n "pages.inbounds.lastReset" }}: [[ dbInbound.lastTrafficResetTime && dbInbound.lastTrafficResetTime > 0 ? IntlUtil.formatDate(dbInbound.lastTrafficResetTime) : '-' ]]</span>
+        </a-tooltip>
+      </template>
+      <template slot="label">
+        <a-tooltip>
+          <template slot="title"><span>{{ i18n "pages.inbounds.lastReset" }}: [[ dbInbound.lastTrafficResetTime && dbInbound.lastTrafficResetTime > 0 ? IntlUtil.formatDate(dbInbound.lastTrafficResetTime) : '-' ]]</span></template>
+          {{ i18n "pages.inbounds.periodicTrafficResetTitle" }}
+          <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-select v-model="dbInbound.trafficReset" :dropdown-class-name="themeSwitcher.currentTheme">
+        <a-select-option value="never">{{ i18n "pages.inbounds.periodicTrafficReset.never" }}</a-select-option>
+        <a-select-option value="daily">{{ i18n "pages.inbounds.periodicTrafficReset.daily" }}</a-select-option>
+        <a-select-option value="weekly">{{ i18n "pages.inbounds.periodicTrafficReset.weekly" }}</a-select-option>
+        <a-select-option value="monthly">{{ i18n "pages.inbounds.periodicTrafficReset.monthly" }}</a-select-option>
+      </a-select>
+    </a-form-item>
+    <a-alert type="info" show-icon
+      :style="{ marginTop: '16px', marginBottom: '16px', background: themeSwitcher.isDarkTheme ? 'rgba(22, 104, 220, 0.15)' : '', border: themeSwitcher.isDarkTheme ? '1px solid rgba(22, 104, 220, 0.3)' : '' }"
+      :class="themeSwitcher.currentTheme">
+      <template slot="message">
+        <span :style="{ color: themeSwitcher.isDarkTheme ? 'rgba(255,255,255,0.85)' : 'inherit' }">
+          WireGuard Native server settings are configured in the
+          <a :href="basePath + 'panel/wg'" target="_blank"
+             :style="{ color: themeSwitcher.isDarkTheme ? '#40a9ff' : '' }">WG Settings page</a>.
+          Use this inbound to manage WireGuard Native clients.
+        </span>
+      </template>
+    </a-alert>
+    <template v-if="!isEdit && inbound.settings && inbound.settings.clients && inbound.settings.clients.length > 0">
+      <a-divider>Peer 1</a-divider>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.emailDesc" }}</span></template>
+            {{ i18n "pages.inbounds.email" }}
+            <a-icon type="sync" @click="inbound.settings.clients[0].email = RandomUtil.randomLowerAndNum(9)"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input v-model.trim="inbound.settings.clients[0].email"></a-input>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "reset" }}</span></template>
+            ID <a-icon @click="inbound.settings.clients[0].id = RandomUtil.randomUUID()" type="sync"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input :value="inbound.settings.clients[0].id" read-only></a-input>
+      </a-form-item>
+      <a-form-item label='{{ i18n "comment" }}'>
+        <a-input v-model.trim="inbound.settings.clients[0].comment"></a-input>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title">0 <span>{{ i18n "pages.inbounds.meansNoLimit" }}</span></template>
+            {{ i18n "pages.inbounds.totalFlow" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input-number v-model.number="inbound.settings.clients[0]._totalGB" :min="0"></a-input-number>
+      </a-form-item>
+      <a-form-item label='{{ i18n "pages.client.delayedStart" }}'>
+        <a-switch v-model="delayedStart" @click="inbound.settings.clients[0].expiryTime = 0"></a-switch>
+      </a-form-item>
+      <a-form-item v-if="delayedStart" label='{{ i18n "pages.client.expireDays" }}'>
+        <a-input-number
+          :value="inbound.settings.clients[0].expiryTime < 0 ? inbound.settings.clients[0].expiryTime / -86400000 : 0"
+          @change="inbound.settings.clients[0].expiryTime = -86400000 * $event"
+          :min="0">
+        </a-input-number>
+      </a-form-item>
+      <a-form-item v-else>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title">{{ i18n "pages.inbounds.leaveBlankToNeverExpire" }}</template>
+            {{ i18n "pages.inbounds.expireDate" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-date-picker v-if="datepicker == 'gregorian'" :show-time="{ format: 'HH:mm:ss' }" format="YYYY-MM-DD HH:mm:ss"
+          :dropdown-class-name="themeSwitcher.currentTheme" v-model="inbound.settings.clients[0]._expiryTime"></a-date-picker>
+        <a-persian-datepicker v-else placeholder='{{ i18n "pages.settings.datepickerPlaceholder" }}'
+          value="inbound.settings.clients[0]._expiryTime" v-model="inbound.settings.clients[0]._expiryTime"></a-persian-datepicker>
+      </a-form-item>
+      <a-form-item v-if="inbound.settings.clients[0].expiryTime != 0">
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title">{{ i18n "pages.client.renewDesc" }}</template>
+            {{ i18n "pages.client.renew" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input-number v-model.number="inbound.settings.clients[0].reset" :min="0"></a-input-number>
+      </a-form-item>
+    </template>
+  </template>
+  <template v-else>
+    <a-alert type="info" show-icon
+      :style="{ marginTop: '16px', marginBottom: '16px', background: themeSwitcher.isDarkTheme ? 'rgba(22, 104, 220, 0.15)' : '', border: themeSwitcher.isDarkTheme ? '1px solid rgba(22, 104, 220, 0.3)' : '' }"
+      :class="themeSwitcher.currentTheme">
+      <template slot="message">
+        <span :style="{ color: themeSwitcher.isDarkTheme ? 'rgba(255,255,255,0.85)' : 'inherit' }">
+          WireGuard Native server settings are configured in the
+          <a :href="basePath + 'panel/wg'" target="_blank"
+             :style="{ color: themeSwitcher.isDarkTheme ? '#40a9ff' : '' }">WG Settings page</a>.
+          Use this inbound to manage WireGuard Native clients.
+        </span>
+      </template>
+    </a-alert>
+  </template>
+</a-form>
+{{end}}

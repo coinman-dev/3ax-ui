@@ -318,6 +318,8 @@ func (s *Server) startTask() {
 		s.cron.AddJob("@every 10s", job.NewXrayTrafficJob())
 		// AmneziaWG traffic stats every 10 seconds
 		s.cron.AddJob("@every 10s", job.NewAwgTrafficJob())
+		// WireGuard Native traffic stats every 10 seconds
+		s.cron.AddJob("@every 10s", job.NewWgTrafficJob())
 	}()
 
 	// check client ips from log file every 10 sec
@@ -448,6 +450,12 @@ func (s *Server) Start() (err error) {
 	go func() {
 		var awgService service.AwgService
 		awgService.StartIfEnabled()
+	}()
+
+	// Restore WireGuard Native interface if it was enabled before shutdown/reboot
+	go func() {
+		var wgService service.WgService
+		wgService.StartIfEnabled()
 	}()
 
 	isTgbotenabled, err := s.settingService.GetTgbotEnabled()

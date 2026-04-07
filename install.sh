@@ -1162,6 +1162,227 @@ print(str(first) + '/' + str(net.prefixlen))
     fi
 }
 
+install_wireguard_native() {
+    echo -e "${green}Installing WireGuard Native (wireguard-tools)...${plain}"
+
+    if command -v wg &>/dev/null; then
+        echo -e "${green}WireGuard (wg) already installed.${plain}"
+        modprobe wireguard 2>/dev/null || true
+        return
+    fi
+
+    case "${release}" in
+        ubuntu | debian | armbian)
+            apt-get install -y -q wireguard-tools 2>/dev/null || true
+            ;;
+        fedora | amzn | rhel | almalinux | rocky | ol | centos)
+            dnf install -y wireguard-tools 2>/dev/null || yum install -y wireguard-tools 2>/dev/null || true
+            ;;
+        arch | manjaro | parch)
+            pacman -Syu --noconfirm wireguard-tools 2>/dev/null || true
+            ;;
+        alpine)
+            apk add wireguard-tools 2>/dev/null || true
+            ;;
+        *)
+            echo -e "${yellow}Unknown OS. Please install wireguard-tools manually.${plain}"
+            ;;
+    esac
+
+    modprobe wireguard 2>/dev/null || true
+
+    if command -v wg &>/dev/null; then
+        echo -e "${green}wg: $(wg --version 2>/dev/null || echo 'installed')${plain}"
+    else
+        echo -e "${yellow}Warning: 'wg' binary not found after installation.${plain}"
+        echo -e "${yellow}The panel will work but the WireGuard Native tunnel will not start.${plain}"
+        echo -e "${yellow}Install wireguard-tools manually for your distribution.${plain}"
+    fi
+}
+
+config_wg_defaults() {
+    echo -e "${green}═══════════════════════════════════════════${plain}"
+    echo -e "${green}     WireGuard Native Auto-Configuration   ${plain}"
+    echo -e "${green}═══════════════════════════════════════════${plain}"
+
+    local db_path="/etc/x-ui/x-ui.db"
+    if [[ ! -f "$db_path" ]]; then
+        echo -e "${yellow}Database not found yet, skipping WG auto-config.${plain}"
+        return
+    fi
+
+    if ! command -v sqlite3 &>/dev/null; then
+        echo -e "${yellow}sqlite3 not available, skipping WG auto-config.${plain}"
+        return
+    fi
+
+    local table_exists=$(sqlite3 "$db_path" "SELECT name FROM sqlite_master WHERE type='table' AND name='wg_servers';" 2>/dev/null)
+    if [[ -z "$table_exists" ]]; then
+        echo -e "${yellow}WG tables not found (new migration). They will be created on panel start.${plain}"
+        echo -e "${yellow}Skipping WG auto-config — open the WG Settings page in the panel to configure.${plain}"
+        return
+    fi
+
+    local existing=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM wg_servers;" 2>/dev/null)
+    if [[ "$existing" -gt 0 ]]; then
+        echo -e "${green}WireGuard Native already configured, skipping.${plain}"
+        return
+    fi
+
+    # --- Detect server public IPv4 ---
+    local server_ipv4=""
+    local ipv4_urls=("https://api4.ipify.org" "https://ipv4.icanhazip.com" "https://4.ident.me")
+    for url in "${ipv4_urls[@]}"; do
+        server_ipv4=$(curl -4 -s --max-time 3 "$url" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$server_ipv4" ]]; then break; fi
+    done
+
+    # --- Detect network interfaces ---
+    local ext_iface_ipv4=""
+    local ext_iface_ipv6=""
+    ext_iface_ipv4=$(ip route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
+    ext_iface_ipv6=$(ip -6 route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
+    if [[ -z "$ext_iface_ipv6" ]]; then
+        ext_iface_ipv6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $2}' | grep -v '^lo$' | head -1)
+    fi
+    local ext_iface="${ext_iface_ipv6:-${ext_iface_ipv4:-eth0}}"
+
+    # --- Detect IPv6 ---
+    local ipv6_enabled=0
+    local server_ipv6=""
+    local ipv6_prefix=""
+    local wg_server_ipv6=""
+    local ipv6_gateway=""
+    local ipv6_search_iface="${ext_iface_ipv6:-$ext_iface}"
+    local ipv6_addr_on_iface=""
+    ipv6_addr_on_iface=$(ip -6 addr show dev "$ipv6_search_iface" scope global 2>/dev/null \
+        | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
+    if [[ -z "$ipv6_addr_on_iface" ]]; then
+        ipv6_addr_on_iface=$(ip -6 addr show scope global 2>/dev/null \
+            | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
+    fi
+
+    if [[ -n "$ipv6_addr_on_iface" ]]; then
+        ipv6_enabled=1
+        server_ipv6="$ipv6_addr_on_iface"
+        local ipv6_base="${ipv6_addr_on_iface%%/*}"
+        local ipv6_mask="${ipv6_addr_on_iface##*/}"
+        if [[ "$ipv6_mask" -le 64 ]]; then
+            local prefix64=$(python3 -c "
+import ipaddress
+addr = ipaddress.ip_address('${ipv6_base}')
+net = ipaddress.ip_network(str(addr) + '/${ipv6_mask}', strict=False)
+net64 = ipaddress.ip_network(str(net.network_address) + '/64', strict=False)
+print(str(net64.network_address))
+" 2>/dev/null)
+            if [[ -n "$prefix64" ]]; then
+                ipv6_prefix="${prefix64%::}:b00::/112"
+                wg_server_ipv6="${prefix64%::}:b00::1/112"
+            else
+                ipv6_enabled=0
+            fi
+        else
+            ipv6_prefix=$(python3 -c "
+import ipaddress
+net = ipaddress.ip_network('${ipv6_addr_on_iface}', strict=False)
+print(str(net))
+" 2>/dev/null)
+            wg_server_ipv6=$(python3 -c "
+import ipaddress
+net = ipaddress.ip_network('${ipv6_addr_on_iface}', strict=False)
+first = net.network_address + 1
+print(str(first) + '/' + str(net.prefixlen))
+" 2>/dev/null)
+        fi
+        if [[ "$ipv6_enabled" -eq 1 ]]; then
+            ipv6_gateway=$(ip -6 route show default 2>/dev/null | grep -oP 'via \K\S+' | head -1)
+        fi
+    fi
+
+    # --- Generate WireGuard keys ---
+    local server_privkey=""
+    local server_pubkey=""
+    if command -v wg &>/dev/null; then
+        server_privkey=$(wg genkey 2>/dev/null)
+        server_pubkey=$(echo "$server_privkey" | wg pubkey 2>/dev/null)
+    elif command -v awg &>/dev/null; then
+        server_privkey=$(awg genkey 2>/dev/null)
+        server_pubkey=$(echo "$server_privkey" | awg pubkey 2>/dev/null)
+    fi
+
+    if [[ -z "$server_privkey" ]]; then
+        echo -e "  ${yellow}Cannot generate keys. Keys will be generated by the panel on first access.${plain}"
+    else
+        echo -e "  Server keys:          ${green}generated${plain}"
+    fi
+
+    # --- Find free port for WG (start at 51821 to avoid conflict with AWG at 51820) ---
+    local wg_port=51821
+    while is_port_in_use "$wg_port"; do
+        wg_port=$((wg_port + 1))
+        if [[ "$wg_port" -gt 52100 ]]; then
+            wg_port=51821
+            break
+        fi
+    done
+    echo -e "  WG listen port:       ${green}${wg_port}${plain}"
+
+    local endpoint="${server_ipv4}"
+    if [[ -z "$endpoint" ]]; then
+        endpoint=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
+    fi
+
+    local ipv4_iface="${ext_iface_ipv4:-$ext_iface}"
+    local ipv6_iface="${ext_iface_ipv6:-$ext_iface}"
+
+    echo -e ""
+    echo -e "${green}Writing WireGuard Native defaults to database...${plain}"
+
+    local now_ms=$(date +%s%3N 2>/dev/null || echo "$(date +%s)000")
+
+    sqlite3 "$db_path" "DELETE FROM wg_servers;" 2>/dev/null
+    sqlite3 "$db_path" "INSERT INTO wg_servers (
+        enable, interface_name, listen_port, mtu,
+        private_key, public_key,
+        ipv4_address, ipv4_pool,
+        ipv6_enabled, ipv6_address, ipv6_pool, ipv6_gateway,
+        dns, external_interface, ipv6_external_interface,
+        post_up, post_down, endpoint,
+        created_at, updated_at
+    ) VALUES (
+        0, 'wg0', ${wg_port}, 1420,
+        '${server_privkey}', '${server_pubkey}',
+        '10.77.77.1/24', '10.77.77.0/24',
+        ${ipv6_enabled}, '${wg_server_ipv6:-}', '${ipv6_prefix:-}', '${ipv6_gateway:-}',
+        '1.1.1.1,2606:4700:4700::1111', '${ipv4_iface}', '${ipv6_iface}',
+        '', '', '${endpoint}',
+        ${now_ms}, ${now_ms}
+    );" 2>/dev/null
+
+    if [[ $? -eq 0 ]]; then
+        echo -e "${green}WireGuard Native configured successfully!${plain}"
+        echo -e ""
+        echo -e "${green}═══════════════════════════════════════════${plain}"
+        echo -e "  Interface:    wg0"
+        echo -e "  Listen port:  ${wg_port}"
+        echo -e "  Endpoint:     ${endpoint}"
+        echo -e "  IPv4 pool:    10.77.77.0/24"
+        if [[ "$ipv6_enabled" -eq 1 ]]; then
+            echo -e "  IPv6 pool:    ${ipv6_prefix}"
+            echo -e "  IPv6 mode:    ${green}Native public addresses (NDP proxy)${plain}"
+        else
+            echo -e "  IPv6:         ${yellow}disabled (no IPv6 detected)${plain}"
+        fi
+        echo -e "${green}═══════════════════════════════════════════${plain}"
+        echo -e ""
+        echo -e "  Open the panel → ${blue}WG Settings${plain} page to enable and manage clients."
+        echo -e ""
+    else
+        echo -e "${yellow}Failed to write WG defaults (table may not exist yet).${plain}"
+        echo -e "${yellow}WG will be configured on first panel access.${plain}"
+    fi
+}
+
 install_x-ui() {
     cd ${xui_folder%/x-ui}/
 
@@ -1254,6 +1475,7 @@ install_x-ui() {
     mkdir -p /var/log/x-ui
     config_after_install
     config_awg_defaults
+    config_wg_defaults
 
     # Etckeeper compatibility
     if [ -d "/etc/.git" ]; then
@@ -1382,6 +1604,7 @@ install_x-ui() {
 echo -e "${green}Running...${plain}"
 install_base
 install_amneziawg
+install_wireguard_native
 install_x-ui $1
 
 # Secure Boot warning

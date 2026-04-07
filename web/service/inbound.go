@@ -219,6 +219,11 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 		return s.addAmneziawgInbound(inbound)
 	}
 
+	// NativeWG inbounds are managed separately — just save the DB record
+	if inbound.Protocol == model.NativeWG {
+		return s.addNativeWgInbound(inbound)
+	}
+
 	exist, err := s.checkPortExist(inbound.Listen, inbound.Port, 0)
 	if err != nil {
 		return inbound, false, err
@@ -324,6 +329,37 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	return inbound, needRestart, err
 }
 
+// addNativeWgInbound creates a minimal inbound record for WireGuard Native.
+// No xray config is generated — WG is managed separately.
+func (s *InboundService) addNativeWgInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
+	db := database.GetDB()
+
+	// Set defaults for nativewg
+	if inbound.Settings == "" {
+		inbound.Settings = `{"clients":[]}`
+	}
+	if inbound.Tag == "" {
+		inbound.Tag = "inbound-nativewg"
+	}
+
+	var err error
+	tx := db.Begin()
+	defer func() {
+		if err == nil {
+			tx.Commit()
+		} else {
+			tx.Rollback()
+		}
+	}()
+
+	err = tx.Save(inbound).Error
+	if err != nil {
+		return inbound, false, err
+	}
+
+	return inbound, false, nil
+}
+
 // addAmneziawgInbound creates a minimal inbound record for AmneziaWG.
 // No xray config is generated — AWG is managed separately.
 func (s *InboundService) addAmneziawgInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
@@ -409,6 +445,14 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		awgService := AwgService{}
 		if err := awgService.DeleteAllClients(); err != nil {
 			logger.Warning("Failed to clean up AWG data:", err)
+		}
+	}
+
+	// Clean up WireGuard Native clients and server when deleting a WG inbound
+	if inbound.Protocol == model.NativeWG {
+		wgService := WgService{}
+		if err := wgService.DeleteAllClients(); err != nil {
+			logger.Warning("Failed to clean up WG data:", err)
 		}
 	}
 

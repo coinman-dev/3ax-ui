@@ -9,6 +9,7 @@ const Protocols = {
     WIREGUARD: 'wireguard',
     TUN: 'tun',
     AMNEZIAWG: 'amneziawg',
+    NATIVEWG: 'nativewg',
 };
 
 const SSMethods = {
