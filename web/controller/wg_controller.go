@@ -71,7 +71,11 @@ func (a *WgController) toggleServer(c *gin.Context) {
 		return
 	}
 	err := a.wgService.ToggleServer(body.Enable)
-	jsonMsg(c, "WG server toggled", err)
+	if body.Enable {
+		jsonMsg(c, I18nWeb(c, "pages.nativewg.restartSuccess"), err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.nativewg.stopSuccess"), err)
 }
 
 func (a *WgController) resetServer(c *gin.Context) {

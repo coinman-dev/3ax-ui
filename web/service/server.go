@@ -20,11 +20,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coinman-dev/3ax-ui/v2/awg"
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
 	"github.com/coinman-dev/3ax-ui/v2/util/common"
 	"github.com/coinman-dev/3ax-ui/v2/util/sys"
+	"github.com/coinman-dev/3ax-ui/v2/wg"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 
 	"github.com/google/uuid"
@@ -71,6 +73,8 @@ type Status struct {
 		ErrorMsg string       `json:"errorMsg"`
 		Version  string       `json:"version"`
 	} `json:"xray"`
+	Awg      AwgStatus `json:"awg"`
+	Wg       WgStatus  `json:"wg"`
 	Uptime   uint64    `json:"uptime"`
 	Loads    []float64 `json:"loads"`
 	TcpCount int       `json:"tcpCount"`
@@ -115,6 +119,11 @@ type ServerService struct {
 	cpuHistory         []CPUSample
 	cachedCpuSpeedMhz  float64
 	lastCpuInfoAttempt time.Time
+	cachedAwgInstalled bool
+	cachedAwgVersion   string
+	cachedWgInstalled  bool
+	cachedWgVersion    string
+	lastTunnelMetaSync time.Time
 }
 
 // AggregateCpuHistory returns up to maxPoints averaged buckets of size bucketSeconds over recent data.
@@ -223,6 +232,31 @@ func getPublicIP(url string) string {
 	}
 
 	return ipString
+}
+
+func (s *ServerService) refreshTunnelMetaCache(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if now.Sub(s.lastTunnelMetaSync) < 30*time.Second {
+		return
+	}
+
+	s.cachedAwgInstalled = awg.IsAwgInstalled()
+	if s.cachedAwgInstalled {
+		s.cachedAwgVersion = awg.GetAwgVersion()
+	} else {
+		s.cachedAwgVersion = "unknown"
+	}
+
+	s.cachedWgInstalled = wg.IsWgInstalled()
+	if s.cachedWgInstalled {
+		s.cachedWgVersion = wg.GetWgVersion()
+	} else {
+		s.cachedWgVersion = "unknown"
+	}
+
+	s.lastTunnelMetaSync = now
 }
 
 func (s *ServerService) GetStatus(lastStatus *Status) *Status {
@@ -402,6 +436,28 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		status.Xray.ErrorMsg = s.xrayService.GetXrayResult()
 	}
 	status.Xray.Version = s.xrayService.GetXrayVersion()
+
+	s.refreshTunnelMetaCache(now)
+	s.mu.Lock()
+	awgInstalled := s.cachedAwgInstalled
+	awgVersion := s.cachedAwgVersion
+	wgInstalled := s.cachedWgInstalled
+	wgVersion := s.cachedWgVersion
+	s.mu.Unlock()
+
+	var awgService AwgService
+	status.Awg.AwgInstalled = awgInstalled
+	status.Awg.AwgVersion = awgVersion
+	if awgServer, err := awgService.GetServer(); err == nil {
+		status.Awg.Running = awg.IsInterfaceUp(awgServer.InterfaceName)
+	}
+
+	var wgService WgService
+	status.Wg.WgInstalled = wgInstalled
+	status.Wg.WgVersion = wgVersion
+	if wgServer, err := wgService.GetServer(); err == nil {
+		status.Wg.Running = wg.IsInterfaceUp(wgServer.InterfaceName)
+	}
 
 	// Application stats
 	var rtm runtime.MemStats

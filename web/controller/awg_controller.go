@@ -71,7 +71,11 @@ func (a *AwgController) toggleServer(c *gin.Context) {
 		return
 	}
 	err := a.awgService.ToggleServer(body.Enable)
-	jsonMsg(c, "AWG server toggled", err)
+	if body.Enable {
+		jsonMsg(c, I18nWeb(c, "pages.awg.restartSuccess"), err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.awg.stopSuccess"), err)
 }
 
 func (a *AwgController) resetServer(c *gin.Context) {
