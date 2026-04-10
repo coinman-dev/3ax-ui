@@ -21,6 +21,9 @@ on:
       - 'x-ui.service.rhel'
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   analyze:
     name: Analyze Go code
