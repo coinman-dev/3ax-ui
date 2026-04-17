@@ -166,6 +166,9 @@
 "getDatabaseError" = "データベースの取得中にエラーが発生しました"
 "getConfigError" = "設定ファイルの取得中にエラーが発生しました"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "総トラフィック"
 "allTimeTrafficUsage" = "これまでの総使用量"

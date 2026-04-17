@@ -166,6 +166,9 @@
 "getDatabaseError" = "Terjadi kesalahan saat mengambil database"
 "getConfigError" = "Terjadi kesalahan saat mengambil file konfigurasi"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "Total Lalu Lintas"
 "allTimeTrafficUsage" = "Total Penggunaan Sepanjang Waktu"

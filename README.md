@@ -135,18 +135,18 @@ bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/instal
 # Latest pre-release
 bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/install.sh) --beta
 
+# Specific version
+bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/install.sh) v1.2.1
 ```
 
 ## Panel Update
 
 ```bash
+# Stable release
 bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/update.sh)
 
+# Latest pre-release
 bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/update.sh) --beta
-=======
-# Specific version
-bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/install.sh) v1.0.0
->>>>>>> a89962fb (Use main branch in install commands)
 ```
 
 ---

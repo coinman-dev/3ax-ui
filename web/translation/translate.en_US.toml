@@ -173,6 +173,9 @@
 "getDatabaseError" = "An error occurred while retrieving the database."
 "getConfigError" = "An error occurred while retrieving the config file."
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "All-time Traffic"
 "allTimeTrafficUsage" = "All Time Total Usage"

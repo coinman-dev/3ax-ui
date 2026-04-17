@@ -5,12 +5,14 @@ package database
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"os"
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
@@ -143,8 +145,36 @@ func InitDB(dbPath string) error {
 	c := &gorm.Config{
 		Logger: gormLogger,
 	}
-	db, err = gorm.Open(sqlite.Open(dbPath), c)
+	dsn := dbPath
+	separator := "?"
+	if strings.Contains(dbPath, "?") {
+		separator = "&"
+	}
+	dsn = fmt.Sprintf("%s%s_busy_timeout=5000&_journal_mode=WAL&_synchronous=NORMAL&_foreign_keys=ON", dbPath, separator)
+
+	db, err = gorm.Open(sqlite.Open(dsn), c)
 	if err != nil {
+		return err
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetConnMaxLifetime(0)
+
+	if err := db.Exec("PRAGMA journal_mode=WAL;").Error; err != nil {
+		return err
+	}
+	if err := db.Exec("PRAGMA busy_timeout = 5000;").Error; err != nil {
+		return err
+	}
+	if err := db.Exec("PRAGMA synchronous = NORMAL;").Error; err != nil {
+		return err
+	}
+	if err := db.Exec("PRAGMA foreign_keys = ON;").Error; err != nil {
 		return err
 	}
 

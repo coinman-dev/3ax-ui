@@ -173,6 +173,9 @@
 "getDatabaseError" = "Произошла ошибка при получении базы данных"
 "getConfigError" = "Произошла ошибка при получении конфигурационного файла"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "Общий трафик"
 "allTimeTrafficUsage" = "Общее использование за все время"

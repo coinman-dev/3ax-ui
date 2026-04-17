@@ -166,6 +166,9 @@
 "getDatabaseError" = "Lỗi xảy ra khi truy xuất cơ sở dữ liệu"
 "getConfigError" = "Lỗi xảy ra khi truy xuất tệp cấu hình"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "Tổng Lưu Lượng"
 "allTimeTrafficUsage" = "Tổng mức sử dụng mọi lúc"

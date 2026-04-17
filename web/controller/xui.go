@@ -47,7 +47,7 @@ func (a *XUIController) inbounds(c *gin.Context) {
 
 // wgPage renders the combined WireGuard settings page (AWG + Native WG).
 func (a *XUIController) wgPage(c *gin.Context) {
-	html(c, "wg.html", "WireGuard", gin.H{
+	html(c, "wg.html", "pages.wg.title", gin.H{
 		"active_wg_tab": "awg",
 	})
 }

@@ -166,6 +166,9 @@
 "getDatabaseError" = "حدث خطأ أثناء استرجاع قاعدة البيانات"
 "getConfigError" = "حدث خطأ أثناء استرجاع ملف الإعدادات"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "إجمالي حركة المرور"
 "allTimeTrafficUsage" = "إجمالي الاستخدام طوال الوقت"

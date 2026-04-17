@@ -166,6 +166,9 @@
 "getDatabaseError" = "检索数据库时出错"
 "getConfigError" = "检索配置文件时出错"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "累计总流量"
 "allTimeTrafficUsage" = "所有时间总使用量"

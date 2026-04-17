@@ -166,6 +166,9 @@
 "getDatabaseError" = "Ocurrió un error al obtener la base de datos"
 "getConfigError" = "Ocurrió un error al obtener el archivo de configuración"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "Tráfico Total"
 "allTimeTrafficUsage" = "Uso de datos histórico"

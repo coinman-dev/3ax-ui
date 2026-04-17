@@ -389,7 +389,11 @@ func (s *Server) Start() (err error) {
 	if err != nil {
 		return err
 	}
-	s.cron = cron.New(cron.WithLocation(loc), cron.WithSeconds())
+	s.cron = cron.New(
+		cron.WithLocation(loc),
+		cron.WithSeconds(),
+		cron.WithChain(cron.SkipIfStillRunning(cron.DiscardLogger)),
+	)
 	s.cron.Start()
 
 	engine, err := s.initRouter()

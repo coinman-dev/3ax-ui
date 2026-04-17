@@ -166,6 +166,9 @@
 "getDatabaseError" = "Виникла помилка під час отримання бази даних"
 "getConfigError" = "Виникла помилка під час отримання файлу конфігурації"
 
+[pages.wg]
+"title" = "WireGuard"
+
 [pages.inbounds]
 "allTimeTraffic" = "Загальний трафік"
 "allTimeTrafficUsage" = "Загальне використання за весь час"
