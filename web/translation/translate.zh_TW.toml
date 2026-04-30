@@ -183,6 +183,7 @@
 "port" = "埠"
 "portMap" = "埠映射"
 "forwardedPorts" = "Port forwarding"
+"forwardedPortsShort" = "Mapping"
 "forwardedPortsDesc" = "Ports to forward from the server to this client (TCP+UDP). Use commas or semicolons; ranges with a dash, e.g.: 80, 443; 8000-8100"
 "traffic" = "流量"
 "details" = "詳細資訊"
