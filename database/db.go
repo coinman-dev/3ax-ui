@@ -4,6 +4,7 @@ package database
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
@@ -185,6 +187,10 @@ func InitDB(dbPath string) error {
 	// Populate UUIDs for existing AWG clients that don't have one
 	migrateAwgClientUUIDs()
 
+	// Convert legacy mixed/http inbounds from settings.accounts[] to settings.clients[]
+	// so they share the rich per-user infrastructure (traffic, expiry, quota) with VLESS.
+	migrateMixedHttpAccounts()
+
 	isUsersEmpty, err := isTableEmpty("users")
 	if err != nil {
 		return err
@@ -203,6 +209,85 @@ func migrateAwgClientUUIDs() {
 	for _, client := range clients {
 		client.UUID = uuid.New().String()
 		db.Model(&client).Update("uuid", client.UUID)
+	}
+}
+
+// migrateMixedHttpAccounts rewrites legacy mixed/http inbound settings:
+// the old shape stored basic-auth users as settings.accounts[]={user,pass};
+// the new shape stores them as settings.clients[]={email,password,...} so the
+// shared VLESS-style CRUD, traffic, expiry, and quota machinery applies.
+// Idempotent — inbounds already in the new shape are skipped.
+func migrateMixedHttpAccounts() {
+	var inbounds []model.Inbound
+	if err := db.Where("protocol IN ?", []string{"mixed", "http"}).Find(&inbounds).Error; err != nil {
+		log.Printf("migrateMixedHttpAccounts: scan inbounds failed: %v", err)
+		return
+	}
+	for i := range inbounds {
+		inbound := &inbounds[i]
+		var settings map[string]any
+		if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+			log.Printf("migrateMixedHttpAccounts: inbound %d settings unmarshal failed: %v", inbound.Id, err)
+			continue
+		}
+		if _, hasClients := settings["clients"]; hasClients {
+			// Already migrated.
+			continue
+		}
+		rawAccounts, hasAccounts := settings["accounts"]
+		if !hasAccounts {
+			continue
+		}
+		accounts, ok := rawAccounts.([]any)
+		if !ok || len(accounts) == 0 {
+			delete(settings, "accounts")
+			if newSettings, err := json.MarshalIndent(settings, "", "  "); err == nil {
+				db.Model(inbound).Update("settings", string(newSettings))
+			}
+			continue
+		}
+
+		nowMs := time.Now().UnixMilli()
+		clients := make([]map[string]any, 0, len(accounts))
+		for _, a := range accounts {
+			am, ok := a.(map[string]any)
+			if !ok {
+				continue
+			}
+			user, _ := am["user"].(string)
+			pass, _ := am["pass"].(string)
+			if user == "" {
+				continue
+			}
+			clients = append(clients, map[string]any{
+				"email":      user,
+				"password":   pass,
+				"limitIp":    0,
+				"totalGB":    0,
+				"expiryTime": 0,
+				"enable":     true,
+				"tgId":       0,
+				"subId":      "",
+				"comment":    "",
+				"reset":      0,
+				"created_at": nowMs,
+				"updated_at": nowMs,
+			})
+		}
+
+		settings["clients"] = clients
+		delete(settings, "accounts")
+
+		newSettings, err := json.MarshalIndent(settings, "", "  ")
+		if err != nil {
+			log.Printf("migrateMixedHttpAccounts: inbound %d marshal failed: %v", inbound.Id, err)
+			continue
+		}
+		if err := db.Model(inbound).Update("settings", string(newSettings)).Error; err != nil {
+			log.Printf("migrateMixedHttpAccounts: inbound %d save failed: %v", inbound.Id, err)
+			continue
+		}
+		log.Printf("migrateMixedHttpAccounts: migrated %d %s account(s) in inbound %d", len(clients), inbound.Protocol, inbound.Id)
 	}
 }
 

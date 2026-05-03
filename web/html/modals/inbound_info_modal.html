@@ -41,6 +41,15 @@
             <a-tag>[[ dbInbound.port ]]</a-tag>
           </td>
         </tr>
+        <tr v-if="(dbInbound.isAmneziawg || dbInbound.isNativewg) && infoModal.clientSettings">
+          <td>{{ i18n "pages.inbounds.forwardedPorts" }}</td>
+          <td>
+            <a-tag v-if="infoModal.clientSettings.forwardedPorts" color="cyan">
+              [[ infoModal.clientSettings.forwardedPorts ]]
+            </a-tag>
+            <a-tag v-else>{{ i18n "none" }}</a-tag>
+          </td>
+        </tr>
       </table>
     </a-col>
     <a-col :xs="24" :md="12">
@@ -160,7 +169,11 @@
           <a-divider>{{ i18n "pages.inbounds.client" }}</a-divider>
           <table :style="{ marginBottom: '10px' }">
             <tr>
-              <td>{{ i18n "pages.inbounds.email" }}</td>
+              <!-- For MIXED (SOCKS5) and HTTP the email field doubles as the
+                   basic-auth username; show the friendly "Username" label
+                   to match what's displayed in the edit-client modal. -->
+              <td v-if="dbInbound.isMixed || dbInbound.isHTTP">{{ i18n "username" }}</td>
+              <td v-else>{{ i18n "pages.inbounds.email" }}</td>
               <td v-if="infoModal.clientSettings.email">
                 <a-tag color="green">[[ infoModal.clientSettings.email
                   ]]</a-tag>
@@ -487,6 +500,9 @@
               </td>
             </tr>
           </table>
+          <!-- MIXED (SOCKS5) inbound-level info. Per-client login/password
+               are shown in the rich client section above when a specific
+               peer is selected — no flat user/pass list needed here. -->
           <table v-if="dbInbound.isMixed" class="tr-info-table">
             <tr>
               <th>{{ i18n "password" }} Auth</th>
@@ -504,36 +520,15 @@
                 <a-tag color="green">[[ inbound.settings.ip ]]</a-tag>
               </td>
             </tr>
-            <template v-if="inbound.settings.auth == 'password'">
-              <tr>
-                <td></td>
-                <td>{{ i18n "username" }}</td>
-                <td>{{ i18n "password" }}</td>
-              </tr>
-              <tr v-for="account,index in inbound.settings.accounts">
-                <td>[[ index ]]</td>
-                <td>
-                  <a-tag color="green">[[ account.user ]]</a-tag>
-                </td>
-                <td>
-                  <a-tag color="green">[[ account.pass ]]</a-tag>
-                </td>
-              </tr>
-            </template>
           </table>
+          <!-- HTTP inbound-level info. -->
           <table v-if="dbInbound.isHTTP" class="tr-info-table">
             <tr>
-              <th></th>
-              <th>{{ i18n "username" }}</th>
-              <th>{{ i18n "password" }}</th>
+              <th>Allow Transparent</th>
             </tr>
-            <tr v-for="account,index in inbound.settings.accounts">
-              <td>[[ index ]]</td>
+            <tr>
               <td>
-                <a-tag color="green">[[ account.user ]]</a-tag>
-              </td>
-              <td>
-                <a-tag color="green">[[ account.pass ]]</a-tag>
+                <a-tag color="green">[[ inbound.settings.allowTransparent ]]</a-tag>
               </td>
             </tr>
           </table>
@@ -802,6 +797,9 @@
       if (!this.clientSettings.updated_at && peer.updatedAt) {
         this.clientSettings.updated_at = peer.updatedAt;
       }
+      // Always pull the freshest port-forwarding value, since the parent
+      // table snapshot may be stale right after an edit.
+      this.clientSettings.forwardedPorts = peer.forwardedPorts || '';
 
       return peer;
     },

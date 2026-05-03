@@ -276,7 +276,8 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 			if client.Password == "" {
 				return inbound, false, common.NewError("empty client ID")
 			}
-		case "shadowsocks":
+		case "shadowsocks", "mixed", "http":
+			// SS uses email; mixed/http use the basic-auth username (stored as Email).
 			if client.Email == "" {
 				return inbound, false, common.NewError("empty client ID")
 			}
@@ -698,7 +699,9 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 			if client.Password == "" {
 				return false, common.NewError("empty client ID")
 			}
-		case "shadowsocks":
+		case "shadowsocks", "mixed", "http":
+			// SS uses the cipher email as ID; mixed/http use the basic-auth username
+			// (stored in panel as Email) as the per-user identity.
 			if client.Email == "" {
 				return false, common.NewError("empty client ID")
 			}
@@ -744,6 +747,12 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 		if len(client.Email) > 0 {
 			s.AddClientStat(tx, data.Id, &client)
 			if client.Enable {
+				// xray doesn't expose AddUser for mixed/http inbounds, so a config
+				// rebuild is required for the new basic-auth account to take effect.
+				if oldInbound.Protocol == "mixed" || oldInbound.Protocol == "http" {
+					needRestart = true
+					continue
+				}
 				cipher := ""
 				if oldInbound.Protocol == "shadowsocks" {
 					cipher = oldSettings["method"].(string)
@@ -789,7 +798,7 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 	if oldInbound.Protocol == "trojan" {
 		client_key = "password"
 	}
-	if oldInbound.Protocol == "shadowsocks" {
+	if oldInbound.Protocol == "shadowsocks" || oldInbound.Protocol == "mixed" || oldInbound.Protocol == "http" {
 		client_key = "email"
 	}
 
@@ -841,20 +850,25 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 			return false, err
 		}
 		if needApiDel && notDepleted {
-			s.xrayApi.Init(p.GetAPIPort())
-			err1 := s.xrayApi.RemoveUser(oldInbound.Tag, email)
-			if err1 == nil {
-				logger.Debug("Client deleted by api:", email)
-				needRestart = false
+			// mixed/http need a config rebuild — xray API has no RemoveUser handler for them.
+			if oldInbound.Protocol == "mixed" || oldInbound.Protocol == "http" {
+				needRestart = true
 			} else {
-				if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", email)) {
-					logger.Debug("User is already deleted. Nothing to do more...")
+				s.xrayApi.Init(p.GetAPIPort())
+				err1 := s.xrayApi.RemoveUser(oldInbound.Tag, email)
+				if err1 == nil {
+					logger.Debug("Client deleted by api:", email)
+					needRestart = false
 				} else {
-					logger.Debug("Error in deleting client by api:", err1)
-					needRestart = true
+					if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", email)) {
+						logger.Debug("User is already deleted. Nothing to do more...")
+					} else {
+						logger.Debug("Error in deleting client by api:", err1)
+						needRestart = true
+					}
 				}
+				s.xrayApi.Close()
 			}
-			s.xrayApi.Close()
 		}
 	}
 	return needRestart, db.Save(oldInbound).Error
@@ -894,7 +908,8 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 		case "trojan":
 			oldClientId = oldClient.Password
 			newClientId = clients[0].Password
-		case "shadowsocks":
+		case "shadowsocks", "mixed", "http":
+			// mixed/http use the basic-auth username (panel Email) as ID.
 			oldClientId = oldClient.Email
 			newClientId = clients[0].Email
 		default:
@@ -993,41 +1008,47 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 	}
 	needRestart := false
 	if len(oldEmail) > 0 {
-		s.xrayApi.Init(p.GetAPIPort())
-		if oldClients[clientIndex].Enable {
-			err1 := s.xrayApi.RemoveUser(oldInbound.Tag, oldEmail)
-			if err1 == nil {
-				logger.Debug("Old client deleted by api:", oldEmail)
-			} else {
-				if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", oldEmail)) {
-					logger.Debug("User is already deleted. Nothing to do more...")
+		// mixed/http have no AddUser/RemoveUser API handlers in xray-core, so any
+		// edit to a client requires a config rebuild.
+		if oldInbound.Protocol == "mixed" || oldInbound.Protocol == "http" {
+			needRestart = true
+		} else {
+			s.xrayApi.Init(p.GetAPIPort())
+			if oldClients[clientIndex].Enable {
+				err1 := s.xrayApi.RemoveUser(oldInbound.Tag, oldEmail)
+				if err1 == nil {
+					logger.Debug("Old client deleted by api:", oldEmail)
 				} else {
-					logger.Debug("Error in deleting client by api:", err1)
+					if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", oldEmail)) {
+						logger.Debug("User is already deleted. Nothing to do more...")
+					} else {
+						logger.Debug("Error in deleting client by api:", err1)
+						needRestart = true
+					}
+				}
+			}
+			if clients[0].Enable {
+				cipher := ""
+				if oldInbound.Protocol == "shadowsocks" {
+					cipher = oldSettings["method"].(string)
+				}
+				err1 := s.xrayApi.AddUser(string(oldInbound.Protocol), oldInbound.Tag, map[string]any{
+					"email":    clients[0].Email,
+					"id":       clients[0].ID,
+					"security": clients[0].Security,
+					"flow":     clients[0].Flow,
+					"password": clients[0].Password,
+					"cipher":   cipher,
+				})
+				if err1 == nil {
+					logger.Debug("Client edited by api:", clients[0].Email)
+				} else {
+					logger.Debug("Error in adding client by api:", err1)
 					needRestart = true
 				}
 			}
+			s.xrayApi.Close()
 		}
-		if clients[0].Enable {
-			cipher := ""
-			if oldInbound.Protocol == "shadowsocks" {
-				cipher = oldSettings["method"].(string)
-			}
-			err1 := s.xrayApi.AddUser(string(oldInbound.Protocol), oldInbound.Tag, map[string]any{
-				"email":    clients[0].Email,
-				"id":       clients[0].ID,
-				"security": clients[0].Security,
-				"flow":     clients[0].Flow,
-				"password": clients[0].Password,
-				"cipher":   cipher,
-			})
-			if err1 == nil {
-				logger.Debug("Client edited by api:", clients[0].Email)
-			} else {
-				logger.Debug("Error in adding client by api:", err1)
-				needRestart = true
-			}
-		}
-		s.xrayApi.Close()
 	} else {
 		logger.Debug("Client old email not found")
 		needRestart = true

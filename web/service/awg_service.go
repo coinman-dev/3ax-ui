@@ -13,6 +13,7 @@ import (
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/shared/portfwd"
 )
 
 type AwgService struct{}
@@ -400,6 +401,7 @@ func (s *AwgService) AddClient(client *model.AwgClient) error {
 
 	client.ServerId = server.Id
 	client.CreatedAt = time.Now().UnixMilli()
+	client.ForwardedPorts = portfwd.Normalize(client.ForwardedPorts)
 
 	if err := db.Create(client).Error; err != nil {
 		return err
@@ -413,9 +415,14 @@ func (s *AwgService) AddClient(client *model.AwgClient) error {
 		server.Enable = true
 	}
 
-	// Apply config to running server
+	// Capture pre-apply state to decide whether live iptables changes are needed.
+	// If the interface is brought up by applyServerConfig, PostUp handles all rules.
+	wasUp := awg.IsInterfaceUp(server.InterfaceName)
 	if err := s.applyServerConfig(server); err != nil {
 		logger.Warning("Failed to apply AWG config after adding client:", err)
+	}
+	if wasUp {
+		s.applyForwardingDiff(server, nil, client)
 	}
 
 	return nil
@@ -431,7 +438,13 @@ func (s *AwgService) UpdateClient(client *model.AwgClient) error {
 	}
 
 	db := database.GetDB()
+
+	// Capture old state so we can diff iptables port-forwarding rules.
+	var old model.AwgClient
+	hasOld := db.First(&old, client.Id).Error == nil
+
 	client.UpdatedAt = time.Now().UnixMilli()
+	client.ForwardedPorts = portfwd.Normalize(client.ForwardedPorts)
 	if err := db.Save(client).Error; err != nil {
 		return err
 	}
@@ -441,8 +454,16 @@ func (s *AwgService) UpdateClient(client *model.AwgClient) error {
 		return err
 	}
 	if server.Enable {
+		wasUp := awg.IsInterfaceUp(server.InterfaceName)
 		if err := s.applyServerConfig(server); err != nil {
 			logger.Warning("Failed to apply AWG config after updating client:", err)
+		}
+		if wasUp {
+			var oldPtr *model.AwgClient
+			if hasOld {
+				oldPtr = &old
+			}
+			s.applyForwardingDiff(server, oldPtr, client)
 		}
 	}
 	return nil
@@ -482,8 +503,12 @@ func (s *AwgService) DeleteClient(id int) error {
 	}
 
 	if server.Enable {
+		wasUp := awg.IsInterfaceUp(server.InterfaceName)
 		if err := s.applyServerConfig(server); err != nil {
 			logger.Warning("Failed to apply AWG config after deleting client:", err)
+		}
+		if wasUp {
+			s.applyForwardingDiff(server, client, nil)
 		}
 	}
 	return nil
@@ -880,6 +905,30 @@ func (s *AwgService) ipv6Iface(server *model.AwgServer) string {
 		return server.ExternalInterface
 	}
 	return awg.DetectDefaultInterface()
+}
+
+// applyForwardingDiff updates iptables port-forwarding rules to reflect a
+// per-client change. Caller must check that the interface is up — otherwise
+// PostUp will reapply rules from the database on the next bring-up.
+// old=nil means "no previous rules" (add); new=nil means "remove only".
+func (s *AwgService) applyForwardingDiff(server *model.AwgServer, old, new *model.AwgClient) {
+	iface := server.ExternalInterface
+	if iface == "" {
+		iface = awg.DetectDefaultInterface()
+	}
+	name := server.InterfaceName
+	if name == "" {
+		name = "awg0"
+	}
+
+	if old != nil && old.Enable && old.ForwardedPorts != "" && old.IPv4Address != "" {
+		rules := portfwd.Rules(iface, name, old.IPv4Address, old.UUID, portfwd.Parse(old.ForwardedPorts))
+		portfwd.Revoke(rules)
+	}
+	if new != nil && new.Enable && new.ForwardedPorts != "" && new.IPv4Address != "" {
+		rules := portfwd.Rules(iface, name, new.IPv4Address, new.UUID, portfwd.Parse(new.ForwardedPorts))
+		portfwd.Apply(rules)
+	}
 }
 
 // applyManualNDP syncs NDP proxy entries: adds for enabled clients, removes for disabled ones.

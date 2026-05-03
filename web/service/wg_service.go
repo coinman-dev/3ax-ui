@@ -13,6 +13,7 @@ import (
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
 	"github.com/coinman-dev/3ax-ui/v2/shared/ipam"
+	"github.com/coinman-dev/3ax-ui/v2/shared/portfwd"
 	"github.com/coinman-dev/3ax-ui/v2/wg"
 )
 
@@ -363,6 +364,7 @@ func (s *WgService) AddClient(client *model.WgClient) error {
 
 	client.ServerId = server.Id
 	client.CreatedAt = time.Now().UnixMilli()
+	client.ForwardedPorts = portfwd.Normalize(client.ForwardedPorts)
 
 	if err := db.Create(client).Error; err != nil {
 		return err
@@ -375,8 +377,12 @@ func (s *WgService) AddClient(client *model.WgClient) error {
 		server.Enable = true
 	}
 
+	wasUp := wg.IsInterfaceUp(server.InterfaceName)
 	if err := s.applyServerConfig(server); err != nil {
 		logger.Warning("Failed to apply WG config after adding client:", err)
+	}
+	if wasUp {
+		s.applyForwardingDiff(server, nil, client)
 	}
 
 	return nil
@@ -391,7 +397,12 @@ func (s *WgService) UpdateClient(client *model.WgClient) error {
 	}
 
 	db := database.GetDB()
+
+	var old model.WgClient
+	hasOld := db.First(&old, client.Id).Error == nil
+
 	client.UpdatedAt = time.Now().UnixMilli()
+	client.ForwardedPorts = portfwd.Normalize(client.ForwardedPorts)
 	if err := db.Save(client).Error; err != nil {
 		return err
 	}
@@ -401,8 +412,16 @@ func (s *WgService) UpdateClient(client *model.WgClient) error {
 		return err
 	}
 	if server.Enable {
+		wasUp := wg.IsInterfaceUp(server.InterfaceName)
 		if err := s.applyServerConfig(server); err != nil {
 			logger.Warning("Failed to apply WG config after updating client:", err)
+		}
+		if wasUp {
+			var oldPtr *model.WgClient
+			if hasOld {
+				oldPtr = &old
+			}
+			s.applyForwardingDiff(server, oldPtr, client)
 		}
 	}
 	return nil
@@ -441,8 +460,12 @@ func (s *WgService) DeleteClient(id int) error {
 	}
 
 	if server.Enable {
+		wasUp := wg.IsInterfaceUp(server.InterfaceName)
 		if err := s.applyServerConfig(server); err != nil {
 			logger.Warning("Failed to apply WG config after deleting client:", err)
+		}
+		if wasUp {
+			s.applyForwardingDiff(server, client, nil)
 		}
 	}
 	return nil
@@ -806,6 +829,30 @@ func (s *WgService) ipv6Iface(server *model.WgServer) string {
 		return server.ExternalInterface
 	}
 	return wg.DetectDefaultInterface()
+}
+
+// applyForwardingDiff updates iptables port-forwarding rules to reflect a
+// per-client change. Caller must check that the interface is up — otherwise
+// PostUp will reapply rules from the database on the next bring-up.
+// old=nil means "no previous rules" (add); new=nil means "remove only".
+func (s *WgService) applyForwardingDiff(server *model.WgServer, old, new *model.WgClient) {
+	iface := server.ExternalInterface
+	if iface == "" {
+		iface = wg.DetectDefaultInterface()
+	}
+	name := server.InterfaceName
+	if name == "" {
+		name = "wg0"
+	}
+
+	if old != nil && old.Enable && old.ForwardedPorts != "" && old.IPv4Address != "" {
+		rules := portfwd.Rules(iface, name, old.IPv4Address, old.UUID, portfwd.Parse(old.ForwardedPorts))
+		portfwd.Revoke(rules)
+	}
+	if new != nil && new.Enable && new.ForwardedPorts != "" && new.IPv4Address != "" {
+		rules := portfwd.Rules(iface, name, new.IPv4Address, new.UUID, portfwd.Parse(new.ForwardedPorts))
+		portfwd.Apply(rules)
+	}
 }
 
 // applyManualNDP syncs NDP proxy entries for all WG clients.

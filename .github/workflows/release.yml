@@ -3,22 +3,8 @@ name: Release 3AX-UI
 on:
     workflow_dispatch:
     push:
-        branches:
-            - main
-            - dev
         tags:
             - "v*"
-        paths:
-            - "**.js"
-            - "**.css"
-            - "**.html"
-            - "**.sh"
-            - "**.go"
-            - "go.mod"
-            - "go.sum"
-            - "x-ui.service.debian"
-            - "x-ui.service.arch"
-            - "x-ui.service.rhel"
     pull_request:
 
 env:

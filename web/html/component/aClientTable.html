@@ -71,6 +71,16 @@
     </a-space>
   </a-space>
 </template>
+<template slot="forwardedPorts" slot-scope="text, client">
+  <template v-if="client.forwardedPorts && client.forwardedPorts.trim()">
+    <a-tag color="cyan" :style="{ whiteSpace: 'normal', maxWidth: '180px', wordBreak: 'break-word' }">
+      [[ client.forwardedPorts ]]
+    </a-tag>
+  </template>
+  <template v-else>
+    <a-tag :style="{ opacity: 0.5 }">—</a-tag>
+  </template>
+</template>
 <template slot="traffic" slot-scope="text, client">
   <a-popover :overlay-class-name="themeSwitcher.currentTheme">
     <template slot="content" v-if="client.email">

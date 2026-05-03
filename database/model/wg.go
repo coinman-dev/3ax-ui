@@ -72,6 +72,10 @@ type WgClient struct {
 	// AllowedIPs on client side (what to route through tunnel)
 	ClientAllowedIPs string `json:"clientAllowedIPs" gorm:"default:'0.0.0.0/0,::/0'"`
 
+	// Comma/semicolon-separated list of ports (or ranges like 8000-8100) to DNAT
+	// from the server's external interface to this client. Empty = no forwarding.
+	ForwardedPorts string `json:"forwardedPorts" gorm:"default:''"`
+
 	PersistentKeepalive int `json:"persistentKeepalive" gorm:"default:25"`
 
 	// Traffic stats

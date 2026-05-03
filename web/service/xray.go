@@ -139,33 +139,71 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 				}
 			}
 
-			// clear client config for additional parameters
-			var final_clients []any
-			for _, client := range clients {
-				c := client.(map[string]any)
-				if c["enable"] != nil {
+			// MIXED (SOCKS5) and HTTP inbounds use xray's settings.accounts[]={user,pass}.
+			// Translate panel's clients[] to that shape, dropping panel-only fields and
+			// disabled users — the basic-auth username acts as the per-user identity that
+			// xray reports back in its stats keys (user>>>EMAIL>>>traffic>>>...).
+			if inbound.Protocol == model.Mixed || inbound.Protocol == model.HTTP {
+				accounts := make([]any, 0, len(clients))
+				for _, client := range clients {
+					c, ok := client.(map[string]any)
+					if !ok {
+						continue
+					}
 					if enable, ok := c["enable"].(bool); ok && !enable {
 						continue
 					}
-				}
-				for key := range c {
-					if key != "email" && key != "id" && key != "password" && key != "flow" && key != "method" {
-						delete(c, key)
+					user, _ := c["email"].(string)
+					if user == "" {
+						continue
 					}
-					if c["flow"] == "xtls-rprx-vision-udp443" {
-						c["flow"] = "xtls-rprx-vision"
+					pass, _ := c["password"].(string)
+					accounts = append(accounts, map[string]any{
+						"user": user,
+						"pass": pass,
+					})
+				}
+				delete(settings, "clients")
+				settings["accounts"] = accounts
+				if inbound.Protocol == model.Mixed {
+					if _, ok := settings["auth"]; !ok && len(accounts) > 0 {
+						settings["auth"] = "password"
 					}
 				}
-				final_clients = append(final_clients, any(c))
-			}
+				modifiedSettings, err := json.MarshalIndent(settings, "", "  ")
+				if err != nil {
+					return nil, err
+				}
+				inbound.Settings = string(modifiedSettings)
+			} else {
+				// clear client config for additional parameters
+				var final_clients []any
+				for _, client := range clients {
+					c := client.(map[string]any)
+					if c["enable"] != nil {
+						if enable, ok := c["enable"].(bool); ok && !enable {
+							continue
+						}
+					}
+					for key := range c {
+						if key != "email" && key != "id" && key != "password" && key != "flow" && key != "method" {
+							delete(c, key)
+						}
+						if c["flow"] == "xtls-rprx-vision-udp443" {
+							c["flow"] = "xtls-rprx-vision"
+						}
+					}
+					final_clients = append(final_clients, any(c))
+				}
 
-			settings["clients"] = final_clients
-			modifiedSettings, err := json.MarshalIndent(settings, "", "  ")
-			if err != nil {
-				return nil, err
-			}
+				settings["clients"] = final_clients
+				modifiedSettings, err := json.MarshalIndent(settings, "", "  ")
+				if err != nil {
+					return nil, err
+				}
 
-			inbound.Settings = string(modifiedSettings)
+				inbound.Settings = string(modifiedSettings)
+			}
 		}
 
 		if len(inbound.StreamSettings) > 0 {

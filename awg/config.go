@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/shared/portfwd"
 )
 
 // DetectDefaultInterface returns the first non-loopback, non-tunnel, UP interface
@@ -212,6 +213,16 @@ func GenerateDefaultPostUp(server *model.AwgServer, clients []model.AwgClient) s
 	}
 	parts = append(parts, "sysctl -w net.ipv4.ip_forward=1")
 
+	// Per-client port forwarding (DNAT). Only enabled clients get rules.
+	for _, c := range clients {
+		if !c.Enable || c.ForwardedPorts == "" {
+			continue
+		}
+		specs := portfwd.Parse(c.ForwardedPorts)
+		rules := portfwd.Rules(iface, name, c.IPv4Address, c.UUID, specs)
+		parts = append(parts, portfwd.PostUpLines(rules)...)
+	}
+
 	return strings.Join(parts, "; ")
 }
 
@@ -248,6 +259,16 @@ func GenerateDefaultPostDown(server *model.AwgServer, clients []model.AwgClient)
 				)
 			}
 		}
+	}
+
+	// Per-client port-forwarding cleanup, mirroring PostUp.
+	for _, c := range clients {
+		if !c.Enable || c.ForwardedPorts == "" {
+			continue
+		}
+		specs := portfwd.Parse(c.ForwardedPorts)
+		rules := portfwd.Rules(iface, name, c.IPv4Address, c.UUID, specs)
+		parts = append(parts, portfwd.PostDownLines(rules)...)
 	}
 
 	return strings.Join(parts, "; ")

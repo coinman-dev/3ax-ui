@@ -47,6 +47,7 @@ class AwgClient {
         this.ipv6Address = data.ipv6Address || '';
         this.allowedIPs = data.allowedIPs || '';
         this.clientAllowedIPs = data.clientAllowedIPs || '0.0.0.0/0, ::/0';
+        this.forwardedPorts = data.forwardedPorts || '';
         this.persistentKeepalive = data.persistentKeepalive !== undefined ? data.persistentKeepalive : 25;
         this.upload = data.upload || 0;
         this.download = data.download || 0;

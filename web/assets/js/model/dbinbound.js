@@ -74,8 +74,8 @@ class DBInbound {
     get protocolDisplayName() {
         switch (this.protocol) {
             case Protocols.WIREGUARD:  return 'Wireguard (Xray NAT66)';
-            case Protocols.AMNEZIAWG:  return 'AmneziaWG (Native IPv6)';
-            case Protocols.NATIVEWG:   return 'Wireguard (Native IPv6)';
+            case Protocols.AMNEZIAWG:  return 'AWG (native IPv6)';
+            case Protocols.NATIVEWG:   return 'WG (native IPv6)';
             default: return this.protocol;
         }
     }
@@ -143,6 +143,8 @@ class DBInbound {
             case Protocols.TROJAN:
             case Protocols.AMNEZIAWG:
             case Protocols.NATIVEWG:
+            case Protocols.MIXED:
+            case Protocols.HTTP:
                 return true;
             case Protocols.SHADOWSOCKS:
                 return this.toInbound().isSSMultiUser;

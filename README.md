@@ -113,6 +113,61 @@ The panel settings include a **QR Code Size** option:
 
 On installation, the subscription URL path is automatically generated with a random 12-character suffix (e.g. `/sub-Xk92mPqLvzRt/`) instead of the default `/sub/`. This reduces the risk of accidental discovery.
 
+### 7. Per-client port forwarding for AmneziaWG / native WireGuard
+
+Each peer can forward arbitrary external ports straight to its tunnel IP for both **TCP and UDP** simultaneously — designed for game servers, P2P, voice apps, anything that needs an inbound port.
+
+**Input format** (free-form, validated):
+- single ports: `80, 443, 22`
+- ranges with a dash: `8000-8100`
+- mix freely, separated by `,` or `;`: `80, 443; 27015-27030`
+
+**How it works.** For each enabled client with non-empty forwarded ports the panel emits `iptables` DNAT + FORWARD rules (TCP and UDP) into wg-quick's `PostUp`/`PostDown`. Updates apply **live** via `iptables -A`/`-D` without restarting the tunnel — peer sessions are not interrupted. Each rule carries a unique `3ax-fwd-<uuid>` comment so removing one client's forwards never touches another's.
+
+The forwarded ports are visible in three places:
+- the client edit form (with format hint),
+- a dedicated "Mapping" column in the inbound's peer table,
+- a row in the details modal directly under "Port".
+
+### 8. SOCKS5 and HTTP proxies with full per-user infrastructure
+
+xray-core's `mixed` (SOCKS5) and `http` inbounds now share the **same VLESS-style stack** as VLESS / VMess / Trojan / Shadowsocks:
+- expandable peer table with per-client traffic, expiry, quota, IP limit, enable toggle;
+- standard rich client edit modal (auto-generated 6-character username + 16-character password, regenerable);
+- per-user traffic stats flow through xray's standard `user>>>EMAIL>>>traffic>>>...` keys, so the existing traffic and disable-on-quota / disable-on-expiry jobs handle MIXED/HTTP automatically;
+- "Add Client" entry in the inbound action menu, just like VLESS.
+
+The username remains editable after creation — renaming a client doesn't reset its traffic counters because the backend renames the underlying `client_traffic` row in place.
+
+### 9. Install / update from a local git clone
+
+Both `install.sh` and `update.sh` detect when they are being run from inside a cloned repository (file presence + a BASH_SOURCE safety check) and **build the panel binary on the spot from the local source** instead of downloading the pre-built release tarball.
+
+```bash
+git clone https://github.com/coinman-dev/3ax-ui.git
+cd 3ax-ui
+sudo bash install.sh
+```
+
+If Go ≥ 1.21 isn't on the host, the script downloads Go 1.26.2 from go.dev automatically. With Go ≥ 1.21 the build self-bootstraps the toolchain pinned in `go.mod`. The remote-pipe flows (`bash <(curl ...)`, `curl ... | bash`) keep the existing GitHub-release behavior — the safety check rejects them so a user happening to be inside a clone of the repo while piping the script can't accidentally hit the local-build path.
+
+`x-ui.db` and `bin/` survive across re-installs and updates, so re-running the installer does not wipe the panel database.
+
+### 10. Debug / diagnostic install mode
+
+A first prompt at install time:
+
+```
+Install panel in debug / diagnostic mode (localhost only)? [y/N]
+(HTTP only, listen=127.0.0.1, default port 8080, no SSL or IPv6)
+```
+
+On `y` the panel binds to `127.0.0.1`, runs over plain HTTP on the chosen port, and skips the SSL prompt, the public-IP detection, and IPv6 work. Activate non-interactively with `XUI_DEBUG_MODE=1` (and optional `XUI_DEBUG_PORT=NNNN`).
+
+`update.sh` **doesn't ask** the question — it auto-detects whether the existing install is in debug mode (`listenIP == 127.0.0.1` and no SSL cert configured) and inherits the same setup with the existing port, so updates are non-interactive on a debug box.
+
+VPN protocol stacks (AmneziaWG, native WireGuard, xray) install normally in debug mode — only the panel's web access is restricted to the loopback.
+
 ---
 
 ## Server requirements

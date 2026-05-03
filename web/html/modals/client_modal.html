@@ -120,6 +120,9 @@
                 case Protocols.TROJAN:
                     return client.password;
                 case Protocols.SHADOWSOCKS:
+                case Protocols.MIXED:
+                case Protocols.HTTP:
+                    // Mixed/HTTP basic-auth username is stored as email.
                     return client.email;
                 case Protocols.AMNEZIAWG:
                 case Protocols.NATIVEWG:
@@ -151,6 +154,14 @@
                     );
                 case Protocols.NATIVEWG:
                     return clients.push(new Inbound.NativewgSettings.WgPeer());
+                case Protocols.MIXED:
+                    return clients.push(
+                        new Inbound.MixedSettings.MixedClient(),
+                    );
+                case Protocols.HTTP:
+                    return clients.push(
+                        new Inbound.HttpSettings.HttpClient(),
+                    );
                 default:
                     return null;
             }

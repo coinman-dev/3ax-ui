@@ -649,7 +649,9 @@
                                                             class="client-popup-item"
                                                         >
                                                             <span
-                                                                >[[ getClientCountLabel(dbInbound.id, clientEmail)
+                                                                >[[
+                                                                getClientCountLabel(dbInbound.id,
+                                                                clientEmail)
                                                                 ]]</span
                                                             >
                                                             <a-tooltip
@@ -688,7 +690,9 @@
                                                             class="client-popup-item"
                                                         >
                                                             <span
-                                                                >[[ getClientCountLabel(dbInbound.id, clientEmail)
+                                                                >[[
+                                                                getClientCountLabel(dbInbound.id,
+                                                                clientEmail)
                                                                 ]]</span
                                                             >
                                                             <a-tooltip
@@ -728,7 +732,9 @@
                                                             class="client-popup-item"
                                                         >
                                                             <span
-                                                                >[[ getClientCountLabel(dbInbound.id, clientEmail)
+                                                                >[[
+                                                                getClientCountLabel(dbInbound.id,
+                                                                clientEmail)
                                                                 ]]</span
                                                             >
                                                             <a-tooltip
@@ -768,7 +774,9 @@
                                                             class="client-popup-item"
                                                         >
                                                             <span
-                                                                >[[ getClientCountLabel(dbInbound.id, clientEmail)
+                                                                >[[
+                                                                getClientCountLabel(dbInbound.id,
+                                                                clientEmail)
                                                                 ]]</span
                                                             >
                                                             <a-tooltip
@@ -1021,7 +1029,8 @@
                                                                         >
                                                                             <span
                                                                                 >[[
-                                                                                getClientCountLabel(dbInbound.id, clientEmail)
+                                                                                getClientCountLabel(dbInbound.id,
+                                                                                clientEmail)
                                                                                 ]]</span
                                                                             >
                                                                             <a-tooltip
@@ -1063,7 +1072,8 @@
                                                                         >
                                                                             <span
                                                                                 >[[
-                                                                                getClientCountLabel(dbInbound.id, clientEmail)
+                                                                                getClientCountLabel(dbInbound.id,
+                                                                                clientEmail)
                                                                                 ]]</span
                                                                             >
                                                                             <a-tooltip
@@ -1106,7 +1116,8 @@
                                                                         >
                                                                             <span
                                                                                 >[[
-                                                                                getClientCountLabel(dbInbound.id, clientEmail)
+                                                                                getClientCountLabel(dbInbound.id,
+                                                                                clientEmail)
                                                                                 ]]</span
                                                                             >
                                                                             <a-tooltip
@@ -1149,7 +1160,8 @@
                                                                         >
                                                                             <span
                                                                                 >[[
-                                                                                getClientCountLabel(dbInbound.id, clientEmail)
+                                                                                getClientCountLabel(dbInbound.id,
+                                                                                clientEmail)
                                                                                 ]]</span
                                                                             >
                                                                             <a-tooltip
@@ -1341,8 +1353,8 @@
                                             slot-scope="record"
                                         >
                                             <a-table
-                                                :row-key="client => client.id"
-                                                :columns="isMobile ? innerMobileColumns : innerColumns"
+                                                :row-key="client => client.id || client.email"
+                                                :columns="pickInnerColumns(record, isMobile)"
                                                 :data-source="getInboundClients(record)"
                                                 :pagination="pagination(getInboundClients(record))"
                                                 :style="{ margin: `-10px ${isMobile ? '2px' : '22px'} -11px` }"
@@ -1385,13 +1397,13 @@
         {
             title: '{{ i18n "pages.inbounds.operate" }}',
             align: "center",
-            width: 30,
+            width: 35,
             scopedSlots: { customRender: "action" },
         },
         {
             title: '{{ i18n "pages.inbounds.enable" }}',
             align: "center",
-            width: 35,
+            width: 40,
             scopedSlots: { customRender: "enable" },
         },
         {
@@ -1415,13 +1427,13 @@
         {
             title: '{{ i18n "clients" }}',
             align: "left",
-            width: 50,
+            width: 40,
             scopedSlots: { customRender: "clients" },
         },
         {
             title: '{{ i18n "pages.inbounds.traffic" }}',
             align: "center",
-            width: 90,
+            width: 85,
             scopedSlots: { customRender: "traffic" },
         },
         {
@@ -1433,7 +1445,7 @@
         {
             title: '{{ i18n "pages.inbounds.expireDate" }}',
             align: "center",
-            width: 40,
+            width: 45,
             scopedSlots: { customRender: "expiryTime" },
         },
     ];
@@ -1466,39 +1478,109 @@
         },
     ];
 
+    // Inner peer-table columns. Widths are percentages summing to 100%, so the
+    // table layout is independent of viewport width and ant-table's
+    // proportional leftover-space distribution doesn't lopside the layout.
     const innerColumns = [
+        // Иконки действий: QR, редактировать, инфо, сброс трафика, удалить
         {
             title: '{{ i18n "pages.inbounds.operate" }}',
-            width: 70,
+            width: 80,
+            align: "center",
             scopedSlots: { customRender: "actions" },
         },
+        // Тумблер вкл/выкл клиента
         {
             title: '{{ i18n "pages.inbounds.enable" }}',
-            width: 30,
+            width: 40,
             scopedSlots: { customRender: "enable" },
         },
+        // Бейдж онлайн/офлайн (по последнему handshake)
         {
             title: '{{ i18n "online" }}',
-            width: 32,
+            width: 40,
             scopedSlots: { customRender: "online" },
         },
+        // Email клиента + индикатор статуса + комментарий
         {
             title: '{{ i18n "pages.inbounds.client" }}',
             width: 80,
             scopedSlots: { customRender: "client" },
         },
+        // Полоса использования трафика (up/down) с лимитом
         {
             title: '{{ i18n "pages.inbounds.traffic" }}',
             width: 80,
             align: "center",
             scopedSlots: { customRender: "traffic" },
         },
+        // Суммарный трафик за всё время (без сбросов)
         {
             title: '{{ i18n "pages.inbounds.allTimeTraffic" }}',
             width: 60,
             align: "center",
             scopedSlots: { customRender: "allTime" },
         },
+        // Дата окончания подписки или ∞
+        {
+            title: '{{ i18n "pages.inbounds.expireDate" }}',
+            width: 80,
+            align: "center",
+            scopedSlots: { customRender: "expiryTime" },
+        },
+    ];
+
+    // Forwarded-ports column shown only inside AWG / native WG inbound peer
+    // tables. Defined inline below in innerColumnsWg so that all percentages
+    // can be re-tuned to keep the WG-variant total at exactly 100%.
+    const innerColumnsWg = [
+        // Иконки действий: QR, редактировать, инфо, сброс трафика, удалить
+        {
+            title: '{{ i18n "pages.inbounds.operate" }}',
+            width: 80,
+            align: "center",
+            scopedSlots: { customRender: "actions" },
+        },
+        // Тумблер вкл/выкл клиента
+        {
+            title: '{{ i18n "pages.inbounds.enable" }}',
+            width: 40,
+            scopedSlots: { customRender: "enable" },
+        },
+        // Бейдж онлайн/офлайн (по последнему handshake)
+        {
+            title: '{{ i18n "online" }}',
+            width: 40,
+            scopedSlots: { customRender: "online" },
+        },
+        // Email клиента + индикатор статуса + комментарий
+        {
+            title: '{{ i18n "pages.inbounds.client" }}',
+            width: 80,
+            scopedSlots: { customRender: "client" },
+        },
+        // Проброшенные на этого клиента порты (DNAT TCP+UDP), только AWG/WG
+        {
+            title: '{{ i18n "pages.inbounds.forwardedPortsShort" }}',
+            width: 60,
+            align: "center",
+            scopedSlots: { customRender: "forwardedPorts" },
+        },
+        // Полоса использования трафика (up/down) с лимитом
+        {
+            title: '{{ i18n "pages.inbounds.traffic" }}',
+            width: 80,
+            align: "center",
+            scopedSlots: { customRender: "traffic" },
+        },
+        // Суммарный трафик за всё время (без сбросов)
+        {
+            title: '{{ i18n "pages.inbounds.allTimeTraffic" }}',
+            width: 60,
+            align: "center",
+            scopedSlots: { customRender: "allTime" },
+        },
+        // Дата окончания подписки или ∞
         {
             title: '{{ i18n "pages.inbounds.expireDate" }}',
             width: 80,
@@ -1508,21 +1590,55 @@
     ];
 
     const innerMobileColumns = [
+        // Меню действий (троеточие → выпадающий список)
         {
             title: '{{ i18n "pages.inbounds.operate" }}',
-            width: 10,
+            width: "20%",
             align: "center",
             scopedSlots: { customRender: "actionMenu" },
         },
+        // Email клиента + индикатор статуса + комментарий
         {
             title: '{{ i18n "pages.inbounds.client" }}',
-            width: 90,
+            width: "55%",
             align: "left",
             scopedSlots: { customRender: "client" },
         },
+        // Кнопка "i" → попап со сводкой трафика и срока
         {
             title: '{{ i18n "pages.inbounds.info" }}',
-            width: 10,
+            width: "25%",
+            align: "center",
+            scopedSlots: { customRender: "info" },
+        },
+    ];
+
+    const innerMobileColumnsWg = [
+        // Меню действий (троеточие → выпадающий список)
+        {
+            title: '{{ i18n "pages.inbounds.operate" }}',
+            width: "15%",
+            align: "center",
+            scopedSlots: { customRender: "actionMenu" },
+        },
+        // Email клиента + индикатор статуса + комментарий
+        {
+            title: '{{ i18n "pages.inbounds.client" }}',
+            width: "35%",
+            align: "left",
+            scopedSlots: { customRender: "client" },
+        },
+        // Проброшенные на этого клиента порты (DNAT TCP+UDP), только AWG/WG
+        {
+            title: '{{ i18n "pages.inbounds.forwardedPortsShort" }}',
+            width: "25%",
+            align: "center",
+            scopedSlots: { customRender: "forwardedPorts" },
+        },
+        // Кнопка "i" → попап со сводкой трафика и срока
+        {
+            title: '{{ i18n "pages.inbounds.info" }}',
+            width: "25%",
             align: "center",
             scopedSlots: { customRender: "info" },
         },
@@ -1580,6 +1696,16 @@
             loading(spinning = true) {
                 this.loadingStates.spinning = spinning;
             },
+            // Returns the column set for an inbound's peer/client table.
+            // AWG and native WG inbounds get an extra "Port forwarding" column.
+            pickInnerColumns(record, mobile) {
+                const isWg =
+                    record && (record.isAmneziawg || record.isNativewg);
+                if (mobile) {
+                    return isWg ? innerMobileColumnsWg : innerMobileColumns;
+                }
+                return isWg ? innerColumnsWg : innerColumns;
+            },
             async getDBInbounds() {
                 this.refreshing = true;
                 const msg = await HttpUtil.get("/panel/api/inbounds/list");
@@ -1633,6 +1759,7 @@
                                 subId: "",
                                 tgId: c.tgId || 0,
                                 limitIp: c.limitIp || 0,
+                                forwardedPorts: c.forwardedPorts || "",
                                 _wgId: c.id,
                                 created_at: c.createdAt || 0,
                                 updated_at: c.updatedAt || 0,
@@ -1715,6 +1842,7 @@
                                 subId: "",
                                 tgId: c.tgId || 0,
                                 limitIp: c.limitIp || 0,
+                                forwardedPorts: c.forwardedPorts || "",
                                 _awgId: c.id,
                                 created_at: c.createdAt || 0,
                                 updated_at: c.updatedAt || 0,
@@ -1864,8 +1992,7 @@
                                 dbInbound.protocol,
                                 client,
                             );
-                            const clientLabel =
-                                client.email || clientKey || "";
+                            const clientLabel = client.email || clientKey || "";
                             if (client.comment) {
                                 comments.set(clientKey, client.comment);
                             }
@@ -2375,6 +2502,13 @@
                         return clients.findIndex(
                             (item) => item && item.id === client.id,
                         );
+                    case Protocols.MIXED:
+                    case Protocols.HTTP:
+                        // Per-inbound unique key is the basic-auth username,
+                        // stored on the panel side as `email`.
+                        return clients.findIndex(
+                            (item) => item && item.email === client.email,
+                        );
                     default:
                         return clients.findIndex(
                             (item) =>
@@ -2442,6 +2576,7 @@
                         reset: client.reset || 0,
                         limitIp: client.limitIp || 0,
                         tgId: client.tgId || 0,
+                        forwardedPorts: client.forwardedPorts || "",
                     };
                     const msg = await HttpUtil.postJson(
                         "/panel/api/awg/client/add",
@@ -2486,6 +2621,7 @@
                     reset: client.reset || 0,
                     limitIp: client.limitIp || 0,
                     tgId: client.tgId || 0,
+                    forwardedPorts: client.forwardedPorts || "",
                 };
                 const msg = await HttpUtil.postJson(
                     `/panel/api/awg/client/updateByUuid/${encodeURIComponent(clientId)}`,
@@ -2514,6 +2650,7 @@
                         reset: client.reset || 0,
                         limitIp: client.limitIp || 0,
                         tgId: client.tgId || 0,
+                        forwardedPorts: client.forwardedPorts || "",
                     };
                     const msg = await HttpUtil.postJson(
                         "/panel/api/wg/client/add",
@@ -2539,7 +2676,9 @@
                     clientModal.loading(false);
                     return;
                 }
-                const wgClient = clientsMsg.obj.find((c) => c.uuid === clientId);
+                const wgClient = clientsMsg.obj.find(
+                    (c) => c.uuid === clientId,
+                );
                 if (!wgClient) {
                     clientModal.loading(false);
                     return;
@@ -2556,6 +2695,7 @@
                     reset: client.reset || 0,
                     limitIp: client.limitIp || 0,
                     tgId: client.tgId || 0,
+                    forwardedPorts: client.forwardedPorts || "",
                 };
                 const msg = await HttpUtil.postJson(
                     `/panel/api/wg/client/updateByUuid/${encodeURIComponent(clientId)}`,
@@ -2689,6 +2829,9 @@
                     case Protocols.TROJAN:
                         return client.password;
                     case Protocols.SHADOWSOCKS:
+                    case Protocols.MIXED:
+                    case Protocols.HTTP:
+                        // Mixed/HTTP basic-auth username is stored as email.
                         return client.email;
                     default:
                         return client.id;

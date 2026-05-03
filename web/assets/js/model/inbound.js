@@ -1205,6 +1205,8 @@ class Inbound extends XrayCommonClass {
             case Protocols.SHADOWSOCKS: return this.isSSMultiUser ? this.settings.shadowsockses : null;
             case Protocols.AMNEZIAWG: return this.settings ? this.settings.clients : null;
             case Protocols.NATIVEWG: return this.settings ? this.settings.clients : null;
+            case Protocols.MIXED: return this.settings ? this.settings.clients : null;
+            case Protocols.HTTP: return this.settings ? this.settings.clients : null;
             default: return null;
         }
     }
@@ -2501,104 +2503,255 @@ Inbound.TunnelSettings = class extends Inbound.Settings {
     }
 };
 
+// MIXED inbound (xray's "mixed" protocol = SOCKS5 server). Rich per-client
+// model mirroring VLESS so the same peer table / client modal / traffic /
+// expiry / quota infrastructure applies. Storage uses `clients[]` —
+// translation to xray's expected `accounts: [{user, pass}]` happens server-side
+// in xray.go at config-build time.
 Inbound.MixedSettings = class extends Inbound.Settings {
-    constructor(protocol, auth = 'password', accounts = [new Inbound.MixedSettings.SocksAccount()], udp = false, ip = '127.0.0.1') {
+    constructor(
+        protocol,
+        clients = [new Inbound.MixedSettings.MixedClient()],
+        auth = 'password',
+        udp = false,
+        ip = '127.0.0.1',
+    ) {
         super(protocol);
+        this.clients = clients;
         this.auth = auth;
-        this.accounts = accounts;
         this.udp = udp;
         this.ip = ip;
     }
 
-    addAccount(account) {
-        this.accounts.push(account);
-    }
-
-    delAccount(index) {
-        this.accounts.splice(index, 1);
-    }
-
     static fromJson(json = {}) {
-        let accounts;
-        if (json.auth === 'password') {
-            accounts = json.accounts.map(
-                account => Inbound.MixedSettings.SocksAccount.fromJson(account)
-            )
+        // Migrated rows store rich clients[]. Pre-migration rows (legacy
+        // accounts[]) get a best-effort upgrade so the UI still renders if
+        // the server-side migration hasn't run yet.
+        let rawClients = json.clients;
+        if (!rawClients && Array.isArray(json.accounts)) {
+            rawClients = json.accounts.map(a => ({
+                email: a.user,
+                password: a.pass,
+            }));
         }
+        const clients = (rawClients || []).map(c => Inbound.MixedSettings.MixedClient.fromJson(c));
         return new Inbound.MixedSettings(
             Protocols.MIXED,
-            json.auth,
-            accounts,
-            json.udp,
-            json.ip,
+            clients,
+            json.auth || 'password',
+            json.udp || false,
+            json.ip || '127.0.0.1',
         );
     }
 
     toJson() {
         return {
+            clients: this.clients.map(c => c.toJson()),
             auth: this.auth,
-            accounts: this.auth === 'password' ? this.accounts.map(account => account.toJson()) : undefined,
             udp: this.udp,
             ip: this.ip,
         };
     }
 };
-Inbound.MixedSettings.SocksAccount = class extends XrayCommonClass {
-    constructor(user = RandomUtil.randomSeq(10), pass = RandomUtil.randomSeq(10)) {
-        super();
-        this.user = user;
-        this.pass = pass;
-    }
 
-    static fromJson(json = {}) {
-        return new Inbound.MixedSettings.SocksAccount(json.user, json.pass);
-    }
-};
-
-Inbound.HttpSettings = class extends Inbound.Settings {
+Inbound.MixedSettings.MixedClient = class extends XrayCommonClass {
     constructor(
-        protocol,
-        accounts = [new Inbound.HttpSettings.HttpAccount()],
-        allowTransparent = false,
+        email = RandomUtil.randomLowerAndNum(6),
+        password = RandomUtil.randomSeq(16),
+        limitIp = 0,
+        totalGB = 0,
+        expiryTime = 0,
+        enable = true,
+        tgId = '',
+        subId = RandomUtil.randomLowerAndNum(16),
+        comment = '',
+        reset = 0,
+        created_at = undefined,
+        updated_at = undefined,
     ) {
-        super(protocol);
-        this.accounts = accounts;
-        this.allowTransparent = allowTransparent;
+        super();
+        this.email = email;
+        this.password = password;
+        this.limitIp = limitIp;
+        this.totalGB = totalGB;
+        this.expiryTime = expiryTime;
+        this.enable = enable;
+        this.tgId = tgId;
+        this.subId = subId;
+        this.comment = comment;
+        this.reset = reset;
+        this.created_at = created_at;
+        this.updated_at = updated_at;
     }
 
-    addAccount(account) {
-        this.accounts.push(account);
+    get _expiryTime() {
+        if (this.expiryTime === 0) return null;
+        return moment(this.expiryTime);
     }
 
-    delAccount(index) {
-        this.accounts.splice(index, 1);
+    set _expiryTime(t) {
+        this.expiryTime = t == null ? 0 : t.valueOf();
+    }
+
+    get _totalGB() {
+        return NumberFormatter.toFixed(this.totalGB / SizeFormatter.ONE_GB, 2);
+    }
+
+    set _totalGB(gb) {
+        this.totalGB = NumberFormatter.toFixed(gb * SizeFormatter.ONE_GB, 0);
     }
 
     static fromJson(json = {}) {
-        return new Inbound.HttpSettings(
-            Protocols.HTTP,
-            json.accounts.map(account => Inbound.HttpSettings.HttpAccount.fromJson(account)),
-            json.allowTransparent,
+        return new Inbound.MixedSettings.MixedClient(
+            json.email,
+            json.password,
+            json.limitIp,
+            json.totalGB,
+            json.expiryTime,
+            json.enable !== undefined ? json.enable : true,
+            json.tgId,
+            json.subId,
+            json.comment,
+            json.reset,
+            json.created_at,
+            json.updated_at,
         );
     }
 
     toJson() {
         return {
-            accounts: Inbound.HttpSettings.toJsonArray(this.accounts),
+            email: this.email,
+            password: this.password,
+            limitIp: this.limitIp,
+            totalGB: this.totalGB,
+            expiryTime: this.expiryTime,
+            enable: this.enable,
+            tgId: this.tgId,
+            subId: this.subId,
+            comment: this.comment,
+            reset: this.reset,
+            created_at: this.created_at,
+            updated_at: this.updated_at,
+        };
+    }
+};
+
+// HTTP CONNECT inbound. Same shape as MixedSettings minus auth/udp/ip
+// (HTTP only has an `allowTransparent` toggle).
+Inbound.HttpSettings = class extends Inbound.Settings {
+    constructor(
+        protocol,
+        clients = [new Inbound.HttpSettings.HttpClient()],
+        allowTransparent = false,
+    ) {
+        super(protocol);
+        this.clients = clients;
+        this.allowTransparent = allowTransparent;
+    }
+
+    static fromJson(json = {}) {
+        let rawClients = json.clients;
+        if (!rawClients && Array.isArray(json.accounts)) {
+            rawClients = json.accounts.map(a => ({
+                email: a.user,
+                password: a.pass,
+            }));
+        }
+        const clients = (rawClients || []).map(c => Inbound.HttpSettings.HttpClient.fromJson(c));
+        return new Inbound.HttpSettings(
+            Protocols.HTTP,
+            clients,
+            json.allowTransparent || false,
+        );
+    }
+
+    toJson() {
+        return {
+            clients: this.clients.map(c => c.toJson()),
             allowTransparent: this.allowTransparent,
         };
     }
 };
 
-Inbound.HttpSettings.HttpAccount = class extends XrayCommonClass {
-    constructor(user = RandomUtil.randomSeq(10), pass = RandomUtil.randomSeq(10)) {
+Inbound.HttpSettings.HttpClient = class extends XrayCommonClass {
+    constructor(
+        email = RandomUtil.randomLowerAndNum(6),
+        password = RandomUtil.randomSeq(16),
+        limitIp = 0,
+        totalGB = 0,
+        expiryTime = 0,
+        enable = true,
+        tgId = '',
+        subId = RandomUtil.randomLowerAndNum(16),
+        comment = '',
+        reset = 0,
+        created_at = undefined,
+        updated_at = undefined,
+    ) {
         super();
-        this.user = user;
-        this.pass = pass;
+        this.email = email;
+        this.password = password;
+        this.limitIp = limitIp;
+        this.totalGB = totalGB;
+        this.expiryTime = expiryTime;
+        this.enable = enable;
+        this.tgId = tgId;
+        this.subId = subId;
+        this.comment = comment;
+        this.reset = reset;
+        this.created_at = created_at;
+        this.updated_at = updated_at;
+    }
+
+    get _expiryTime() {
+        if (this.expiryTime === 0) return null;
+        return moment(this.expiryTime);
+    }
+
+    set _expiryTime(t) {
+        this.expiryTime = t == null ? 0 : t.valueOf();
+    }
+
+    get _totalGB() {
+        return NumberFormatter.toFixed(this.totalGB / SizeFormatter.ONE_GB, 2);
+    }
+
+    set _totalGB(gb) {
+        this.totalGB = NumberFormatter.toFixed(gb * SizeFormatter.ONE_GB, 0);
     }
 
     static fromJson(json = {}) {
-        return new Inbound.HttpSettings.HttpAccount(json.user, json.pass);
+        return new Inbound.HttpSettings.HttpClient(
+            json.email,
+            json.password,
+            json.limitIp,
+            json.totalGB,
+            json.expiryTime,
+            json.enable !== undefined ? json.enable : true,
+            json.tgId,
+            json.subId,
+            json.comment,
+            json.reset,
+            json.created_at,
+            json.updated_at,
+        );
+    }
+
+    toJson() {
+        return {
+            email: this.email,
+            password: this.password,
+            limitIp: this.limitIp,
+            totalGB: this.totalGB,
+            expiryTime: this.expiryTime,
+            enable: this.enable,
+            tgId: this.tgId,
+            subId: this.subId,
+            comment: this.comment,
+            reset: this.reset,
+            created_at: this.created_at,
+            updated_at: this.updated_at,
+        };
     }
 };
 
@@ -2748,6 +2901,7 @@ Inbound.AmneziawgSettings.AwgPeer = class extends XrayCommonClass {
         subId = '',
         tgId = 0,
         limitIp = 0,
+        forwardedPorts = '',
         _awgId = 0,
         created_at = 0,
         updated_at = 0,
@@ -2763,6 +2917,7 @@ Inbound.AmneziawgSettings.AwgPeer = class extends XrayCommonClass {
         this.subId = subId;
         this.tgId = tgId;
         this.limitIp = limitIp;
+        this.forwardedPorts = forwardedPorts;
         this._awgId = _awgId;
         this.created_at = created_at;
         this.updated_at = updated_at;
@@ -2801,6 +2956,7 @@ Inbound.AmneziawgSettings.AwgPeer = class extends XrayCommonClass {
             json.subId || '',
             json.tgId || 0,
             json.limitIp || 0,
+            json.forwardedPorts || '',
             json._awgId || 0,
             json.created_at || 0,
             json.updated_at || 0,
@@ -2819,6 +2975,7 @@ Inbound.AmneziawgSettings.AwgPeer = class extends XrayCommonClass {
             subId: this.subId,
             tgId: this.tgId,
             limitIp: this.limitIp,
+            forwardedPorts: this.forwardedPorts,
             _awgId: this._awgId,
             created_at: this.created_at,
             updated_at: this.updated_at,
@@ -2856,6 +3013,7 @@ Inbound.NativewgSettings.WgPeer = class extends XrayCommonClass {
         subId = '',
         tgId = 0,
         limitIp = 0,
+        forwardedPorts = '',
         _wgId = 0,
         created_at = 0,
         updated_at = 0,
@@ -2871,6 +3029,7 @@ Inbound.NativewgSettings.WgPeer = class extends XrayCommonClass {
         this.subId = subId;
         this.tgId = tgId;
         this.limitIp = limitIp;
+        this.forwardedPorts = forwardedPorts;
         this._wgId = _wgId;
         this.created_at = created_at;
         this.updated_at = updated_at;
@@ -2909,6 +3068,7 @@ Inbound.NativewgSettings.WgPeer = class extends XrayCommonClass {
             json.subId || '',
             json.tgId || 0,
             json.limitIp || 0,
+            json.forwardedPorts || '',
             json._wgId || 0,
             json.created_at || 0,
             json.updated_at || 0,
@@ -2927,6 +3087,7 @@ Inbound.NativewgSettings.WgPeer = class extends XrayCommonClass {
             subId: this.subId,
             tgId: this.tgId,
             limitIp: this.limitIp,
+            forwardedPorts: this.forwardedPorts,
             _wgId: this._wgId,
             created_at: this.created_at,
             updated_at: this.updated_at,

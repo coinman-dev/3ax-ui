@@ -12,6 +12,30 @@ cur_dir=$(pwd)
 xui_folder="${XUI_MAIN_FOLDER:=/usr/local/x-ui}"
 xui_service="${XUI_SERVICE:=/etc/systemd/system}"
 
+# Resolve the directory the script lives in. When the script is piped via
+# `bash <(curl ...)` this resolves to /dev/fd/N — that's fine, the local-source
+# detector below will simply find no source files and fall back to GitHub.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
+
+# Returns 0 (true) when install.sh is being run from inside a cloned 3ax-ui
+# git checkout. The script then builds the panel binary from the local source
+# instead of downloading a prebuilt release. Conditions:
+#   - BASH_SOURCE points to a real install.sh on disk (rejects curl|bash and
+#     bash <(curl ...) flows where BASH_SOURCE is "bash" or /dev/fd/*).
+#   - Required source files (main.go, go.mod, web/, .git/) exist next to it.
+is_local_source_install() {
+    local src_name
+    src_name="$(basename "${BASH_SOURCE[0]:-}")"
+    [[ "$src_name" == "install.sh" ]] || return 1
+    [[ -n "$SCRIPT_DIR" ]] || return 1
+    [[ -f "$SCRIPT_DIR/install.sh" ]] || return 1
+    [[ -f "$SCRIPT_DIR/main.go" ]] || return 1
+    [[ -f "$SCRIPT_DIR/go.mod" ]] || return 1
+    [[ -d "$SCRIPT_DIR/web" ]] || return 1
+    [[ -d "$SCRIPT_DIR/.git" ]] || return 1
+    return 0
+}
+
 # Branch to fetch auxiliary files (x-ui.sh, service files) from.
 # --beta / --pre → dev branch; otherwise → main
 if [[ "$1" == "--beta" || "$1" == "--pre" ]]; then
@@ -90,6 +114,45 @@ random_port_candidate() {
     local max_port="${2:-65535}"
     local span=$((max_port - min_port + 1))
     echo $((min_port + ((((RANDOM << 15) | RANDOM)) % span)))
+}
+
+# Returns 0 if the URL host responds within a short timeout, non-zero on
+# connection / DNS / TLS failure. Uses HEAD so we don't pull the full
+# asset just to test reachability — important for the multi-MB xray-core
+# zip and geo data files. We deliberately do NOT pass -f: a 404 still
+# means the network path works, and the actual download (or apt-get
+# update) will surface the real error if a path is wrong.
+url_reachable() {
+    curl --connect-timeout 5 --max-time 10 -sSIL -o /dev/null "$1" 2>/dev/null
+}
+
+# Probes URL reachability before downloading. If unreachable, prints a
+# clear error naming the broken URL, asks the user whether to continue
+# without that resource (default Y = skip and proceed), and returns 1.
+# Aborts the script on N. Returns 0 on success so callers can guard
+# their download blocks behind a single if-statement.
+check_url_or_skip() {
+    local url="$1"
+    local label="$2"
+    if url_reachable "$url"; then
+        return 0
+    fi
+    echo ""
+    echo -e "${yellow}══════════════════════════════════════════════════════${plain}"
+    echo -e "${yellow}  Failed to reach: ${url}${plain}"
+    echo -e "${yellow}  Module / file:   ${label}${plain}"
+    echo -e "${yellow}══════════════════════════════════════════════════════${plain}"
+    read -rp "Continue without it? [Y/n]: " __skip_choice
+    case "${__skip_choice,,}" in
+        n|no)
+            echo -e "${red}Aborted by user.${plain}"
+            exit 1
+            ;;
+        *)
+            echo -e "${yellow}Skipping ${label}.${plain}"
+            return 1
+            ;;
+    esac
 }
 
 pick_random_port() {
@@ -728,7 +791,61 @@ prompt_and_setup_ssl() {
     esac
 }
 
+# Localhost-only debug install. Plain HTTP, listen=127.0.0.1, port and
+# credentials decided up-front by prompt_debug_mode(), no SSL prompt,
+# no public-IP detection, no IPv6.
+config_debug_mode() {
+    local existing_hasDefaultCredential=$(${xui_folder}/x-ui setting -show true | grep -Eo 'hasDefaultCredential: .+' | awk '{print $2}')
+    local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep -Eo 'webBasePath: .+' | awk '{print $2}' | sed 's#^/##')
+
+    local config_port="${XUI_DEBUG_PORT:-8080}"
+
+    local config_username
+    local config_password
+    local config_webBasePath
+    if [[ "$existing_hasDefaultCredential" == "true" || ${#existing_webBasePath} -lt 4 ]]; then
+        config_username=$(gen_random_string 10)
+        config_password=$(gen_random_string 10)
+        config_webBasePath=$(gen_random_string 18)
+        ${xui_folder}/x-ui setting -username "${config_username}" -password "${config_password}" -port "${config_port}" -webBasePath "${config_webBasePath}"
+    else
+        config_webBasePath="${existing_webBasePath}"
+        ${xui_folder}/x-ui setting -port "${config_port}"
+    fi
+
+    # Bind to loopback only.
+    ${xui_folder}/x-ui setting -listenIP "127.0.0.1"
+
+    ${xui_folder}/x-ui migrate
+
+    echo ""
+    echo -e "${green}═══════════════════════════════════════════${plain}"
+    echo -e "${green}  Panel installed in DEBUG / localhost mode  ${plain}"
+    echo -e "${green}═══════════════════════════════════════════${plain}"
+    if [[ -n "${config_username}" ]]; then
+        echo -e "${green}Username:    ${config_username}${plain}"
+        echo -e "${green}Password:    ${config_password}${plain}"
+    else
+        echo -e "${yellow}Username/password unchanged from previous install.${plain}"
+    fi
+    echo -e "${green}Port:        ${config_port}${plain}"
+    echo -e "${green}WebBasePath: ${config_webBasePath}${plain}"
+    echo -e "${green}Listen:      127.0.0.1 (loopback only)${plain}"
+    echo -e "${green}Access URL:  http://127.0.0.1:${config_port}/${config_webBasePath}${plain}"
+    echo -e "${green}             http://localhost:${config_port}/${config_webBasePath}${plain}"
+    echo -e "${green}═══════════════════════════════════════════${plain}"
+    echo -e "${yellow}⚠ Plain HTTP, no certificate, no remote access. For local diagnostics only.${plain}"
+}
+
 config_after_install() {
+    # Debug / localhost-only mode short-circuits the SSL + public-IP +
+    # IPv6 logic below. The panel binds to 127.0.0.1, listens on plain
+    # HTTP, defaults to port 8080, and exposes no remote endpoints.
+    if [[ "${XUI_DEBUG_MODE:-}" == "1" ]]; then
+        config_debug_mode
+        return
+    fi
+
     local existing_hasDefaultCredential=$(${xui_folder}/x-ui setting -show true | grep -Eo 'hasDefaultCredential: .+' | awk '{print $2}')
     local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep -Eo 'webBasePath: .+' | awk '{print $2}' | sed 's#^/##')
     local existing_port=$(${xui_folder}/x-ui setting -show true | grep -Eo 'port: .+' | awk '{print $2}')
@@ -897,6 +1014,16 @@ install_amneziawg() {
     # Method 1: official AmneziaVPN apt repo (Debian/Ubuntu)
     if [[ "${release}" == "ubuntu" || "${release}" == "debian" || "${release}" == "armbian" ]]; then
         if ! command -v awg &>/dev/null; then
+            # Pre-flight check: Launchpad PPA host is frequently blocked by
+            # hosting providers (especially Russian VPS). Probe before adding
+            # the PPA so the user gets a clear "skip or abort" prompt instead
+            # of waiting through several apt timeouts.
+            if ! check_url_or_skip "https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu/dists/focal/Release" "AmneziaWG (ppa.launchpadcontent.net)"; then
+                echo -e "${yellow}AmneziaWG installation skipped — install it manually later if needed:${plain}"
+                echo -e "${yellow}  https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
+                install_ndppd
+                return
+            fi
             echo -e "${yellow}Installing amneziawg from ppa:amnezia/ppa...${plain}"
             apt-get install -y -q software-properties-common python3-launchpadlib gnupg2 linux-headers-$(uname -r) 2>/dev/null || true
             # Ensure deb-src is present (required for PPA DKMS build)
@@ -1440,8 +1567,433 @@ print(str(first) + '/' + str(net.prefixlen))
     fi
 }
 
+# Translates the panel's arch label to xray-core's release naming so we can
+# fetch the right Xray-linux-{ARCH}.zip from XTLS/Xray-core releases.
+xray_release_arch() {
+    case "$(arch)" in
+        amd64) echo "64" ;;
+        386) echo "32" ;;
+        arm64) echo "arm64-v8a" ;;
+        armv7) echo "arm32-v7a" ;;
+        armv6) echo "arm32-v6" ;;
+        armv5) echo "arm32-v5" ;;
+        s390x) echo "s390x" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Translates the panel's arch label to the filename Go uses for the bundled
+# xray binary inside the panel installation (panel looks up
+# bin/xray-linux-{FNAME}).
+xray_panel_arch() {
+    case "$(arch)" in
+        amd64) echo "amd64" ;;
+        386) echo "386" ;;
+        arm64) echo "arm64" ;;
+        armv7|armv6|armv5) echo "arm" ;;
+        s390x) echo "s390x" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Downloads xray binary + geo data files into the given target directory.
+# Mirrors the logic in DockerInit.sh — same xray version (v26.3.27), same
+# geo-data sources. Always called fresh; we deliberately never reuse a
+# previously-downloaded copy from build/bin or target/bin so an install
+# can't inherit stale geo rules or an old xray binary.
+download_xray_and_geo() {
+    local target_bin_dir="$1"
+    local xray_arch xray_fname xray_url
+    xray_arch=$(xray_release_arch)
+    xray_fname=$(xray_panel_arch)
+    if [[ -z "$xray_arch" || -z "$xray_fname" ]]; then
+        echo -e "${red}No prebuilt xray-core for arch $(arch) — install fails.${plain}"
+        return 1
+    fi
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo -e "${yellow}Installing unzip (needed to extract xray-core)...${plain}"
+        case "${release}" in
+            ubuntu|debian|armbian) apt-get install -y -q unzip >/dev/null 2>&1 ;;
+            arch|manjaro|parch)    pacman -Sy --noconfirm unzip >/dev/null 2>&1 ;;
+            alpine)                apk add unzip >/dev/null 2>&1 ;;
+            opensuse-tumbleweed)   zypper install -y unzip >/dev/null 2>&1 ;;
+            *)                     dnf install -y -q unzip >/dev/null 2>&1 || yum install -y unzip >/dev/null 2>&1 ;;
+        esac
+    fi
+
+    mkdir -p "$target_bin_dir"
+    local tmp_zip="/tmp/xray-core.$$.zip"
+    xray_url="https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-${xray_arch}.zip"
+
+    # xray binary is mandatory — without it the panel can't run any
+    # protocol. Probe the URL up-front so the user gets a clean prompt
+    # instead of waiting through curl's full retry loop on a dead host.
+    if ! check_url_or_skip "$xray_url" "xray-core binary"; then
+        echo -e "${red}Cannot proceed without xray-core — aborting xray bundle download.${plain}"
+        return 1
+    fi
+    echo -e "${green}Downloading xray-core ${xray_url}...${plain}"
+    if ! curl -4fLRo "$tmp_zip" "$xray_url"; then
+        rm -f "$tmp_zip"
+        echo -e "${red}Failed to download xray-core.${plain}"
+        return 1
+    fi
+    (cd "$target_bin_dir" && unzip -o "$tmp_zip" >/dev/null) || {
+        rm -f "$tmp_zip"
+        echo -e "${red}Failed to unzip xray-core.${plain}"
+        return 1
+    }
+    rm -f "$tmp_zip"
+    rm -f "$target_bin_dir/geoip.dat" "$target_bin_dir/geosite.dat"
+    if [[ -f "$target_bin_dir/xray" ]]; then
+        mv -f "$target_bin_dir/xray" "$target_bin_dir/xray-linux-${xray_fname}"
+        chmod +x "$target_bin_dir/xray-linux-${xray_fname}"
+    fi
+
+    # Geo data files are optional — panel boots fine without them, just
+    # falls back to no-routing-rules. Probe each before fetching.
+    echo -e "${green}Downloading geo data...${plain}"
+    local geo_url
+    geo_url="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+    check_url_or_skip "$geo_url" "geoip.dat (Loyalsoldier)" && \
+        curl -4sfLRo "$target_bin_dir/geoip.dat" "$geo_url"
+    geo_url="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+    check_url_or_skip "$geo_url" "geosite.dat (Loyalsoldier)" && \
+        curl -4sfLRo "$target_bin_dir/geosite.dat" "$geo_url"
+    geo_url="https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat"
+    check_url_or_skip "$geo_url" "geoip_IR.dat (Iran rules)" && \
+        curl -4sfLRo "$target_bin_dir/geoip_IR.dat" "$geo_url"
+    geo_url="https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat"
+    check_url_or_skip "$geo_url" "geosite_IR.dat (Iran rules)" && \
+        curl -4sfLRo "$target_bin_dir/geosite_IR.dat" "$geo_url"
+    geo_url="https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"
+    check_url_or_skip "$geo_url" "geoip_RU.dat (Russia rules)" && \
+        curl -4sfLRo "$target_bin_dir/geoip_RU.dat" "$geo_url"
+    geo_url="https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"
+    check_url_or_skip "$geo_url" "geosite_RU.dat (Russia rules)" && \
+        curl -4sfLRo "$target_bin_dir/geosite_RU.dat" "$geo_url"
+    return 0
+}
+
+# Wrapper around download_xray_and_geo that, in debug mode only, looks
+# for an already-present xray + geo bundle in well-known cache locations
+# and reuses it instead of re-downloading. Production / non-debug
+# installs always pull fresh upstream copies. Cache locations checked
+# (in order):
+#   1. ${xui_folder}/bin   — preserved across updates after the rm-rf fix.
+#   2. ${SCRIPT_DIR}/build/bin — left over from an earlier local build.
+#   3. ${SCRIPT_DIR}/target/bin — same.
+fetch_xray_bundle_smart() {
+    local target_bin_dir="$1"
+    local panel_fname
+    panel_fname=$(xray_panel_arch)
+
+    if [[ "${XUI_DEBUG_MODE:-}" == "1" && -n "$panel_fname" ]]; then
+        if [[ -f "$target_bin_dir/xray-linux-${panel_fname}" ]]; then
+            echo -e "${green}xray-core + geo data already in ${target_bin_dir}, skipping download.${plain}"
+            return 0
+        fi
+        local src_dir
+        for src_dir in "$SCRIPT_DIR/build/bin" "$SCRIPT_DIR/target/bin"; do
+            if [[ -f "$src_dir/xray-linux-${panel_fname}" ]]; then
+                echo -e "${green}Reusing xray + geo bundle from ${src_dir}.${plain}"
+                mkdir -p "$target_bin_dir"
+                cp -f "$src_dir"/* "$target_bin_dir/" 2>/dev/null || true
+                return 0
+            fi
+        done
+    fi
+
+    download_xray_and_geo "$target_bin_dir"
+}
+
+# Ensures a Go toolchain ≥ 1.21 is on PATH. With Go ≥ 1.21 the GOTOOLCHAIN=auto
+# default makes `go build` self-bootstrap the exact version pinned in go.mod
+# (currently 1.26.2), so we only need a recent-enough bootstrap. If the host
+# has no `go` or only an old one, install Go 1.26.2 from go.dev into
+# /usr/local/go and prepend it to PATH for the rest of this script.
+ensure_go() {
+    local need_install=1
+    if command -v go >/dev/null 2>&1; then
+        local v
+        v=$(go env GOVERSION 2>/dev/null | sed -E 's/^go//')
+        # GOVERSION may be empty on very old Go; treat as too old.
+        if [[ -n "$v" ]]; then
+            local min_version="1.21.0"
+            if [[ "$(printf '%s\n' "$min_version" "$v" | sort -V | head -n1)" == "$min_version" ]]; then
+                need_install=0
+            fi
+        fi
+    fi
+
+    if [[ $need_install -eq 0 ]]; then
+        echo -e "${green}Existing Go toolchain detected: $(go env GOVERSION 2>/dev/null)${plain}"
+        return 0
+    fi
+
+    local goarch
+    case "$(arch)" in
+        amd64)        goarch="amd64" ;;
+        386)          goarch="386" ;;
+        arm64)        goarch="arm64" ;;
+        armv6|armv7)  goarch="armv6l" ;;
+        s390x)        goarch="s390x" ;;
+        *)
+            echo -e "${red}No prebuilt Go binary for arch $(arch) — cannot bootstrap.${plain}"
+            return 1
+            ;;
+    esac
+
+    local go_version="1.26.2"
+    local go_url="https://go.dev/dl/go${go_version}.linux-${goarch}.tar.gz"
+    local tmp_tgz="/tmp/go-bootstrap.$$.tar.gz"
+
+    if ! check_url_or_skip "$go_url" "Go ${go_version} bootstrap"; then
+        return 1
+    fi
+    echo -e "${green}Installing Go ${go_version} from ${go_url}...${plain}"
+    if ! curl -4fLRo "$tmp_tgz" "$go_url"; then
+        rm -f "$tmp_tgz"
+        echo -e "${red}Failed to download Go ${go_version}.${plain}"
+        return 1
+    fi
+    rm -rf /usr/local/go
+    if ! tar -C /usr/local -xzf "$tmp_tgz"; then
+        rm -f "$tmp_tgz"
+        echo -e "${red}Failed to extract Go ${go_version}.${plain}"
+        return 1
+    fi
+    rm -f "$tmp_tgz"
+    export PATH="/usr/local/go/bin:$PATH"
+    if ! command -v go >/dev/null 2>&1; then
+        echo -e "${red}Go installed but not on PATH — aborting build.${plain}"
+        return 1
+    fi
+    echo -e "${green}Go installed: $(go version)${plain}"
+    return 0
+}
+
+# Builds the panel binary from the local source tree and assembles the same
+# directory layout the GitHub release tarball would extract into
+# (${xui_folder}/x-ui, x-ui.sh, service-unit files, bin/xray-linux-…). After
+# this returns, install_x-ui's existing post-extract logic (chmod, service
+# install, etc.) takes over unchanged.
+install_x-ui_from_source() {
+    echo -e "${green}Local source detected at ${SCRIPT_DIR} — building from source...${plain}"
+    if ! ensure_go; then
+        echo -e "${yellow}Falling back to GitHub release download.${plain}"
+        return 1
+    fi
+
+    local build_version
+    build_version=$(cd "$SCRIPT_DIR" && git describe --tags --always --dirty 2>/dev/null)
+    if [[ -z "$build_version" ]]; then
+        build_version="v$(cat "$SCRIPT_DIR/config/version" 2>/dev/null || echo unknown)"
+    fi
+    echo -e "${green}Building x-ui (version ${build_version})...${plain}"
+
+    (cd "$SCRIPT_DIR" && \
+     GOTOOLCHAIN=auto CGO_ENABLED=1 go build \
+         -ldflags "-w -s -X 'github.com/coinman-dev/3ax-ui/v2/config.version=${build_version}'" \
+         -o "$SCRIPT_DIR/build/x-ui" main.go) || {
+        echo -e "${red}go build failed — falling back to GitHub release.${plain}"
+        return 1
+    }
+
+    # Replace only the files we own. Crucially we keep x-ui.db (panel
+    # database) and bin/ (xray + geo data) intact across re-installs so a
+    # repeated install doesn't wipe user data or trigger an unnecessary
+    # multi-MB xray re-download.
+    mkdir -p "${xui_folder}/bin"
+    rm -f "${xui_folder}/x-ui" \
+          "${xui_folder}/x-ui.sh" \
+          "${xui_folder}/x-ui.service" \
+          "${xui_folder}/x-ui.service.debian" \
+          "${xui_folder}/x-ui.service.arch" \
+          "${xui_folder}/x-ui.service.rhel" \
+          "${xui_folder}/x-ui.rc"
+    cp -f "$SCRIPT_DIR/build/x-ui"           "${xui_folder}/x-ui"
+    cp -f "$SCRIPT_DIR/x-ui.sh"              "${xui_folder}/x-ui.sh"
+    [[ -f "$SCRIPT_DIR/x-ui.service.debian" ]] && cp -f "$SCRIPT_DIR/x-ui.service.debian" "${xui_folder}/"
+    [[ -f "$SCRIPT_DIR/x-ui.service.arch"   ]] && cp -f "$SCRIPT_DIR/x-ui.service.arch"   "${xui_folder}/"
+    [[ -f "$SCRIPT_DIR/x-ui.service.rhel"   ]] && cp -f "$SCRIPT_DIR/x-ui.service.rhel"   "${xui_folder}/"
+    [[ -f "$SCRIPT_DIR/x-ui.rc"             ]] && cp -f "$SCRIPT_DIR/x-ui.rc"             "${xui_folder}/"
+
+    if ! fetch_xray_bundle_smart "${xui_folder}/bin"; then
+        echo -e "${red}Failed to fetch xray-core for the local-source install.${plain}"
+        return 1
+    fi
+
+    cp -f "${xui_folder}/x-ui.sh" /usr/bin/x-ui-temp
+    tag_version="${build_version}"
+    return 0
+}
+
+# Common post-extract steps shared by both the GitHub-release and
+# local-source install paths. Assumes ${xui_folder} is fully populated and
+# CWD is ${xui_folder}.
+install_x-ui_finalize() {
+    chmod +x x-ui
+    [ -f x-ui.sh ] && chmod +x x-ui.sh
+
+    # Rename the bundled xray binary for arm variants — the panel always loads
+    # bin/xray-linux-arm regardless of the specific arm version.
+    if [[ $(arch) == "armv5" || $(arch) == "armv6" || $(arch) == "armv7" ]]; then
+        [ -f bin/xray-linux-$(arch) ] && mv bin/xray-linux-$(arch) bin/xray-linux-arm
+        [ -f bin/xray-linux-arm ] && chmod +x bin/xray-linux-arm
+    fi
+    chmod +x x-ui
+    [ -f bin/xray-linux-$(arch) ] && chmod +x bin/xray-linux-$(arch)
+
+    mv -f /usr/bin/x-ui-temp /usr/bin/x-ui
+    chmod +x /usr/bin/x-ui
+    mkdir -p /var/log/x-ui
+    config_after_install
+    config_awg_defaults
+    config_wg_defaults
+
+    # Etckeeper compatibility
+    if [ -d "/etc/.git" ]; then
+        if [ -f "/etc/.gitignore" ]; then
+            if ! grep -q "x-ui/x-ui.db" "/etc/.gitignore"; then
+                echo "" >> "/etc/.gitignore"
+                echo "x-ui/x-ui.db" >> "/etc/.gitignore"
+                echo -e "${green}Added x-ui.db to /etc/.gitignore for etckeeper${plain}"
+            fi
+        else
+            echo "x-ui/x-ui.db" > "/etc/.gitignore"
+            echo -e "${green}Created /etc/.gitignore and added x-ui.db for etckeeper${plain}"
+        fi
+    fi
+
+    install_x-ui_service_unit
+    print_install_footer
+}
+
+# Installs and starts the OS service unit. Prefers the file embedded in
+# ${xui_folder}/ (delivered both by the release tarball and by the local-source
+# build); falls back to downloading from GitHub raw if missing.
+install_x-ui_service_unit() {
+    if [[ $release == "alpine" ]]; then
+        if [ -f "${xui_folder}/x-ui.rc" ]; then
+            cp -f "${xui_folder}/x-ui.rc" /etc/init.d/x-ui
+        else
+            curl -4fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.rc
+            if [[ $? -ne 0 ]]; then
+                echo -e "${red}Failed to download x-ui.rc${plain}"
+                exit 1
+            fi
+        fi
+        chmod +x /etc/init.d/x-ui
+        rc-update add x-ui
+        rc-service x-ui start
+        return
+    fi
+
+    # systemd path
+    local service_installed=false
+
+    if [ -f "${xui_folder}/x-ui.service" ]; then
+        echo -e "${green}Found x-ui.service in extracted files, installing...${plain}"
+        cp -f "${xui_folder}/x-ui.service" ${xui_service}/ >/dev/null 2>&1 && service_installed=true
+    fi
+
+    if [ "$service_installed" = false ]; then
+        case "${release}" in
+            ubuntu | debian | armbian)
+                if [ -f "${xui_folder}/x-ui.service.debian" ]; then
+                    echo -e "${green}Found x-ui.service.debian in extracted files, installing...${plain}"
+                    cp -f "${xui_folder}/x-ui.service.debian" ${xui_service}/x-ui.service >/dev/null 2>&1 && service_installed=true
+                fi
+            ;;
+            arch | manjaro | parch)
+                if [ -f "${xui_folder}/x-ui.service.arch" ]; then
+                    echo -e "${green}Found x-ui.service.arch in extracted files, installing...${plain}"
+                    cp -f "${xui_folder}/x-ui.service.arch" ${xui_service}/x-ui.service >/dev/null 2>&1 && service_installed=true
+                fi
+            ;;
+            *)
+                if [ -f "${xui_folder}/x-ui.service.rhel" ]; then
+                    echo -e "${green}Found x-ui.service.rhel in extracted files, installing...${plain}"
+                    cp -f "${xui_folder}/x-ui.service.rhel" ${xui_service}/x-ui.service >/dev/null 2>&1 && service_installed=true
+                fi
+            ;;
+        esac
+    fi
+
+    # If service file not found locally, download from GitHub
+    if [ "$service_installed" = false ]; then
+        echo -e "${yellow}Service files not found locally, downloading from GitHub...${plain}"
+        case "${release}" in
+            ubuntu | debian | armbian)
+                curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.debian >/dev/null 2>&1
+            ;;
+            arch | manjaro | parch)
+                curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.arch >/dev/null 2>&1
+            ;;
+            *)
+                curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.rhel >/dev/null 2>&1
+            ;;
+        esac
+        if [[ $? -ne 0 ]]; then
+            echo -e "${red}Failed to install x-ui.service from GitHub${plain}"
+            exit 1
+        fi
+        service_installed=true
+    fi
+
+    echo -e "${green}Setting up systemd unit...${plain}"
+    chown root:root ${xui_service}/x-ui.service >/dev/null 2>&1
+    chmod 644 ${xui_service}/x-ui.service >/dev/null 2>&1
+    systemctl daemon-reload
+    systemctl enable x-ui
+    systemctl start x-ui
+}
+
+print_install_footer() {
+    echo -e "${green}x-ui ${tag_version}${plain} installation finished, it is running now..."
+    echo -e ""
+    echo -e "┌───────────────────────────────────────────────────────┐
+│  ${blue}x-ui control menu usages (subcommands):${plain}              │
+│                                                       │
+│  ${blue}x-ui${plain}              - Admin Management Script          │
+│  ${blue}x-ui start${plain}        - Start                            │
+│  ${blue}x-ui stop${plain}         - Stop                             │
+│  ${blue}x-ui restart${plain}      - Restart                          │
+│  ${blue}x-ui status${plain}       - Current Status                   │
+│  ${blue}x-ui settings${plain}     - Current Settings                 │
+│  ${blue}x-ui enable${plain}       - Enable Autostart on OS Startup   │
+│  ${blue}x-ui disable${plain}      - Disable Autostart on OS Startup  │
+│  ${blue}x-ui log${plain}          - Check logs                       │
+│  ${blue}x-ui banlog${plain}       - Check Fail2ban ban logs          │
+│  ${blue}x-ui update${plain}       - Update                           │
+│  ${blue}x-ui legacy${plain}       - Legacy version                   │
+│  ${blue}x-ui install${plain}      - Install                          │
+│  ${blue}x-ui uninstall${plain}    - Uninstall                        │
+└───────────────────────────────────────────────────────┘"
+}
+
 install_x-ui() {
     cd ${xui_folder%/x-ui}/
+
+    # Stop any running x-ui before swapping files. Both install paths need
+    # this and it is safe even on a first install (commands silently noop).
+    if [[ -e ${xui_folder}/ ]]; then
+        if [[ $release == "alpine" ]]; then
+            rc-service x-ui stop >/dev/null 2>&1
+        else
+            systemctl stop x-ui >/dev/null 2>&1
+        fi
+    fi
+
+    if is_local_source_install; then
+        if install_x-ui_from_source; then
+            cd "${xui_folder}"
+            install_x-ui_finalize
+            return
+        fi
+        echo -e "${yellow}Local-source build did not complete — proceeding with GitHub release.${plain}"
+    fi
 
     # Download resources
     if [ $# == 0 ]; then
@@ -1501,13 +2053,8 @@ install_x-ui() {
         exit 1
     fi
 
-    # Stop x-ui service and remove old resources
+    # Remove old install before extracting fresh tarball.
     if [[ -e ${xui_folder}/ ]]; then
-        if [[ $release == "alpine" ]]; then
-            rc-service x-ui stop
-        else
-            systemctl stop x-ui
-        fi
         rm ${xui_folder}/ -rf
     fi
 
@@ -1516,150 +2063,51 @@ install_x-ui() {
     rm x-ui-linux-$(arch).tar.gz -f
 
     cd x-ui
-    chmod +x x-ui
-    [ -f x-ui.sh ] && chmod +x x-ui.sh
+    install_x-ui_finalize
+}
 
-    # Check the system's architecture and rename the file accordingly
-    if [[ $(arch) == "armv5" || $(arch) == "armv6" || $(arch) == "armv7" ]]; then
-        [ -f bin/xray-linux-$(arch) ] && mv bin/xray-linux-$(arch) bin/xray-linux-arm
-        [ -f bin/xray-linux-arm ] && chmod +x bin/xray-linux-arm
+# Diagnostic / localhost-only install. When enabled the panel binds to
+# 127.0.0.1 only, runs over plain HTTP, defaults to port 8080, and skips
+# the SSL / public-IP / IPv6 prompts. Protocol stacks (AmneziaWG,
+# WireGuard Native, xray) are still installed normally — only the
+# panel's web access is restricted. Activated either by the interactive
+# prompt below or by pre-setting XUI_DEBUG_MODE=1 in the environment.
+prompt_debug_mode() {
+    if [[ "${XUI_DEBUG_MODE:-}" == "1" ]]; then
+        echo -e "${yellow}Debug mode enabled via XUI_DEBUG_MODE=1.${plain}"
+        : "${XUI_DEBUG_PORT:=8080}"
+        export XUI_DEBUG_PORT
+        return
     fi
-    chmod +x x-ui
-    [ -f bin/xray-linux-$(arch) ] && chmod +x bin/xray-linux-$(arch)
-
-    # Update x-ui cli and se set permission
-    mv -f /usr/bin/x-ui-temp /usr/bin/x-ui
-    chmod +x /usr/bin/x-ui
-    mkdir -p /var/log/x-ui
-    config_after_install
-    config_awg_defaults
-    config_wg_defaults
-
-    # Etckeeper compatibility
-    if [ -d "/etc/.git" ]; then
-        if [ -f "/etc/.gitignore" ]; then
-            if ! grep -q "x-ui/x-ui.db" "/etc/.gitignore"; then
-                echo "" >> "/etc/.gitignore"
-                echo "x-ui/x-ui.db" >> "/etc/.gitignore"
-                echo -e "${green}Added x-ui.db to /etc/.gitignore for etckeeper${plain}"
+    echo ""
+    echo -e "${yellow}Install panel in debug / diagnostic mode (localhost only)? [y/N]${plain}"
+    echo -e "${yellow}(HTTP only, listen=127.0.0.1, default port 8080, no SSL or IPv6)${plain}"
+    read -rp "Debug mode? [y/N]: " __debug_choice
+    case "${__debug_choice,,}" in
+        y|yes)
+            export XUI_DEBUG_MODE=1
+            # Ask for the panel port immediately so the user sees the
+            # complete debug-mode setup decided up-front, before any
+            # downloads or installs run. read -rp doesn't render color
+            # escapes, so we print the prompt with echo -en first.
+            local __port_choice=""
+            echo -en "${yellow}Panel port for debug mode? [8080]: ${plain}"
+            read -r __port_choice
+            if [[ -n "${__port_choice}" ]]; then
+                export XUI_DEBUG_PORT="${__port_choice}"
+            else
+                export XUI_DEBUG_PORT=8080
             fi
-        else
-            echo "x-ui/x-ui.db" > "/etc/.gitignore"
-            echo -e "${green}Created /etc/.gitignore and added x-ui.db for etckeeper${plain}"
-        fi
-    fi
-
-    if [[ $release == "alpine" ]]; then
-        curl -4fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.rc
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}Failed to download x-ui.rc${plain}"
-            exit 1
-        fi
-        chmod +x /etc/init.d/x-ui
-        rc-update add x-ui
-        rc-service x-ui start
-    else
-        # Install systemd service file
-        service_installed=false
-
-        if [ -f "${xui_folder}/x-ui.service" ]; then
-            echo -e "${green}Found x-ui.service in extracted files, installing...${plain}"
-            cp -f "${xui_folder}/x-ui.service" ${xui_service}/ >/dev/null 2>&1
-            if [[ $? -eq 0 ]]; then
-                service_installed=true
-            fi
-        fi
-
-        if [ "$service_installed" = false ]; then
-            case "${release}" in
-                ubuntu | debian | armbian)
-                    if [ -f "${xui_folder}/x-ui.service.debian" ]; then
-                        echo -e "${green}Found x-ui.service.debian in extracted files, installing...${plain}"
-                        cp -f "${xui_folder}/x-ui.service.debian" ${xui_service}/x-ui.service >/dev/null 2>&1
-                        if [[ $? -eq 0 ]]; then
-                            service_installed=true
-                        fi
-                    fi
-                ;;
-                arch | manjaro | parch)
-                    if [ -f "${xui_folder}/x-ui.service.arch" ]; then
-                        echo -e "${green}Found x-ui.service.arch in extracted files, installing...${plain}"
-                        cp -f "${xui_folder}/x-ui.service.arch" ${xui_service}/x-ui.service >/dev/null 2>&1
-                        if [[ $? -eq 0 ]]; then
-                            service_installed=true
-                        fi
-                    fi
-                ;;
-                *)
-                    if [ -f "${xui_folder}/x-ui.service.rhel" ]; then
-                        echo -e "${green}Found x-ui.service.rhel in extracted files, installing...${plain}"
-                        cp -f "${xui_folder}/x-ui.service.rhel" ${xui_service}/x-ui.service >/dev/null 2>&1
-                        if [[ $? -eq 0 ]]; then
-                            service_installed=true
-                        fi
-                    fi
-                ;;
-            esac
-        fi
-
-        # If service file not found in tar.gz, download from GitHub
-        if [ "$service_installed" = false ]; then
-            echo -e "${yellow}Service files not found in tar.gz, downloading from GitHub...${plain}"
-            case "${release}" in
-                ubuntu | debian | armbian)
-                    curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.debian >/dev/null 2>&1
-                ;;
-                arch | manjaro | parch)
-                    curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.arch >/dev/null 2>&1
-                ;;
-                *)
-                    curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.rhel >/dev/null 2>&1
-                ;;
-            esac
-
-            if [[ $? -ne 0 ]]; then
-                echo -e "${red}Failed to install x-ui.service from GitHub${plain}"
-                exit 1
-            fi
-            service_installed=true
-        fi
-
-        if [ "$service_installed" = true ]; then
-            echo -e "${green}Setting up systemd unit...${plain}"
-            chown root:root ${xui_service}/x-ui.service >/dev/null 2>&1
-            chmod 644 ${xui_service}/x-ui.service >/dev/null 2>&1
-            systemctl daemon-reload
-            systemctl enable x-ui
-            systemctl start x-ui
-        else
-            echo -e "${red}Failed to install x-ui.service file${plain}"
-            exit 1
-        fi
-    fi
-
-    echo -e "${green}x-ui ${tag_version}${plain} installation finished, it is running now..."
-    echo -e ""
-    echo -e "┌───────────────────────────────────────────────────────┐
-│  ${blue}x-ui control menu usages (subcommands):${plain}              │
-│                                                       │
-│  ${blue}x-ui${plain}              - Admin Management Script          │
-│  ${blue}x-ui start${plain}        - Start                            │
-│  ${blue}x-ui stop${plain}         - Stop                             │
-│  ${blue}x-ui restart${plain}      - Restart                          │
-│  ${blue}x-ui status${plain}       - Current Status                   │
-│  ${blue}x-ui settings${plain}     - Current Settings                 │
-│  ${blue}x-ui enable${plain}       - Enable Autostart on OS Startup   │
-│  ${blue}x-ui disable${plain}      - Disable Autostart on OS Startup  │
-│  ${blue}x-ui log${plain}          - Check logs                       │
-│  ${blue}x-ui banlog${plain}       - Check Fail2ban ban logs          │
-│  ${blue}x-ui update${plain}       - Update                           │
-│  ${blue}x-ui legacy${plain}       - Legacy version                   │
-│  ${blue}x-ui install${plain}      - Install                          │
-│  ${blue}x-ui uninstall${plain}    - Uninstall                        │
-└───────────────────────────────────────────────────────┘"
+            echo -e "${green}Debug mode enabled — panel will be installed on http://127.0.0.1:${XUI_DEBUG_PORT}${plain}"
+            ;;
+        *)
+            export XUI_DEBUG_MODE=0
+            ;;
+    esac
 }
 
 echo -e "${green}Running...${plain}"
+prompt_debug_mode
 install_base
 install_amneziawg
 install_wireguard_native

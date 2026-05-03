@@ -1,6 +1,6 @@
 module github.com/coinman-dev/3ax-ui/v2
 
-go 1.26.0
+go 1.26.2
 
 require (
 	github.com/gin-contrib/gzip v1.2.5

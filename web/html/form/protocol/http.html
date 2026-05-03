@@ -1,26 +1,65 @@
 {{define "form/http"}}
 <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
-  <table :style="{ width: '100%', textAlign: 'center', margin: '1rem 0' }">
-    <tr>
-      <td width="45%">{{ i18n "username" }}</td>
-      <td width="45%">{{ i18n "password" }}</td>
-      <td>
-        <a-button icon="plus" size="small" @click="inbound.settings.addAccount(new Inbound.HttpSettings.HttpAccount())"></a-button>
-      </td>
-    </tr>
-  </table>
-  <a-input-group compact v-for="(account, index) in inbound.settings.accounts" :style="{ marginBottom: '10px' }">
-    <a-input :style="{ width: '50%' }" v-model.trim="account.user" placeholder='{{ i18n "username" }}'>
-      <template slot="addonBefore" :style="{ margin: '0' }">[[ index+1 ]]</template>
-    </a-input>
-    <a-input :style="{ width: '50%' }" v-model.trim="account.pass" placeholder='{{ i18n "password" }}'>
-      <template slot="addonAfter">
-        <a-button icon="minus" size="small" @click="inbound.settings.delAccount(index)"></a-button>
-      </template>
-    </a-input>
-  </a-input-group>
   <a-form-item label="Allow Transparent">
     <a-switch v-model="inbound.settings.allowTransparent" />
   </a-form-item>
+
+  <!-- First client is seeded inline on create (mirrors AmneziaWG flow).
+       Subsequent clients are managed via the peer table on the inbounds page. -->
+  <template v-if="!isEdit && inbound.settings.clients && inbound.settings.clients.length > 0">
+    <a-divider>{{ i18n "pages.inbounds.client" }} 1</a-divider>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip>
+          <template slot="title">
+            <span>{{ i18n "pages.inbounds.emailDesc" }}</span>
+          </template>
+          {{ i18n "username" }}
+          <a-icon type="sync" @click="inbound.settings.clients[0].email = RandomUtil.randomLowerAndNum(6)"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input :value="inbound.settings.clients[0].email" read-only></a-input>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip>
+          <template slot="title">
+            <span>{{ i18n "reset" }}</span>
+          </template>
+          {{ i18n "password" }}
+          <a-icon @click="inbound.settings.clients[0].password = RandomUtil.randomSeq(16)" type="sync"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input :value="inbound.settings.clients[0].password" read-only></a-input>
+    </a-form-item>
+    <a-form-item label='{{ i18n "comment" }}'>
+      <a-input v-model.trim="inbound.settings.clients[0].comment"></a-input>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip>
+          <template slot="title">
+            0 <span>{{ i18n "pages.inbounds.meansNoLimit" }}</span>
+          </template>
+          {{ i18n "pages.inbounds.totalFlow" }}
+          <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-input-number v-model.number="inbound.settings.clients[0]._totalGB" :min="0"></a-input-number>
+    </a-form-item>
+    <a-form-item>
+      <template slot="label">
+        <a-tooltip>
+          <template slot="title">{{ i18n "pages.inbounds.leaveBlankToNeverExpire" }}</template>
+          {{ i18n "pages.inbounds.expireDate" }}
+          <a-icon type="question-circle"></a-icon>
+        </a-tooltip>
+      </template>
+      <a-date-picker v-if="datepicker == 'gregorian'" :show-time="{ format: 'HH:mm:ss' }" format="YYYY-MM-DD HH:mm:ss"
+        :dropdown-class-name="themeSwitcher.currentTheme" v-model="inbound.settings.clients[0]._expiryTime"></a-date-picker>
+      <a-persian-datepicker v-else placeholder='{{ i18n "pages.settings.datepickerPlaceholder" }}'
+        value="inbound.settings.clients[0]._expiryTime" v-model="inbound.settings.clients[0]._expiryTime"></a-persian-datepicker>
+    </a-form-item>
+  </template>
 </a-form>
 {{end}}
