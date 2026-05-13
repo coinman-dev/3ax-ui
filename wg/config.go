@@ -154,6 +154,13 @@ func ipv6Iface(server *model.WgServer) string {
 	return DetectDefaultInterface()
 }
 
+// TPROXY routing constants for native WG: each protocol gets its own fwmark
+// and routing table so AWG and native WG can run RouteViaXray independently.
+const (
+	wgTproxyFwmark = "0x2"
+	wgTproxyTable  = "101"
+)
+
 // GenerateDefaultPostUp creates default iptables + NDP proxy rules for the server.
 func GenerateDefaultPostUp(server *model.WgServer, clients []model.WgClient) string {
 	iface := server.ExternalInterface
@@ -166,9 +173,16 @@ func GenerateDefaultPostUp(server *model.WgServer, clients []model.WgClient) str
 	}
 
 	parts := []string{
-		fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -o %s -j MASQUERADE", server.IPv4Pool, iface),
 		fmt.Sprintf("iptables -A FORWARD -i %s -j ACCEPT", name),
 		fmt.Sprintf("iptables -A FORWARD -o %s -j ACCEPT", name),
+	}
+	if !server.RouteViaXray {
+		// In direct mode, NAT tunnel traffic to the external interface.
+		// In RouteViaXray mode the TPROXY rules below capture ingress
+		// before it ever reaches POSTROUTING, so MASQUERADE is unwanted.
+		parts = append([]string{
+			fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -o %s -j MASQUERADE", server.IPv4Pool, iface),
+		}, parts...)
 	}
 
 	if server.IPv6Enabled {
@@ -201,7 +215,48 @@ func GenerateDefaultPostUp(server *model.WgServer, clients []model.WgClient) str
 		parts = append(parts, portfwd.PostUpLines(rules)...)
 	}
 
+	if server.RouteViaXray {
+		parts = append(parts, tproxyPostUpLines(server, name)...)
+	}
+
 	return strings.Join(parts, "; ")
+}
+
+// tproxyPostUpLines returns iptables mangle + policy-routing rules that
+// redirect tunnel ingress to a loopback Xray TPROXY listener. fwmark and
+// routing table are namespaced per protocol (see wgTproxyFwmark/Table).
+// IPv4 only — IPv6 traffic from the tunnel keeps using the OS routing
+// (forwarded via FORWARD), since dokodemo-door takes a single listen
+// address and dual-stack TPROXY would need a second inbound.
+func tproxyPostUpLines(server *model.WgServer, name string) []string {
+	port := server.XrayTproxyPort
+	if port <= 0 {
+		port = 12346
+	}
+	fwmark := wgTproxyFwmark
+	table := wgTproxyTable
+	return []string{
+		fmt.Sprintf("ip rule add fwmark %s/%s lookup %s", fwmark, fwmark, table),
+		fmt.Sprintf("ip route add local default dev lo table %s", table),
+		fmt.Sprintf("iptables -t mangle -A PREROUTING -i %s -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+		fmt.Sprintf("iptables -t mangle -A PREROUTING -i %s -p udp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+	}
+}
+
+// tproxyPostDownLines mirrors tproxyPostUpLines but issues delete/-D commands.
+func tproxyPostDownLines(server *model.WgServer, name string) []string {
+	port := server.XrayTproxyPort
+	if port <= 0 {
+		port = 12346
+	}
+	fwmark := wgTproxyFwmark
+	table := wgTproxyTable
+	return []string{
+		fmt.Sprintf("iptables -t mangle -D PREROUTING -i %s -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+		fmt.Sprintf("iptables -t mangle -D PREROUTING -i %s -p udp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+		fmt.Sprintf("ip route del local default dev lo table %s", table),
+		fmt.Sprintf("ip rule del fwmark %s/%s lookup %s", fwmark, fwmark, table),
+	}
 }
 
 // GenerateDefaultPostDown creates cleanup rules matching PostUp.
@@ -216,9 +271,13 @@ func GenerateDefaultPostDown(server *model.WgServer, clients []model.WgClient) s
 	}
 
 	parts := []string{
-		fmt.Sprintf("iptables -t nat -D POSTROUTING -s %s -o %s -j MASQUERADE", server.IPv4Pool, iface),
 		fmt.Sprintf("iptables -D FORWARD -i %s -j ACCEPT", name),
 		fmt.Sprintf("iptables -D FORWARD -o %s -j ACCEPT", name),
+	}
+	if !server.RouteViaXray {
+		parts = append([]string{
+			fmt.Sprintf("iptables -t nat -D POSTROUTING -s %s -o %s -j MASQUERADE", server.IPv4Pool, iface),
+		}, parts...)
 	}
 
 	if server.IPv6Enabled {
@@ -246,6 +305,10 @@ func GenerateDefaultPostDown(server *model.WgServer, clients []model.WgClient) s
 		specs := portfwd.Parse(c.ForwardedPorts)
 		rules := portfwd.Rules(iface, name, c.IPv4Address, c.UUID, specs)
 		parts = append(parts, portfwd.PostDownLines(rules)...)
+	}
+
+	if server.RouteViaXray {
+		parts = append(parts, tproxyPostDownLines(server, name)...)
 	}
 
 	return strings.Join(parts, "; ")

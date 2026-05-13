@@ -245,6 +245,30 @@
                   </a-row>
                 </a-collapse-panel>
 
+                <a-collapse-panel key="xray-route" header='{{ i18n "pages.awg.xrayIntegration" }}'>
+                  <a-alert type="info" show-icon style="margin-bottom: 12px"
+                    :message="'{{ i18n "pages.awg.xrayHint" }}'" />
+                  <a-row :gutter="16">
+                    <a-col :sm="24" :md="8">
+                      <a-form-item label='{{ i18n "pages.awg.routeViaXray" }}'>
+                        <a-switch v-model="server.routeViaXray" checked-children="ON" un-checked-children="OFF" />
+                      </a-form-item>
+                    </a-col>
+                    <a-col :sm="24" :md="8">
+                      <a-form-item label='{{ i18n "pages.awg.xrayInboundTag" }}'>
+                        <a-input v-model="server.xrayInboundTag" placeholder="awg-tproxy-in"
+                          :disabled="!server.routeViaXray" />
+                      </a-form-item>
+                    </a-col>
+                    <a-col :sm="24" :md="8">
+                      <a-form-item label='{{ i18n "pages.awg.xrayTproxyPort" }}'>
+                        <a-input-number v-model="server.xrayTproxyPort" :min="1" :max="65535"
+                          style="width:100%" :disabled="!server.routeViaXray" />
+                      </a-form-item>
+                    </a-col>
+                  </a-row>
+                </a-collapse-panel>
+
                 <a-collapse-panel key="scripts" header='{{ i18n "pages.awg.scripts" }}'>
                   <a-form-item label="PostUp">
                     <a-textarea v-model="server.postUp" :auto-size="{ minRows: 2, maxRows: 6 }"

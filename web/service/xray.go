@@ -3,11 +3,14 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 
+	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/util/json_util"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 
 	"go.uber.org/atomic"
@@ -234,7 +237,84 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		inboundConfig := inbound.GenXrayInboundConfig()
 		xrayConfig.InboundConfigs = append(xrayConfig.InboundConfigs, *inboundConfig)
 	}
+
+	// Append synthetic dokodemo-door TPROXY inbounds for each enabled
+	// AWG/WG server that opted into RouteViaXray. These are not stored as
+	// regular inbound records (AWG/WG live in their own tables and never
+	// pass through Xray under direct mode), but when the user wires WG/AWG
+	// traffic into Xray we need a sink for the TPROXY-redirected packets.
+	xrayConfig.InboundConfigs = append(xrayConfig.InboundConfigs, tunnelTproxyInbounds()...)
+
 	return xrayConfig, nil
+}
+
+// tunnelTproxyInbounds builds dokodemo-door inbounds for every enabled
+// WG/AWG server that has RouteViaXray turned on. The returned inbounds
+// listen on 127.0.0.1 (IPv4 only — see PostUp helpers in awg/wg config.go),
+// accept TCP+UDP, and read the original destination from the TPROXY mark.
+func tunnelTproxyInbounds() []xray.InboundConfig {
+	db := database.GetDB()
+	if db == nil {
+		return nil
+	}
+	var (
+		out      []xray.InboundConfig
+		awgs     []model.AwgServer
+		wgs      []model.WgServer
+		seenTag  = map[string]struct{}{}
+		seenPort = map[int]struct{}{}
+	)
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&awgs).Error; err != nil {
+		logger.Warning("tunnelTproxyInbounds: scan awg servers failed:", err)
+	}
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&wgs).Error; err != nil {
+		logger.Warning("tunnelTproxyInbounds: scan wg servers failed:", err)
+	}
+
+	add := func(tag string, port int, defaultTag string, defaultPort int) {
+		if tag == "" {
+			tag = defaultTag
+		}
+		if port <= 0 {
+			port = defaultPort
+		}
+		if _, dup := seenTag[tag]; dup {
+			logger.Warningf("tunnelTproxyInbounds: skip duplicate tag %q", tag)
+			return
+		}
+		if _, dup := seenPort[port]; dup {
+			logger.Warningf("tunnelTproxyInbounds: skip duplicate port %d for tag %q", port, tag)
+			return
+		}
+		seenTag[tag] = struct{}{}
+		seenPort[port] = struct{}{}
+		out = append(out, buildTproxyInbound(tag, port))
+	}
+
+	for _, s := range awgs {
+		add(s.XrayInboundTag, s.XrayTproxyPort, "awg-tproxy-in", 12345)
+	}
+	for _, s := range wgs {
+		add(s.XrayInboundTag, s.XrayTproxyPort, "wg-tproxy-in", 12346)
+	}
+	return out
+}
+
+// buildTproxyInbound assembles a dokodemo-door inbound with the TPROXY
+// socket option set, sniffing enabled so routing rules can match by domain.
+func buildTproxyInbound(tag string, port int) xray.InboundConfig {
+	settings := `{"network":"tcp,udp","followRedirect":true}`
+	stream := `{"sockopt":{"tproxy":"tproxy"}}`
+	sniffing := `{"enabled":true,"destOverride":["http","tls","quic"],"routeOnly":true}`
+	return xray.InboundConfig{
+		Listen:         json_util.RawMessage(fmt.Sprintf("%q", "127.0.0.1")),
+		Port:           port,
+		Protocol:       "dokodemo-door",
+		Settings:       json_util.RawMessage(settings),
+		StreamSettings: json_util.RawMessage(stream),
+		Tag:            tag,
+		Sniffing:       json_util.RawMessage(sniffing),
+	}
 }
 
 // GetXrayTraffic fetches the current traffic statistics from the running Xray process.

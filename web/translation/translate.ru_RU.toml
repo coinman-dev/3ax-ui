@@ -175,6 +175,13 @@
 
 [pages.wg]
 "title" = "WireGuard"
+"xrayIntegration" = "Интеграция с Xray"
+"routeViaXray" = "Направлять трафик через Xray"
+"routeViaXrayDesc" = "Перенаправлять трафик из туннеля в локальный TPROXY-инбаунд Xray вместо MASQUERADE в интернет. Дальнейшую цепочку (например, на исходящий через зарубежный VPN) настройте в разделе Xray → Маршрутизация."
+"xrayInboundTag" = "Тег инбаунда Xray"
+"xrayInboundTagDesc" = "Тег служебного dokodemo-door инбаунда, создаваемого для этого туннеля. Используйте его как Inbound Tag при добавлении правил маршрутизации."
+"xrayTproxyPort" = "Порт TPROXY"
+"xrayTproxyPortDesc" = "Локальный порт, на котором слушает TPROXY-слушатель Xray. Должен быть свободен и уникален на каждый туннель."
 
 [pages.inbounds]
 "allTimeTraffic" = "Общий трафик"

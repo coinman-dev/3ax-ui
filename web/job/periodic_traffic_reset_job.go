@@ -16,6 +16,7 @@ type Period string
 type PeriodicTrafficResetJob struct {
 	inboundService service.InboundService
 	awgService     service.AwgService
+	wgService      service.WgService
 	period         Period
 }
 
@@ -47,6 +48,18 @@ func (j *PeriodicTrafficResetJob) Run() {
 				logger.Warning("Failed to reset AWG client traffics:", err)
 			} else {
 				// Update lastTrafficResetTime on the AWG inbound record
+				now := time.Now().UnixMilli()
+				db := database.GetDB()
+				db.Model(model.Inbound{}).Where("id = ?", inbound.Id).Update("last_traffic_reset_time", now)
+				resetCount++
+			}
+			continue
+		}
+
+		if inbound.Protocol == model.NativeWG {
+			if err := j.wgService.ResetAllClientTraffics(); err != nil {
+				logger.Warning("Failed to reset WG client traffics:", err)
+			} else {
 				now := time.Now().UnixMilli()
 				db := database.GetDB()
 				db.Model(model.Inbound{}).Where("id = ?", inbound.Id).Update("last_traffic_reset_time", now)

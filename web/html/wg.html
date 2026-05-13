@@ -418,6 +418,39 @@
                         </template>
                       </a-setting-list-item>
                     </a-collapse-panel>
+                    <a-collapse-panel key="xray-route"
+                      header='{{ i18n "pages.wg.xrayIntegration" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.wg.routeViaXray" }}</template>
+                        <template #description>{{ i18n
+                          "pages.wg.routeViaXrayDesc" }}</template>
+                        <template #control>
+                          <a-switch v-model="awgServer.routeViaXray"
+                            checked-children="ON" un-checked-children="OFF" />
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.wg.xrayInboundTag" }}</template>
+                        <template #description>{{ i18n
+                          "pages.wg.xrayInboundTagDesc" }}</template>
+                        <template #control>
+                          <a-input v-model="awgServer.xrayInboundTag"
+                            placeholder="awg-tproxy-in"
+                            :disabled="!awgServer.routeViaXray"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.wg.xrayTproxyPort" }}</template>
+                        <template #description>{{ i18n
+                          "pages.wg.xrayTproxyPortDesc" }}</template>
+                        <template #control>
+                          <a-input-number v-model="awgServer.xrayTproxyPort"
+                            :min="1" :max="65535"
+                            :disabled="!awgServer.routeViaXray"
+                            :style="{ width: '100%' }"></a-input-number>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
                     <a-collapse-panel key="scripts"
                       header='{{ i18n "pages.awg.scripts" }}'>
                       <a-setting-list-item paddings="small">
@@ -637,6 +670,39 @@
                               <span>[[ iface.name ]]</span>
                             </a-select-option>
                           </a-select>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
+                    <a-collapse-panel key="xray-route"
+                      header='{{ i18n "pages.wg.xrayIntegration" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.wg.routeViaXray" }}</template>
+                        <template #description>{{ i18n
+                          "pages.wg.routeViaXrayDesc" }}</template>
+                        <template #control>
+                          <a-switch v-model="wgServer.routeViaXray"
+                            checked-children="ON" un-checked-children="OFF" />
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.wg.xrayInboundTag" }}</template>
+                        <template #description>{{ i18n
+                          "pages.wg.xrayInboundTagDesc" }}</template>
+                        <template #control>
+                          <a-input v-model="wgServer.xrayInboundTag"
+                            placeholder="wg-tproxy-in"
+                            :disabled="!wgServer.routeViaXray"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.wg.xrayTproxyPort" }}</template>
+                        <template #description>{{ i18n
+                          "pages.wg.xrayTproxyPortDesc" }}</template>
+                        <template #control>
+                          <a-input-number v-model="wgServer.xrayTproxyPort"
+                            :min="1" :max="65535"
+                            :disabled="!wgServer.routeViaXray"
+                            :style="{ width: '100%' }"></a-input-number>
                         </template>
                       </a-setting-list-item>
                     </a-collapse-panel>

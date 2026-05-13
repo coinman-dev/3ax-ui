@@ -53,6 +53,15 @@ type AwgServer struct {
 	// Periodic traffic reset: never, daily, weekly, monthly
 	TrafficReset string `json:"trafficReset" gorm:"default:'never'"`
 
+	// Route tunnel traffic into Xray via a dokodemo-door TPROXY inbound.
+	// When enabled, PostUp installs mangle/TPROXY rules and policy routing
+	// that redirect awg0 ingress to a loopback Xray inbound tagged
+	// XrayInboundTag, and skips the default MASQUERADE. Routing decisions
+	// (which outbound to chain to) are then made by Xray's routing rules.
+	RouteViaXray   bool   `json:"routeViaXray" gorm:"default:false"`
+	XrayInboundTag string `json:"xrayInboundTag" gorm:"default:'awg-tproxy-in'"`
+	XrayTproxyPort int    `json:"xrayTproxyPort" gorm:"default:12345"`
+
 	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime:milli"`
 	UpdatedAt int64 `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 }

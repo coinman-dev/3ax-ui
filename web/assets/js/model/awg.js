@@ -29,6 +29,9 @@ class AwgServer {
         this.postDown = data.postDown || '';
         this.endpoint = data.endpoint || '';
         this.trafficReset = data.trafficReset || 'never';
+        this.routeViaXray = data.routeViaXray || false;
+        this.xrayInboundTag = data.xrayInboundTag || 'awg-tproxy-in';
+        this.xrayTproxyPort = data.xrayTproxyPort || 12345;
     }
 }
 

@@ -1419,10 +1419,42 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB) (bool, int64, error)
 func (s *InboundService) GetInboundTags() (string, error) {
 	db := database.GetDB()
 	var inboundTags []string
-	err := db.Model(model.Inbound{}).Select("tag").Find(&inboundTags).Error
+	// Exclude AWG/NativeWG: their inbounds never enter the Xray config
+	// (xray.go skips them), so surfacing those tags in the routing rule
+	// dropdown invites broken rules. The TPROXY-mode tags below replace
+	// them as the real, working inbound identities for chained tunnels.
+	err := db.Model(model.Inbound{}).
+		Select("tag").
+		Where("protocol NOT IN ?", []string{string(model.AmneziaWG), string(model.NativeWG)}).
+		Find(&inboundTags).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return "", err
 	}
+
+	// Append synthetic TPROXY-inbound tags for enabled tunnel servers that
+	// chose RouteViaXray: these are the tags the user actually targets when
+	// building Home → WG/AWG → Xray → upstream-VPN routes.
+	var awgs []model.AwgServer
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&awgs).Error; err == nil {
+		for _, a := range awgs {
+			tag := a.XrayInboundTag
+			if tag == "" {
+				tag = "awg-tproxy-in"
+			}
+			inboundTags = append(inboundTags, tag)
+		}
+	}
+	var wgs []model.WgServer
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&wgs).Error; err == nil {
+		for _, w := range wgs {
+			tag := w.XrayInboundTag
+			if tag == "" {
+				tag = "wg-tproxy-in"
+			}
+			inboundTags = append(inboundTags, tag)
+		}
+	}
+
 	tags, _ := json.Marshal(inboundTags)
 	return string(tags), nil
 }

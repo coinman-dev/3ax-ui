@@ -168,6 +168,13 @@
 
 [pages.wg]
 "title" = "WireGuard"
+"xrayIntegration" = "Xray integration"
+"routeViaXray" = "Route traffic through Xray"
+"routeViaXrayDesc" = "Redirect tunnel ingress into a loopback Xray TPROXY inbound instead of MASQUERADE to the internet. Build the rest of the chain (e.g. forward to a foreign VPN outbound) in Xray → Routing."
+"xrayInboundTag" = "Xray inbound tag"
+"xrayInboundTagDesc" = "Tag of the synthetic dokodemo-door inbound created for this tunnel. Use it as Inbound Tag when adding routing rules."
+"xrayTproxyPort" = "TPROXY port"
+"xrayTproxyPortDesc" = "Loopback port the Xray TPROXY listener binds to. Must be free and unique per tunnel."
 
 [pages.inbounds]
 "allTimeTraffic" = "إجمالي حركة المرور"
