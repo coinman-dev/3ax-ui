@@ -302,12 +302,15 @@ func tunnelTproxyInbounds() []xray.InboundConfig {
 
 // buildTproxyInbound assembles a dokodemo-door inbound with the TPROXY
 // socket option set, sniffing enabled so routing rules can match by domain.
+// Listens on :: so a single socket catches both IPv4 (via v4-mapped
+// addresses on Linux when net.ipv6.bindv6only=0, the default) and native
+// IPv6 TPROXY redirects — no need for a second inbound per family.
 func buildTproxyInbound(tag string, port int) xray.InboundConfig {
 	settings := `{"network":"tcp,udp","followRedirect":true}`
 	stream := `{"sockopt":{"tproxy":"tproxy"}}`
 	sniffing := `{"enabled":true,"destOverride":["http","tls","quic"],"routeOnly":true}`
 	return xray.InboundConfig{
-		Listen:         json_util.RawMessage(fmt.Sprintf("%q", "127.0.0.1")),
+		Listen:         json_util.RawMessage(fmt.Sprintf("%q", "::")),
 		Port:           port,
 		Protocol:       "dokodemo-door",
 		Settings:       json_util.RawMessage(settings),

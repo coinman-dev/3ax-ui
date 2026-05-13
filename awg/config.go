@@ -247,9 +247,9 @@ func GenerateDefaultPostUp(server *model.AwgServer, clients []model.AwgClient) s
 // tproxyPostUpLines returns iptables mangle + policy-routing rules that
 // redirect tunnel ingress to a loopback Xray TPROXY listener. fwmark and
 // routing table are namespaced per protocol (see awgTproxyFwmark/Table).
-// IPv4 only — IPv6 traffic from the tunnel keeps using the OS routing
-// (forwarded via FORWARD), since dokodemo-door takes a single listen
-// address and dual-stack TPROXY would need a second inbound.
+// Dual-stack: IPv6 rules are emitted only when the tunnel has IPv6 turned
+// on. The single dokodemo-door inbound listens on :: and catches both via
+// v4-mapped addresses (kernel default net.ipv6.bindv6only=0).
 func tproxyPostUpLines(server *model.AwgServer, name string) []string {
 	port := server.XrayTproxyPort
 	if port <= 0 {
@@ -257,12 +257,21 @@ func tproxyPostUpLines(server *model.AwgServer, name string) []string {
 	}
 	fwmark := awgTproxyFwmark
 	table := awgTproxyTable
-	return []string{
+	lines := []string{
 		fmt.Sprintf("ip rule add fwmark %s/%s lookup %s", fwmark, fwmark, table),
 		fmt.Sprintf("ip route add local default dev lo table %s", table),
 		fmt.Sprintf("iptables -t mangle -A PREROUTING -i %s -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
 		fmt.Sprintf("iptables -t mangle -A PREROUTING -i %s -p udp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
 	}
+	if server.IPv6Enabled {
+		lines = append(lines,
+			fmt.Sprintf("ip -6 rule add fwmark %s/%s lookup %s", fwmark, fwmark, table),
+			fmt.Sprintf("ip -6 route add local default dev lo table %s", table),
+			fmt.Sprintf("ip6tables -t mangle -A PREROUTING -i %s -p tcp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+			fmt.Sprintf("ip6tables -t mangle -A PREROUTING -i %s -p udp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+		)
+	}
+	return lines
 }
 
 // tproxyPostDownLines mirrors tproxyPostUpLines but issues delete/-D commands.
@@ -273,12 +282,21 @@ func tproxyPostDownLines(server *model.AwgServer, name string) []string {
 	}
 	fwmark := awgTproxyFwmark
 	table := awgTproxyTable
-	return []string{
+	lines := []string{
 		fmt.Sprintf("iptables -t mangle -D PREROUTING -i %s -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
 		fmt.Sprintf("iptables -t mangle -D PREROUTING -i %s -p udp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
 		fmt.Sprintf("ip route del local default dev lo table %s", table),
 		fmt.Sprintf("ip rule del fwmark %s/%s lookup %s", fwmark, fwmark, table),
 	}
+	if server.IPv6Enabled {
+		lines = append(lines,
+			fmt.Sprintf("ip6tables -t mangle -D PREROUTING -i %s -p tcp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+			fmt.Sprintf("ip6tables -t mangle -D PREROUTING -i %s -p udp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", name, port, fwmark, fwmark),
+			fmt.Sprintf("ip -6 route del local default dev lo table %s", table),
+			fmt.Sprintf("ip -6 rule del fwmark %s/%s lookup %s", fwmark, fwmark, table),
+		)
+	}
+	return lines
 }
 
 // GenerateDefaultPostDown creates cleanup rules matching PostUp.
