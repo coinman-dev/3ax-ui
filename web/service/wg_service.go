@@ -167,10 +167,20 @@ func (s *WgService) ResetToDefaults() (*model.WgServer, error) {
 	server.PostUp = ""
 	server.PostDown = ""
 	server.TrafficReset = "never"
+	hadRouteViaXray := server.RouteViaXray
+	server.RouteViaXray = false
+	server.XrayInboundTag = "wg-tproxy-in"
+	server.XrayTproxyPort = 12346
 	server.UpdatedAt = time.Now().UnixMilli()
 
 	if err := db.Save(server).Error; err != nil {
 		return nil, err
+	}
+
+	// If a synthetic Xray inbound was active before reset, ask Xray to
+	// restart so the now-removed dokodemo-door listener goes away.
+	if hadRouteViaXray {
+		(&XrayService{}).SetToNeedRestart()
 	}
 
 	return server, nil
@@ -188,6 +198,13 @@ func (s *WgService) ToggleServer(enable bool) error {
 		return err
 	}
 	server.Enable = enable
+
+	// If this tunnel feeds Xray, toggling its enabled state changes
+	// which dokodemo-door inbounds Xray should expose. Schedule a
+	// restart so the synthetic inbound appears/disappears in step.
+	if server.RouteViaXray {
+		(&XrayService{}).SetToNeedRestart()
+	}
 
 	if enable {
 		return s.applyServerConfig(server)
