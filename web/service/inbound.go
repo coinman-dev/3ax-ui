@@ -3507,7 +3507,7 @@ func (s *InboundService) MigrateDB() {
 // as "online". Shared by every protocol (xray here, plus AWG / WireGuard /
 // MTProto) so online status is reported uniformly — a sticky "seen recently"
 // window rather than xray's old per-traffic-tick "transferring right now".
-const onlineWindow = 3 * time.Minute
+const onlineWindow = 1 * time.Minute
 
 // getXrayOnlineClients returns the emails of xray (vmess/vless/trojan/
 // shadowsocks) clients seen within onlineWindow, read from the persisted
