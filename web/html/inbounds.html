@@ -3311,13 +3311,14 @@
             // exactly equal to the number of rows showing online, for every
             // protocol.
             getInboundOnline(dbInbound) {
-                const inbound = this.inbounds.find(
-                    (ib) => ib.id === dbInbound.id,
-                );
-                if (!inbound || !inbound.clients || !dbInbound.enable)
-                    return [];
+                if (!dbInbound || !dbInbound.enable) return [];
+                // Use the same client source as the rows (dbInbound.toInbound().
+                // clients). Note: this.inbounds holds Inbound objects, which have
+                // no .id — looking an inbound up there by id never matches.
+                const clients = this.getInboundClients(dbInbound);
+                if (!clients) return [];
                 const online = [];
-                for (const client of inbound.clients) {
+                for (const client of clients) {
                     if (!client.enable) continue;
                     const key = this.getClientLookupKey(
                         dbInbound.protocol,
