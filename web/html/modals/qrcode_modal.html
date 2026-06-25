@@ -365,7 +365,9 @@
                 // Reset the flag when modal is closed so it will fetch again next time
                 this.statusFetched = false;
             }
-            if (qrModal.client && qrModal.client.subId) {
+            // MTProto isn't carried by the subscription (its share link is a
+            // tg:// deep link), so don't offer a "Subscription" QR for it.
+            if (qrModal.client && qrModal.client.subId && !qrModal.dbInbound.isMtproto) {
                 qrModal.subId = qrModal.client.subId;
                 this.setQrCode("qrCode-sub", this.genSubLink(qrModal.subId));
                 if (app.subSettings.subJsonEnable) {
