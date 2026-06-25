@@ -783,7 +783,7 @@
                                                 >
                                                     <template slot="content">
                                                         <div
-                                                            v-for="clientEmail in clientCount[dbInbound.id].online"
+                                                            v-for="clientEmail in getInboundOnline(dbInbound)"
                                                             :key="clientEmail"
                                                             class="client-popup-item"
                                                         >
@@ -813,9 +813,9 @@
                                                     <a-tag
                                                         :style="{ margin: '0', padding: '0 2px' }"
                                                         color="blue"
-                                                        v-if="clientCount[dbInbound.id].online.length"
+                                                        v-if="getInboundOnline(dbInbound).length"
                                                         >[[
-                                                        clientCount[dbInbound.id].online.length
+                                                        getInboundOnline(dbInbound).length
                                                         ]]</a-tag
                                                     >
                                                 </a-popover>
@@ -1168,7 +1168,7 @@
                                                                         slot="content"
                                                                     >
                                                                         <div
-                                                                            v-for="clientEmail in clientCount[dbInbound.id].online"
+                                                                            v-for="clientEmail in getInboundOnline(dbInbound)"
                                                                             :key="clientEmail"
                                                                             class="client-popup-item"
                                                                         >
@@ -1198,9 +1198,9 @@
                                                                     <a-tag
                                                                         :style="{ margin: '0', padding: '0 2px' }"
                                                                         color="green"
-                                                                        v-if="clientCount[dbInbound.id].online.length"
+                                                                        v-if="getInboundOnline(dbInbound).length"
                                                                         >[[
-                                                                        clientCount[dbInbound.id].online.length
+                                                                        getInboundOnline(dbInbound).length
                                                                         ]]</a-tag
                                                                     >
                                                                 </a-popover>
@@ -3301,6 +3301,32 @@
                 // by the "traffic" websocket event — so non-xray protocols update
                 // live instead of only on a full inbound refresh.
                 return this.onlineClients.includes(clientKey);
+            },
+            // Live list of online client keys for an inbound, derived from the
+            // same isClientOnline() check the per-client rows use. The inbound
+            // "online" badge previously read the cached clientCount[id].online,
+            // which is only recomputed on certain events and could lag behind
+            // the reactive row badges (a client shown "online" in its row while
+            // the inbound badge stayed empty). Computing it live keeps the count
+            // exactly equal to the number of rows showing online, for every
+            // protocol.
+            getInboundOnline(dbInbound) {
+                const inbound = this.inbounds.find(
+                    (ib) => ib.id === dbInbound.id,
+                );
+                if (!inbound || !inbound.clients || !dbInbound.enable)
+                    return [];
+                const online = [];
+                for (const client of inbound.clients) {
+                    if (!client.enable) continue;
+                    const key = this.getClientLookupKey(
+                        dbInbound.protocol,
+                        client,
+                    );
+                    if (this.isClientOnline(key, dbInbound.protocol))
+                        online.push(key);
+                }
+                return online;
             },
             getLastOnline(email) {
                 return this.lastOnlineMap[email] || null;
