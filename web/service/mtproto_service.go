@@ -254,11 +254,11 @@ func (s *MtprotoClientService) RehealInbound(inboundId int, domain string) bool 
 	return changed
 }
 
-// GetOnlineClients returns the Uuids of clients seen with a live connection in
-// the last 3 minutes.
+// GetOnlineClients returns the Uuids of clients seen with a live connection
+// within onlineWindow.
 func (s *MtprotoClientService) GetOnlineClients() []string {
 	db := database.GetDB()
-	threshold := time.Now().Add(-3 * time.Minute).UnixMilli()
+	threshold := time.Now().Add(-onlineWindow).UnixMilli()
 	var uuids []string
 	db.Model(&model.MtprotoClient{}).
 		Where("enable = ? AND last_online > ?", true, threshold).

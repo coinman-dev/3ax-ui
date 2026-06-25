@@ -3503,8 +3503,28 @@ func (s *InboundService) MigrateDB() {
 	s.MigrationRemoveOrphanedTraffics()
 }
 
+// onlineWindow is how long after a client's last seen activity it still counts
+// as "online". Shared by every protocol (xray here, plus AWG / WireGuard /
+// MTProto) so online status is reported uniformly — a sticky "seen recently"
+// window rather than xray's old per-traffic-tick "transferring right now".
+const onlineWindow = 3 * time.Minute
+
+// getXrayOnlineClients returns the emails of xray (vmess/vless/trojan/
+// shadowsocks) clients seen within onlineWindow, read from the persisted
+// last_online column. This replaces the in-memory per-tick list so xray
+// protocols behave like AWG/WG/MTProto (online stays lit between bursts).
+func (s *InboundService) getXrayOnlineClients() []string {
+	db := database.GetDB()
+	threshold := time.Now().Add(-onlineWindow).UnixMilli()
+	var emails []string
+	db.Model(&xray.ClientTraffic{}).
+		Where("enable = ? AND last_online > ?", true, threshold).
+		Pluck("email", &emails)
+	return emails
+}
+
 func (s *InboundService) GetOnlineClients() []string {
-	online := p.GetOnlineClients()
+	online := s.getXrayOnlineClients()
 	// AWG / native WireGuard / MTProto clients track their own online state (by
 	// uuid) in dedicated tables. Merge them here so the realtime traffic
 	// broadcast and the /onlines endpoint report every protocol uniformly — the

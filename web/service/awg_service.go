@@ -348,10 +348,10 @@ func (s *AwgService) GetNetworkInterfaces() []NetworkInterface {
 	return result
 }
 
-// GetOnlineClients returns emails of AWG clients online within the last 3 minutes.
+// GetOnlineClients returns the uuids of AWG clients online within onlineWindow.
 func (s *AwgService) GetOnlineClients() []string {
 	db := database.GetDB()
-	threshold := time.Now().Add(-3 * time.Minute).UnixMilli()
+	threshold := time.Now().Add(-onlineWindow).UnixMilli()
 	var uuids []string
 	db.Model(&model.AwgClient{}).
 		Where("enable = ? AND last_online > ?", true, threshold).
