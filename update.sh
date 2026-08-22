@@ -587,8 +587,11 @@ ssl_cert_issue() {
     systemctl start x-ui 2>/dev/null || rc-service x-ui start 2>/dev/null
 
     # Prompt user to set panel paths after successful certificate installation
-    read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+    # Empty answer means yes: a certificate that was just issued for this
+    # panel is almost always meant to be used by it, and skipping the step
+    # silently leaves the panel serving the previous certificate.
+    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         local webCertFile="/root/cert/${domain}/fullchain.pem"
         local webKeyFile="/root/cert/${domain}/privkey.pem"
 
