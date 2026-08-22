@@ -20,7 +20,7 @@ type TunnelServer struct {
 
 	Enable        bool   `json:"enable" gorm:"default:false"`
 	InterfaceName string `json:"interfaceName"`
-	ListenPort    int    `json:"listenPort" gorm:"default:51820"`
+	ListenPort    int    `json:"listenPort"`
 	MTU           int    `json:"mtu" gorm:"default:1420"`
 
 	// Server keys
@@ -28,8 +28,10 @@ type TunnelServer struct {
 	PublicKey  string `json:"publicKey"`
 
 	// IPv4 tunnel network
-	IPv4Address string `json:"ipv4Address" gorm:"default:'10.66.66.1/24'"`
-	IPv4Pool    string `json:"ipv4Pool" gorm:"default:'10.66.66.0/24'"`
+	// No schema defaults: these differ per flavour and are filled in by the
+	// service when a server record is first created (see GetServer).
+	IPv4Address string `json:"ipv4Address"`
+	IPv4Pool    string `json:"ipv4Pool"`
 
 	// IPv6 — native public addresses
 	IPv6Enabled bool   `json:"ipv6Enabled" gorm:"default:false"`

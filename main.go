@@ -415,8 +415,8 @@ func generateAwg2() {
 		log.Fatal(err)
 	}
 	db := database.GetDB()
-	var server model.AwgServer
-	if err := db.First(&server).Error; err != nil {
+	var server model.TunnelServer
+	if err := db.Where("kind = ?", model.TunnelKindAwg).First(&server).Error; err != nil {
 		fmt.Println("No AmneziaWG server to configure:", err)
 		return
 	}

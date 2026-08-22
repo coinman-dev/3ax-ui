@@ -10,6 +10,7 @@ import (
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/tunnel"
 	"github.com/coinman-dev/3ax-ui/v2/util/json_util"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 
@@ -401,16 +402,13 @@ func tunnelTproxyInbounds() []xray.InboundConfig {
 	}
 	var (
 		out      []xray.InboundConfig
-		awgs     []model.AwgServer
-		wgs      []model.WgServer
+		servers  []model.TunnelServer
 		seenTag  = map[string]struct{}{}
 		seenPort = map[int]struct{}{}
 	)
-	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&awgs).Error; err != nil {
-		logger.Warning("tunnelTproxyInbounds: scan awg servers failed:", err)
-	}
-	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&wgs).Error; err != nil {
-		logger.Warning("tunnelTproxyInbounds: scan wg servers failed:", err)
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).
+		Order("kind").Find(&servers).Error; err != nil {
+		logger.Warning("tunnelTproxyInbounds: scan tunnel servers failed:", err)
 	}
 
 	add := func(tag string, port int, defaultTag string, defaultPort int) {
@@ -433,11 +431,12 @@ func tunnelTproxyInbounds() []xray.InboundConfig {
 		out = append(out, buildTproxyInbound(tag, port))
 	}
 
-	for _, s := range awgs {
-		add(s.XrayInboundTag, s.XrayTproxyPort, "awg-tproxy-in", 12345)
-	}
-	for _, s := range wgs {
-		add(s.XrayInboundTag, s.XrayTproxyPort, "wg-tproxy-in", 12346)
+	for _, srv := range servers {
+		k := tunnel.AWG
+		if srv.Kind == model.TunnelKindWg {
+			k = tunnel.WG
+		}
+		add(srv.XrayInboundTag, srv.XrayTproxyPort, k.Name+"-tproxy-in", k.TproxyPort)
 	}
 	return out
 }

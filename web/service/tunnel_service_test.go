@@ -2,6 +2,7 @@ package service
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
@@ -96,4 +97,102 @@ func TestTunnelFlavoursStayIsolated(t *testing.T) {
 
 func nowMilli() int64 {
 	return 9_999_999_999_999
+}
+
+// TestRouteViaXrayReadsMergedTables guards the wiring that turns RouteViaXray
+// into something that actually works: with the flag on, the panel must inject a
+// dokodemo-door inbound for the tunnel and offer its tag for routing rules.
+// Both used to be read from the legacy tables, which the services stopped
+// writing after the schema merge — the tunnel would then have had its traffic
+// redirected to a port nothing was listening on.
+func TestRouteViaXrayReadsMergedTables(t *testing.T) {
+	if err := database.InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	db := database.GetDB()
+
+	awg := &AwgService{}
+	server, err := awg.GetServer()
+	if err != nil {
+		t.Fatalf("GetServer: %v", err)
+	}
+	if err := db.Model(&model.TunnelServer{}).Where("id = ?", server.Id).
+		Updates(map[string]any{"enable": true, "route_via_xray": true}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	inbounds := tunnelTproxyInbounds()
+	if len(inbounds) != 1 {
+		t.Fatalf("expected one TPROXY inbound for the enabled tunnel, got %d", len(inbounds))
+	}
+	if inbounds[0].Tag != server.XrayInboundTag {
+		t.Errorf("inbound tag = %q, want %q", inbounds[0].Tag, server.XrayInboundTag)
+	}
+	if inbounds[0].Port != server.XrayTproxyPort {
+		t.Errorf("inbound port = %d, want %d", inbounds[0].Port, server.XrayTproxyPort)
+	}
+
+	tags, err := (&InboundService{}).GetInboundTags()
+	if err != nil {
+		t.Fatalf("GetInboundTags: %v", err)
+	}
+	if !strings.Contains(tags, server.XrayInboundTag) {
+		t.Errorf("routing tag list %s does not offer %q", tags, server.XrayInboundTag)
+	}
+
+	// Turning it off withdraws both.
+	if err := db.Model(&model.TunnelServer{}).Where("id = ?", server.Id).
+		Update("route_via_xray", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := tunnelTproxyInbounds(); len(got) != 0 {
+		t.Errorf("TPROXY inbound survived turning RouteViaXray off: %+v", got)
+	}
+}
+
+// TestFreshServersGetTheirOwnDefaults: with both flavours in one table the
+// schema can no longer say "10.66.66.0/24, but 10.77.77.0/24 for the other
+// one", so the service fills those in. A WireGuard server inheriting the
+// AmneziaWG subnet would collide with a live tunnel on the same host.
+func TestFreshServersGetTheirOwnDefaults(t *testing.T) {
+	if err := database.InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+
+	awgServer, err := (&AwgService{}).GetServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wgServer, err := (&WgService{}).GetServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name   string
+		got    *model.TunnelServer
+		iface  string
+		pool   string
+		tag    string
+		tproxy int
+	}{
+		{"awg", awgServer, "awg0", "10.66.66.0/24", "awg-tproxy-in", 12345},
+		{"wg", wgServer, "wg0", "10.77.77.0/24", "wg-tproxy-in", 12346},
+	} {
+		if c.got.InterfaceName != c.iface {
+			t.Errorf("%s: interface = %q, want %q", c.name, c.got.InterfaceName, c.iface)
+		}
+		if c.got.IPv4Pool != c.pool {
+			t.Errorf("%s: pool = %q, want %q", c.name, c.got.IPv4Pool, c.pool)
+		}
+		if c.got.XrayInboundTag != c.tag {
+			t.Errorf("%s: tproxy tag = %q, want %q", c.name, c.got.XrayInboundTag, c.tag)
+		}
+		if c.got.XrayTproxyPort != c.tproxy {
+			t.Errorf("%s: tproxy port = %d, want %d", c.name, c.got.XrayTproxyPort, c.tproxy)
+		}
+	}
+	if awgServer.ListenPort == wgServer.ListenPort {
+		t.Errorf("both tunnels picked the same listen port %d", awgServer.ListenPort)
+	}
 }

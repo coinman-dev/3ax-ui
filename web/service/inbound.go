@@ -2295,22 +2295,13 @@ func (s *InboundService) GetInboundTags() (string, error) {
 	// Append synthetic TPROXY-inbound tags for enabled tunnel servers that
 	// chose RouteViaXray: these are the tags the user actually targets when
 	// building Home → WG/AWG → Xray → upstream-VPN routes.
-	var awgs []model.AwgServer
-	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&awgs).Error; err == nil {
-		for _, a := range awgs {
-			tag := a.XrayInboundTag
+	var tunnels []model.TunnelServer
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).
+		Order("kind").Find(&tunnels).Error; err == nil {
+		for _, t := range tunnels {
+			tag := t.XrayInboundTag
 			if tag == "" {
-				tag = "awg-tproxy-in"
-			}
-			inboundTags = append(inboundTags, tag)
-		}
-	}
-	var wgs []model.WgServer
-	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&wgs).Error; err == nil {
-		for _, w := range wgs {
-			tag := w.XrayInboundTag
-			if tag == "" {
-				tag = "wg-tproxy-in"
+				tag = t.Kind + "-tproxy-in"
 			}
 			inboundTags = append(inboundTags, tag)
 		}

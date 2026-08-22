@@ -97,6 +97,31 @@ func (s *TunnelService[K]) GetServer() (*model.TunnelServer, error) {
 		needSave = true
 	}
 
+	// Flavour defaults. They used to sit in the schema, which cannot express
+	// "10.66.66.0/24 for AmneziaWG but 10.77.77.0/24 for WireGuard" now that
+	// both live in one table.
+	k := s.kind()
+	if server.InterfaceName == "" {
+		server.InterfaceName = k.DefaultIface
+		needSave = true
+	}
+	if server.IPv4Address == "" {
+		server.IPv4Address = k.DefaultIPv4Address
+		needSave = true
+	}
+	if server.IPv4Pool == "" {
+		server.IPv4Pool = k.DefaultIPv4Pool
+		needSave = true
+	}
+	if server.XrayInboundTag == "" {
+		server.XrayInboundTag = k.Name + "-tproxy-in"
+		needSave = true
+	}
+	if server.XrayTproxyPort <= 0 {
+		server.XrayTproxyPort = k.TproxyPort
+		needSave = true
+	}
+
 	// Auto-detect external interface if not set
 	if server.ExternalInterface == "" {
 		server.ExternalInterface = tunnel.DetectDefaultInterface()
