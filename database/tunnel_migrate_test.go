@@ -325,3 +325,50 @@ func TestMigrationRunsOnlyOnce(t *testing.T) {
 		t.Errorf("server edit made after the upgrade was overwritten: listen_port = %d", after.ListenPort)
 	}
 }
+
+// TestInitDBSurvivesStrayIndexName reproduces the upgrade failure seen on a
+// production panel: SQLite keeps index names global to the database, gorm looks
+// for an index only on the table it is migrating, and the name had ended up on
+// another table — from the table rebuild the driver does when adding a column,
+// or from a second x-ui process migrating at the same time. AutoMigrate then
+// failed, InitDB returned an error and the panel started with its schema
+// half-applied.
+func TestInitDBSurvivesStrayIndexName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x-ui.db")
+	if err := InitDB(path); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+
+	// Put one of our index names on the wrong table.
+	if err := db.Exec("DROP INDEX IF EXISTS idx_awg_enable_last_online").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE INDEX idx_awg_enable_last_online ON client_traffics(enable, last_online)").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := InitDB(path); err != nil {
+		t.Fatalf("InitDB must survive a stray index name, got: %v", err)
+	}
+
+	// The index is back where it belongs, so the query it serves stays indexed.
+	var onRightTable int64
+	if err := db.Raw(`SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_awg_enable_last_online' AND tbl_name = 'awg_clients'`).
+		Scan(&onRightTable).Error; err != nil {
+		t.Fatal(err)
+	}
+	if onRightTable != 1 {
+		t.Error("the index was not recreated on awg_clients")
+	}
+
+	// And the schema is complete: the merged tunnel tables must exist, which is
+	// what the failed run on the live panel could have skipped.
+	for _, table := range []string{"tunnel_servers", "tunnel_clients"} {
+		var n int64
+		db.Raw(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&n)
+		if n != 1 {
+			t.Errorf("table %s missing after recovery", table)
+		}
+	}
+}

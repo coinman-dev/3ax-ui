@@ -56,11 +56,60 @@ func initModels() error {
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {
+			// SQLite keeps index names in one namespace for the whole database,
+			// and gorm only looks for an index on the table it is migrating. If
+			// the name is taken elsewhere — a leftover from the table rebuild
+			// the driver performs when adding a column, or from a second x-ui
+			// process migrating at the same time — CreateIndex fails. Losing an
+			// index is a performance problem; failing InitDB takes the panel
+			// down, so this is logged and skipped rather than returned.
+			if strings.Contains(err.Error(), "already exists") {
+				xuilogger.Warningf("auto migration skipped an existing object: %v", err)
+				continue
+			}
 			log.Printf("Error auto migrating model: %v", err)
 			return err
 		}
 	}
 	return nil
+}
+
+// namedIndexes maps every index this schema declares by name to the table it
+// belongs on. SQLite index names are global, so an index of ours sitting on the
+// wrong table blocks the right one from being created.
+var namedIndexes = map[string]string{
+	"idx_ct_enable_last_online":      "client_traffics",
+	"idx_awg_enable_last_online":     "awg_clients",
+	"idx_wg_enable_last_online":      "wg_clients",
+	"idx_mtproto_enable_last_online": "mtproto_clients",
+	"idx_tunnel_enable_last_online":  "tunnel_clients",
+	"idx_tunnel_client_server_email": "tunnel_clients",
+	"idx_enable_traffic_reset":       "inbounds",
+}
+
+// dropStrayNamedIndexes removes indexes that carry one of our names but hang off
+// another table, so AutoMigrate can recreate them where they belong.
+func dropStrayNamedIndexes(db *gorm.DB) {
+	type row struct {
+		Name    string
+		TblName string
+	}
+	var rows []row
+	if err := db.Raw(`SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'`).
+		Scan(&rows).Error; err != nil {
+		xuilogger.Warning("could not inspect indexes:", err)
+		return
+	}
+	for _, r := range rows {
+		want, ours := namedIndexes[r.Name]
+		if !ours || want == r.TblName {
+			continue
+		}
+		xuilogger.Warningf("index %s belongs on %s but was found on %s, recreating it", r.Name, want, r.TblName)
+		if err := db.Exec("DROP INDEX IF EXISTS " + r.Name).Error; err != nil {
+			xuilogger.Warningf("could not drop stray index %s: %v", r.Name, err)
+		}
+	}
 }
 
 // initUser creates a default admin user if the users table is empty.
@@ -261,6 +310,8 @@ func InitDB(dbPath string) error {
 	// avoid a GORM SQLite "duplicate column name" failure when it adds columns
 	// while also rebuilding awg_servers for the H1-H4 int→string type change.
 	preMigrateAwgWgColumns()
+
+	dropStrayNamedIndexes(db)
 
 	if err := initModels(); err != nil {
 		return err
