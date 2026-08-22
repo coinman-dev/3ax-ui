@@ -1166,7 +1166,22 @@ ssl_cert_issue_main() {
             if [[ -n "$domain" ]] && echo "$domains" | grep -Fxq "$domain"; then
                 if ~/.acme.sh/acme.sh --revoke -d "${domain}"; then
                     LOGI "Certificate revoked for: $domain"
-                    LOGW "Installed files in $(cert_dir_for "$domain") are left in place; the panel keeps serving them until a new certificate is installed."
+                    # Revoking only tells the CA to distrust the certificate. The
+                    # acme.sh record, the renewal cron and the installed files all
+                    # stay, so without this the entry keeps showing up in these
+                    # menus and keeps renewing itself.
+                    LOGW "Revoking does not delete anything locally: acme.sh still tracks ${domain} and will keep renewing it."
+                    confirm "Remove it from acme.sh as well (stops the renewals and clears it from these lists)?" "y"
+                    if [[ $? == 0 ]]; then
+                        if ~/.acme.sh/acme.sh --remove -d "${domain}" --ecc || ~/.acme.sh/acme.sh --remove -d "${domain}"; then
+                            LOGI "acme.sh no longer tracks ${domain}."
+                        else
+                            LOGE "Could not remove the acme.sh record for ${domain}."
+                        fi
+                    fi
+                    certDir=$(cert_dir_for "$domain")
+                    LOGW "The installed files in ${certDir} are still there and the panel keeps serving them until another certificate is set."
+                    LOGI "To issue a fresh certificate for the same name, use option 1 and answer yes when asked to re-issue."
                 else
                     LOGE "Revoke failed for: $domain"
                 fi
