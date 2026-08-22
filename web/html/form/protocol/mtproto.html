@@ -23,7 +23,10 @@
         {{ i18n "pages.inbounds.mtproto.route" }}
       </a-tooltip>
     </template>
-    <a-switch v-model="inbound.settings.routeThroughXray"></a-switch>
+    <a-switch
+      v-model="inbound.settings.routeThroughXray"
+      @change="loadMtprotoOutboundTags"
+    ></a-switch>
   </a-form-item>
   <a-form-item v-if="inbound.settings.routeThroughXray">
     <template slot="label">
@@ -34,10 +37,18 @@
         {{ i18n "pages.inbounds.mtproto.outboundTag" }}
       </a-tooltip>
     </template>
-    <a-input
+    <!-- Free text with suggestions: the list holds the tags that exist in the
+         Xray config right now, but a tag that is only added later is just as
+         valid, so the field must stay typeable. -->
+    <a-auto-complete
       v-model.trim="inbound.settings.outboundTag"
+      :data-source="mtprotoOutboundTags"
+      :dropdown-class-name="themeSwitcher.currentTheme"
+      style="width: 100%"
       placeholder="proxy"
-    ></a-input>
+      allow-clear
+      @focus="loadMtprotoOutboundTags"
+    ></a-auto-complete>
   </a-form-item>
 </a-form>
 <!-- First client on create; further clients are added via the client table on

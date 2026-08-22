@@ -92,6 +92,14 @@
             this.confirm = confirm;
             this.visible = true;
             this.isEdit = isEdit;
+            // The MTProto form offers the panel's own Xray outbound tags; fetch
+            // them as the modal opens so the list is there on the first focus.
+            if (
+                this.inbound.protocol === Protocols.MTPROTO &&
+                inboundModalVueInstance
+            ) {
+                inboundModalVueInstance.loadMtprotoOutboundTags();
+            }
         },
         close() {
             inModal.visible = false;
@@ -156,6 +164,7 @@
         data: {
             inModal: inModal,
             delayedStart: false,
+            mtprotoOutboundTags: [],
             get inbound() {
                 return inModal.inbound;
             },
@@ -354,6 +363,49 @@
                     this.inbound.stream.reality.target = randomTarget.target;
                     this.inbound.stream.reality.serverNames = randomTarget.sni;
                 }
+            },
+            // Suggestions for the MTProto "route through Xray" target: every
+            // outbound in the panel's Xray config, plus every balancer — a
+            // routing rule may point at either, and injectMtprotoEgress picks
+            // the matching key. Fetched once per page; free text stays allowed,
+            // since the tag may be added to the config afterwards.
+            async loadMtprotoOutboundTags() {
+                if (this.mtprotoOutboundTags.length > 0) {
+                    return;
+                }
+                const msg = await HttpUtil.post("/panel/xray/");
+                if (!msg.success) {
+                    return;
+                }
+                let config;
+                try {
+                    config = JSON.parse(msg.obj).xraySetting;
+                } catch (e) {
+                    console.error("outbound tags: unparsable xray setting", e);
+                    return;
+                }
+                if (typeof config === "string") {
+                    try {
+                        config = JSON.parse(config);
+                    } catch (e) {
+                        console.error("outbound tags: unparsable xray setting", e);
+                        return;
+                    }
+                }
+                if (!config) {
+                    return;
+                }
+                const tags = [];
+                const add = (tag) => {
+                    if (tag && !tags.includes(tag)) {
+                        tags.push(tag);
+                    }
+                };
+                (config.outbounds || []).forEach((o) => add(o && o.tag));
+                const balancers =
+                    (config.routing && config.routing.balancers) || [];
+                balancers.forEach((b) => add(b && b.tag));
+                this.mtprotoOutboundTags = tags;
             },
             // Pick a fresh FakeTLS fronting domain for MTProto from the same
             // curated SNI list used by VLESS Reality.
