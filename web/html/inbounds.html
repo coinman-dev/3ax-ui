@@ -3436,6 +3436,9 @@
                     }
                     return configs.join("\r\n\r\n");
                 }
+                // MTProto links are published by IP (see MtprotoLinkHost);
+                // make sure the address is resolved before rendering them.
+                if (dbInbound.isMtproto) await MtprotoLinkHost.load();
                 return dbInbound.genInboundLinks(this.remarkModel);
             },
             async exportAllLinks() {

@@ -20,7 +20,10 @@
                     <a-space direction="vertical">
                         <template v-for="(row, index) in qrModal.qrcodes">
                             <b>[[ row.remark ]]</b>
-                            <a-space direction="horizontal">
+                            <a-space
+                                direction="horizontal"
+                                v-if="!qrModal.inbound || qrModal.inbound.protocol != Protocols.MTPROTO"
+                            >
                                 <a-switch
                                     size="small"
                                     :checked="row.useIPv4"
@@ -176,6 +179,11 @@
             this.qrcodes = [];
             // Reset the status fetched flag when showing the modal
             if (qrModalApp) qrModalApp.statusFetched = false;
+            // MTProto links are always addressed by IP (see MtprotoLinkHost),
+            // so the address has to be in hand before the link is rendered.
+            if (this.inbound.protocol == Protocols.MTPROTO) {
+                await MtprotoLinkHost.load();
+            }
             if (this.inbound.protocol == Protocols.AMNEZIAWG) {
                 if (client && client.id) {
                     HttpUtil.get(`/panel/api/awg/client/uuid/${encodeURIComponent(client.id)}/config`).then(
@@ -255,6 +263,7 @@
                     const msg = await HttpUtil.get("/panel/api/server/status");
                     if (msg.success) {
                         this.serverStatus = msg.obj;
+                        MtprotoLinkHost.set(msg.obj);
                     }
                 } catch (e) {
                     console.error("Failed to get status:", e);
@@ -269,6 +278,12 @@
             updateLink(index) {
                 const row = qrModal.qrcodes[index];
                 if (!this.serverStatus || !this.serverStatus.publicIP) {
+                    return;
+                }
+                // An MTProto link already carries the IP, and its address lives
+                // in a query parameter — assigning url.hostname would rewrite
+                // the "proxy" authority of tg://proxy?... and break the link.
+                if (qrModal.inbound.protocol == Protocols.MTPROTO) {
                     return;
                 }
 

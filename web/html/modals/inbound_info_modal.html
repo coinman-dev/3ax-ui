@@ -752,6 +752,15 @@
         // Use just the client's name to avoid the confusing "<inbound>-<client>"
         // (e.g. "Anya-Phone-Vova-test").
         this.links = this.inbound.genAllLinks('', '-e', this.clientSettings);
+        // MTProto links are addressed by IP (see MtprotoLinkHost). show() stays
+        // synchronous, so render whatever address is known now and rebuild once
+        // the lookup lands — unless the modal has moved on to another client.
+        const mtInbound = this.inbound, mtClient = this.clientSettings;
+        MtprotoLinkHost.load().then(ip => {
+          if (ip && this.inbound === mtInbound && this.clientSettings === mtClient) {
+            this.links = mtInbound.genAllLinks('', '-e', mtClient);
+          }
+        });
       } else {
         this.links = this.inbound.genAllLinks(this.dbInbound.remark, app.remarkModel, this.clientSettings);
       }

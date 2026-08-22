@@ -1501,6 +1501,44 @@ class Sniffing extends XrayCommonClass {
     }
 }
 
+// Telegram's own Android client fails to resolve a hostname for an MTProto
+// proxy on many mobile networks: the entry reads "Unavailable" while the very
+// same proxy connects when it is addressed by IP
+// (https://bugs.telegram.org/c/27744). MTProto share links are therefore always
+// published by the server's public IPv4. The disguise is unaffected — the
+// FakeTLS cover domain travels inside the secret, not in the address — and the
+// panel keeps using its own hostname only when the IP cannot be determined.
+const MtprotoLinkHost = {
+    ipv4: '',
+    pending: null,
+
+    // Reads the address out of a /panel/api/server/status payload. "N/A" is what
+    // the backend reports when every lookup service failed, so treat it as unset.
+    set(status) {
+        const ip = status && status.publicIP ? status.publicIP.ipv4 : '';
+        this.ipv4 = (!ip || ip === 'N/A') ? '' : ip;
+        return this.ipv4;
+    },
+
+    // Fetches the address once and caches it; concurrent callers share the one
+    // request. A failure resolves to '' so links fall back to the panel host
+    // rather than blocking the modal that awaited it.
+    async load() {
+        if (this.ipv4) return this.ipv4;
+        if (!this.pending) {
+            this.pending = HttpUtil.get('/panel/api/server/status')
+                .then(msg => (msg && msg.success) ? this.set(msg.obj) : '')
+                .catch(() => '')
+                .finally(() => { this.pending = null; });
+        }
+        return this.pending;
+    },
+
+    pick(addr) {
+        return this.ipv4 || addr;
+    },
+};
+
 class Inbound extends XrayCommonClass {
     constructor(
         port = RandomUtil.randomInteger(10000, 60000),
@@ -2282,7 +2320,7 @@ class Inbound extends XrayCommonClass {
             addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
         }
         const secret = (client && client.secret) ? client.secret : '';
-        return `tg://proxy?server=${addr}&port=${port}&secret=${secret}`;
+        return `tg://proxy?server=${MtprotoLinkHost.pick(addr)}&port=${port}&secret=${secret}`;
     }
 
     // One proxy share link per MIXED (SOCKS5) / HTTP client, using the
