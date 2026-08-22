@@ -1,0 +1,826 @@
+
+d:\SteamLibrary\steamapps\common\Titanfall2>NorthstarLauncher.exe -dedicated -multiple
+[*] Loading stubs
+[*]   Loading GFSDK_SSAO.win64.dll
+[*]   Loading GFSDK_TXAA.win64.dll
+[*]   Loading d3d11.dll
+[*] Loading tier0.dll
+[*] Loading Northstar
+[*] Profile was not found in command line arguments. Using default: R2Northstar
+[*] Using: d:\SteamLibrary\steamapps\common\Titanfall2\Northstar.dll
+[00:36:08] [NORTHSTAR] [info] NorthstarLauncher version: 1.31.9.0
+[00:36:08] [NORTHSTAR] [info] Command line: NorthstarLauncher.exe  -dedicated -multiple
+[00:36:08] [NORTHSTAR] [info] Using profile: R2Northstar
+[00:36:08] [NORTHSTAR] [info] Operating System: Windows (NT10.0)
+[00:36:08] [PLUGINSYS] [info] loaded plugin handle 0x7ff8cb170000
+[00:36:08] [PLUGINSYS] [info] Unloading DISCORDRPC because it's not supposed to run on dedicated servers
+[00:36:08] [PLUGINSYS] [warn] Unloading invalid plugin 'R2Northstar\plugins\DiscordRPC.dll'
+[*] Loading launcher.dll
+[*] Launching the game...
+[00:36:09] [NORTHSTAR] [info] Registering ConCommand force_newgame
+[00:36:09] [NORTHSTAR] [info] Registering ConCommand ns_start_reauth_and_leave_to_lobby
+[00:36:09] [NORTHSTAR] [info] Registering ConCommand ns_end_reauth_and_leave_to_lobby
+[00:36:09] [NORTHSTAR] [info] Registering ConCommand cvar_setdefaultvalue
+[00:36:09] [NORTHSTAR] [info] Registering ConCommand cvar_setvalueanddefaultvalue
+[00:36:09] [NORTHSTAR] [info] Registering ConCommand cvar_reset
+[00:36:09] [NORTHSTAR] [info] Enabling hook LoadPakAsyncHook
+[00:36:09] [NORTHSTAR] [info] Enabling hook UnloadPakHook
+[00:36:09] [NORTHSTAR] [info] Enabling hook OpenFileHook
+[00:36:09] [NORTHSTAR] [info] Enabling hook v_Pak_Free
+[00:36:10] [NORTHSTAR] [info] Registering Convar spewlog_enable
+[00:36:10] [NORTHSTAR] [info] Mod downloader initialized
+[00:36:10] [NORTHSTAR] [info] Custom verified mods URL not found in command line arguments, using default URL.
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand reload_plugins
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_prefer_datatable_from_disk
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand dump_datatables
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand dump_datatable
+[00:36:10] [NORTHSTAR] [info] HttpRequestHandler started.
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand ban
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand unban
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand clearbanlist
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_erase_auth_info
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_auth_allow_insecure
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_auth_allow_insecure_write
+[00:36:10] [NORTHSTAR] [info] Registering ConCommand ns_resetpersistence
+[00:36:10] [NORTHSTAR] [info] Enabling hook ProcessConnectionlessPacket
+[00:36:10] [NORTHSTAR] [info] Registering Convar net_debug_atlas_packet
+[00:36:10] [NORTHSTAR] [info] Registering Convar net_debug_atlas_packet_insecure
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_server_presence_update_rate
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_server_name
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_server_desc
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_server_password
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_report_server_to_masterserver
+[00:36:10] [NORTHSTAR] [info] Registering Convar ns_report_sp_server_to_masterserver
+[00:36:10] [NORTHSTAR] [info] Enabling hook CLC_Screenshot_WriteToBuffer
+[00:36:10] [NORTHSTAR] [info] Enabling hook CLC_Screenshot_ReadFromBuffer
+[00:36:10] [NORTHSTAR] [info] Enabling hook Base_CmdKeyValues_ReadFromBuffer
+[00:36:10] [NORTHSTAR] [info] Enabling hook CClient_ProcessSetConVar
+[00:36:10] [NORTHSTAR] [info] Enabling hook CClient_ProcessUsercmds
+[00:36:10] [NORTHSTAR] [info] Enabling hook IsRespawnMod
+[00:36:10] [NORTHSTAR] [info] Enabling hook CBaseClientState_ProcessStringCmd
+[00:36:11] [NORTHSTAR] [info] Enabling hook CGameClient__ExecuteStringCommand
+[00:36:11] [NORTHSTAR] [info] Enabling hook CBaseClient__SendServerInfo
+[00:36:11] [NORTHSTAR] [info] Enabling hook CL_CopyExistingEntity
+[00:36:11] [NORTHSTAR] [info] Enabling hook NET_ReceiveDatagram
+[00:36:11] [NORTHSTAR] [info] Enabling hook CLZSS__SafeDecompress
+[00:36:11] [NORTHSTAR] [info] Enabling hook Rson_ParseUTF8
+[00:36:11] [NORTHSTAR] [info] Enabling hook CNetChan__ProcessMessages
+[00:36:11] [NORTHSTAR] [info] Registering Convar sv_quota_stringcmdspersecond
+[00:36:11] [NORTHSTAR] [info] Registering Convar net_chan_limit_mode
+[00:36:11] [NORTHSTAR] [info] Registering Convar net_chan_limit_msec_per_sec
+[00:36:11] [NORTHSTAR] [info] Registering Convar sv_querylimit_per_sec
+[00:36:11] [NORTHSTAR] [info] Registering Convar sv_max_chat_messages_per_sec
+[00:36:11] [NORTHSTAR] [info] Registering Convar sv_antispeedhack_enable
+[00:36:11] [NORTHSTAR] [info] Registering Convar sv_antispeedhack_maxtickbudget
+[00:36:11] [NORTHSTAR] [info] Registering Convar sv_antispeedhack_budgetincreasemultiplier
+[00:36:11] [NORTHSTAR] [info] Enabling hook KeyValues__LoadFromBuffer
+[00:36:11] [NORTHSTAR] [info] Enabling hook clc_SetPlaylistVarOverride__Process
+[00:36:11] [NORTHSTAR] [info] Enabling hook SetCurrentPlaylist
+[00:36:11] [NORTHSTAR] [info] Enabling hook SetPlaylistVarOverride
+[00:36:11] [NORTHSTAR] [info] Enabling hook GetCurrentPlaylistVar
+[00:36:11] [NORTHSTAR] [info] Enabling hook GetCurrentGamemodeMaxPlayers
+[00:36:11] [NORTHSTAR] [info] Registering ConCommand playlist
+[00:36:11] [NORTHSTAR] [info] Registering ConCommand setplaylist
+[00:36:11] [NORTHSTAR] [info] Registering ConCommand setplaylistvaroverrides
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_use_clc_SetPlaylistVarOverride
+[00:36:11] [NORTHSTAR] [info] Registering Convar mileslog_enable
+[00:36:11] [NORTHSTAR] [info] InitialiseDedicated
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_masterserver_hostname
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_curl_log_enable
+[00:36:11] [NORTHSTAR] [info] Ready to receive console commands.
+[00:36:11] [NORTHSTAR] [info] Registering ConCommand ns_fetchservers
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\mods\EnderBoy9217-Grunt_Mode_2-2.13.4'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Ender's Grunt Mode'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_SQUADS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_REAPERS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_PROWLERS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_PILOTS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_TITANS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_MRVNS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRTDM_GUNSHIPS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRLEVEL_SPECTRES'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRLEVEL_STALKERS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRLEVEL_REAPERS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRLEVEL_GUNSHIPS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GRLEVEL_TITANS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_SNIPER_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_SPECTRE_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_SNIPESPECTRE_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_SPECTRELEADER_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_BLASTSPECTRE_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_PILOT_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_SENTRY_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_OPPILOT_UNLOCK_STREAK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_HEMLOK_UNLOCK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CLASS_OPPILOT_UNLOCK_TYPE'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_MARKSMAN'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SNIPER'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_HEAVY'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SHIELD_CAPTAIN'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SPECIALIST'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SPECTRE'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_BLAST_SPECTRE'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SNIPESPECTRE'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SENTRY'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_SPECTRE_LEADER'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_PILOT'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_OPPILOT'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'COST_HEMLOK'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GR_OPTICS_LEVEL'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GR_ATTACHMENT_LEVEL'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GR_ATTACHMENT_LEVEL_MULTIPLE'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'GR_ATTACHMENT_LEVEL_MULTIPLE_2'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'MAX_CAPPERS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'DISABLE_KILLCAMS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'CUSTOM_GRUNT_SPAWNING'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'SPECIALIST_PLAYER_MODELS'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains ConVar 'HEMLOK_ENABLED'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains Script '/gruntmode/_droppod_spawn_1player.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains Script '/gruntmode/_becomesgrunt.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains Script '/gamemodes/_gruntmode.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' contains Script '/gruntmode/dropship_respawn.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Ender's Grunt Mode' loaded successfully, version 2.13.4
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\mods\Northstar.Client'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Northstar.Client'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'allow_mod_auto_download'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_hide_empty'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_hide_full'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_hide_protected'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_map'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_gamemode'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_mods'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'filter_map_hide_locked'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'modlist_show_convars'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'modlist_reverse'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains ConVar 'modemenu_mode_filter'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script '_custom_codecallbacks_client.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'client/cl_chat.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_modmenu.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_setversionlabel.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'presence/ui_presence.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'presence/cl_presence.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_moddownload.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_serverbrowser.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_connect_password.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_custom_match_settings_categories.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_custom_match_settings.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/controller_prompts.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/ns_slider.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_ns_color_picker.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/menu_mod_settings.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/ui_mouse_capture.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' contains Script 'ui/atlas_auth.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' registered Localisation 'resource/northstar_client_localisation_%language%.txt'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Client' loaded successfully, version 1.31.9
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\mods\Northstar.Custom'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Northstar.Custom'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains ConVar 'ns_disallowed_tacticals'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains ConVar 'ns_disallowed_tactical_replacement'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains ConVar 'ns_disallowed_weapons'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains ConVar 'ns_disallowed_weapon_primary_replacement'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains ConVar 'ns_force_melee'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains ConVar 'ns_show_event_models'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_northstar_custom_precache.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'weapons/mp_weapon_peacekraber.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'weapons/mp_titanweapon_arc_cannon.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_chamber.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_chamber.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_chamber.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_hidden.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_hidden.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_hidden.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_sns.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_sns.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_sns.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_fw.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_fw_custom.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_fw.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_fw_custom.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_fw.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/gg_earn_meter/sh_gg_earn_meter.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/gg_earn_meter/_gg_earn_meter.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/gg_earn_meter/cl_gg_earn_meter.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_gg.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_gg.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_gg.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_tt.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_tt.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_tt.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_inf.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_inf.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_inf.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script '_droppod_spawn.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_arena.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_arena_loadouts.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_arena.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_arena.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_kr.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_kr.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_kr.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_fastball.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_fastball.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_fastball_intro.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_fastball.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_hs.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_hs.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_hs.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_ctf_comp.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_gamemode_tffa.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/_gamemode_tffa.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/cl_gamemode_tffa.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_3psequence_to_1p_hacks.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'gamemodes/sh_riff_instagib.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_custom_air_accel.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_promode.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_bleedout_damage.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_custom_oob_timer.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'rodeo/sh_classic_rodeo.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script '_disallowed_weapons.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script '_disallowed_tacticals.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script '_force_melee.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_custom_pilot_collision.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_message_utils.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script '_testing.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script '_event_models.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'ui/ns_custom_mod_settings.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' contains Script 'sh_custom_scoreboard_columns.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' registered Localisation 'resource/northstar_custom_%language%.txt'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.Custom' loaded successfully, version 1.31.9
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\mods\Northstar.CustomServers'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Northstar.CustomServers'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_should_return_to_lobby'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_allow_spectators'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_private_match_last_mode'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_private_match_last_map'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_private_match_only_host_can_change_settings'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_private_match_only_host_can_start'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_private_match_countdown_length'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_private_match_override_maxplayers'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_should_log_unknown_clientcommands'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_allow_kill_commands'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_progression_enabled'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains ConVar 'ns_allow_team_change'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_custom_codecallbacks.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_northstar_cheatcommands.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_chat.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_misc_stubs.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_store.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_script_movers.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'sh_northstar_utils.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'mp/levels/_lf_maps_shared.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'gamemodes/sh_gamemodes_custom.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'sh_remote_functions_mp_custom.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'sh_server_to_client_stringcommands.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'gamemodes/_gamemode_fra.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'mp/_classic_mp_dropship_intro.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'mp/_classic_mp_no_intro.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'mp/_spectator.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_loadouts_mp.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'lobby/sh_private_lobby_modes_init.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '_respawn_protection.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script '/ai/_ai_turret_sentry.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'sh_progression.nut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'sh_northstar_http_requests.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' contains Script 'sh_northstar_safe_io.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Northstar.CustomServers' loaded successfully, version 1.31.9
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\FourthVolt.ApexWeaponPack-1.0.2'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Apex Weapons Pack'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' contains Script 'mp_weapon_3030.nut'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' contains Script 'mp_weapon_throwingknife_r5.nut'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' contains Script 'mp_weapon_compound_bow.nut'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' contains Script 'weapon_utils.nut'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' contains Script 'apex_loadout_solution.nut'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' registered Localisation 'resource/apexlocale_%language%.txt'
+[00:36:11] [NORTHSTAR] [info] 'Apex Weapons Pack' loaded successfully, version 1.0.2 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\rakostar-aimassisttweaker-1.0.4'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'rakostar.aimassisttweaker'
+[00:36:11] [NORTHSTAR] [info] 'rakostar.aimassisttweaker' loaded successfully, version 1.0.4 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Avalar-NorthstarCLAIOPA-1.0.1\mods\NorthstarCLAIOPA'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'NorthstarCLAIOPA'
+[00:36:11] [NORTHSTAR] [info] 'NorthstarCLAIOPA' loaded successfully, version 1.0.1
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\botmm-static_crosshair-1.0.0\mods\mm.StaticCrosshair'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'mm.StaticCrosshair'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' contains ConVar 'mm_centerdot_color'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' contains ConVar 'mm_centerdot_type'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' contains ConVar 'mm_centerdot_enabled'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' contains ConVar 'mm_centerdot_adsfade'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' contains ConVar 'mm_centerdot_sniperhide'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' contains Script 'centerdot_init.nut'
+[00:36:11] [NORTHSTAR] [info] 'mm.StaticCrosshair' loaded successfully, version 1.0.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\GeckoEidechse-Titanfall1MenuIntro-0.0.1\mods\GeckoEidechse.Titanfall1MenuIntro'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'GeckoEidechse.Titanfall1MenuIntro'
+[00:36:11] [NORTHSTAR] [info] 'GeckoEidechse.Titanfall1MenuIntro' loaded successfully, version 0.0.1
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Heartfire-SatchelTracker-1.1.0\mods\MN.SatchelTracker'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'MN.SatchelTracker'
+[00:36:11] [NORTHSTAR] [info] 'MN.SatchelTracker' contains ConVar 'StchTrck'
+[00:36:11] [NORTHSTAR] [info] 'MN.SatchelTracker' contains ConVar 'StTrIconStyl'
+[00:36:11] [NORTHSTAR] [info] 'MN.SatchelTracker' contains Script 'ui/SatchelTracker_modsettings.nut'
+[00:36:11] [NORTHSTAR] [info] 'MN.SatchelTracker' loaded successfully, version 1.1.0 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Khalmee-Scoreboard_Callbacks-1.0.0\mods\Khalmee.ScoreboardCallbacks'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Khalmee.ScoreboardCallbacks'
+[00:36:11] [NORTHSTAR] [info] 'Khalmee.ScoreboardCallbacks' loaded successfully, version 1.0.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\microraptor-Hold_Tab_For_Scoreboard-1.0.1\mods\microraptor.HoldTabForScoreboard'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'microraptor.HoldTabForScoreboard'
+[00:36:11] [NORTHSTAR] [info] 'microraptor.HoldTabForScoreboard' contains Script 'hold_for_scoreboard.nut'
+[00:36:11] [NORTHSTAR] [info] 'microraptor.HoldTabForScoreboard' loaded successfully, version 1.0.1
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\NachosChipeados-EnableFactionIDCards-1.3.0\mods\NachosChipeados.EnableIDCards'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Nachos.EnableIDCards'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' contains ConVar 'IDCard.Intercept'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' contains ConVar 'IDCard.Position'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' contains ConVar 'IDCard.Frontier_Defense'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' contains ConVar 'IDCard.Use_Davis'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' contains ConVar 'IDCard.Print'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' contains Script 'IDCard_Settings.nut'
+[00:36:11] [NORTHSTAR] [info] 'Nachos.EnableIDCards' loaded successfully, version 1.3.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\S2Mods-SpeedometerV2-2.0.3\mods\S2.SpeedometerV2'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'S2.SpeedometerV2'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_metric'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_hammer'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_vertical'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_pos'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_col'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_alpha'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_size'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains ConVar 's2_speedometer_fade'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' contains Script 's2_speedometer.nut'
+[00:36:11] [NORTHSTAR] [info] 'S2.SpeedometerV2' loaded successfully, version 2.0.1
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\SoftSleeper-Combat_Knife_Melee-1.0.0\mods\CombatKnifeMelee'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Combat Knife Melee'
+[00:36:11] [NORTHSTAR] [info] 'Combat Knife Melee' contains Script '/weapons/scripted_melee_sound.gnut'
+[00:36:11] [NORTHSTAR] [info] 'Combat Knife Melee' loaded successfully, version 1.0.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Team036-ClPlayerCallback-1.2.0\mods\Raintrap341.ClPlayerCallback'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Raintrap341.ClPlayerCallback'
+[00:36:11] [NORTHSTAR] [info] 'Raintrap341.ClPlayerCallback' loaded successfully, version 1.2.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Team036-ScoreboardPingDisplay-1.0.0\mods\Raintrap341.ScoreboardPingDisplay'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'ScoreboardPingDisplay'
+[00:36:11] [NORTHSTAR] [info] 'ScoreboardPingDisplay' contains Script 'mp_scoreboard_ping_display.nut'
+[00:36:11] [NORTHSTAR] [info] 'ScoreboardPingDisplay' loaded successfully, version 1.0.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Trinity_Dusk-Dusk_Fog_Remover-1.0.0\mods\Dusk.FogRemover'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Dusk.FogRemover'
+[00:36:11] [NORTHSTAR] [info] 'Dusk.FogRemover' contains Script 'dusk_fog_disabler.nut'
+[00:36:11] [NORTHSTAR] [info] 'Dusk.FogRemover' loaded successfully, version 1.0.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Dusk.Spectre 2.0'
+[00:36:11] [NORTHSTAR] [info] 'Dusk.Spectre 2.0' loaded successfully, version 2.1.0
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\Alystrasz-Parkour-0.3.5\mods\Alystrasz.Parkour'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'Parkour'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains ConVar 'parkour_api_endpoint'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains ConVar 'parkour_api_secret'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains ConVar 'parkour_use_local_config'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'gamemodes/sh_gamemode_pk.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'ui/robot_dialog.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/npc.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/parsing.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/map_configuration.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/map_vote.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'gamemodes/cl_gamemode_pk.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'client/cl_personal_best.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/perks.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/player_stats.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/leaderboard.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/checkpoint.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'utils/world_leaderboard.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' contains Script 'gamemodes/_gamemode_pk.nut'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' registered Localisation 'resource/parkour_%language%.txt'
+[00:36:11] [NORTHSTAR] [info] 'Parkour' loaded successfully, version 0.3.5 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\LexiGlasss_Modding_Cooperation-lexire125-1.0.7\mods\lexi.re125'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'lexi.lexire125'
+[00:36:11] [NORTHSTAR] [info] 'lexi.lexire125' loaded successfully, version 1.0.7 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\M2Crew-PugRebalance-1.0.1\mods\M2.PugRebal'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'M2.PugRebalance'
+[00:36:11] [NORTHSTAR] [info] 'M2.PugRebalance' contains Script 'sh_PUGkvfix.nut'
+[00:36:11] [NORTHSTAR] [info] 'M2.PugRebalance' contains Script 'sh_PUGriffs.gnut'
+[00:36:11] [NORTHSTAR] [info] 'M2.PugRebalance' contains Script '_PUGdamage.gnut'
+[00:36:11] [NORTHSTAR] [info] 'M2.PugRebalance' contains Script '_PUGloadouts.nut'
+[00:36:11] [NORTHSTAR] [info] 'M2.PugRebalance' registered Localisation 'resource/rebalriffs_%language%.txt'
+[00:36:11] [NORTHSTAR] [info] 'M2.PugRebalance' loaded successfully, version 1.0.1 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\skrubslayer69-mp_fieldbattle-0.0.6\mods\CodyIBrealey.mp_fieldbattle'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'skrubslayer.mp_fieldbattle'
+[00:36:11] [NORTHSTAR] [info] Mod file R2Northstar\runtime\remote\mods\skrubslayer69-mp_fieldbattle-0.0.6\mods\CodyIBrealey.mp_fieldbattle\mod.json is missing a LoadPriority, consider adding one
+[00:36:11] [NORTHSTAR] [info] 'skrubslayer.mp_fieldbattle' contains Script 'DisableImpactMarks.nut'
+[00:36:11] [NORTHSTAR] [info] 'skrubslayer.mp_fieldbattle' loaded successfully, version 0.0.6 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\skrubslayer69-mp_sanctuary-0.0.5\mods\CodyIBrealey.mp_sanctuary'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'skrubslayer.mp_sanctuary'
+[00:36:11] [NORTHSTAR] [info] Mod file R2Northstar\runtime\remote\mods\skrubslayer69-mp_sanctuary-0.0.5\mods\CodyIBrealey.mp_sanctuary\mod.json is missing a LoadPriority, consider adding one
+[00:36:11] [NORTHSTAR] [info] 'skrubslayer.mp_sanctuary' contains Script 'DisableImpactMarks.nut'
+[00:36:11] [NORTHSTAR] [info] 'skrubslayer.mp_sanctuary' loaded successfully, version 0.0.5 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Loading mod file at path 'R2Northstar\runtime\remote\mods\skrubslayer69-mp_structure-0.0.3\mods\CodyIBrealey.mp_structure'
+[00:36:11] [NORTHSTAR] [info] Loading mod 'skrubslayer.mp_structure'
+[00:36:11] [NORTHSTAR] [info] Mod file R2Northstar\runtime\remote\mods\skrubslayer69-mp_structure-0.0.3\mods\CodyIBrealey.mp_structure\mod.json is missing a LoadPriority, consider adding one
+[00:36:11] [NORTHSTAR] [info] 'skrubslayer.mp_structure' contains Script 'DisableImpactMarks.nut'
+[00:36:11] [NORTHSTAR] [info] 'skrubslayer.mp_structure' loaded successfully, version 0.0.3 (DISABLED)
+[00:36:11] [NORTHSTAR] [info] Using manifesto version 1 to set mods state.
+[00:36:11] [NORTHSTAR] [info] Registering Convar allow_mod_auto_download
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_hide_empty
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_hide_full
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_hide_protected
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_map
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_gamemode
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_mods
+[00:36:11] [NORTHSTAR] [info] Registering Convar filter_map_hide_locked
+[00:36:11] [NORTHSTAR] [info] Registering Convar modlist_show_convars
+[00:36:11] [NORTHSTAR] [info] Registering Convar modlist_reverse
+[00:36:11] [NORTHSTAR] [info] Registering Convar modemenu_mode_filter
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_should_return_to_lobby
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_allow_spectators
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_private_match_last_mode
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_private_match_last_map
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_private_match_only_host_can_change_settings
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_private_match_only_host_can_start
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_private_match_countdown_length
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_private_match_override_maxplayers
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_should_log_unknown_clientcommands
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_allow_kill_commands
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_progression_enabled
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_allow_team_change
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_disallowed_tacticals
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_disallowed_tactical_replacement
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_disallowed_weapons
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_disallowed_weapon_primary_replacement
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_force_melee
+[00:36:11] [NORTHSTAR] [info] Registering Convar ns_show_event_models
+[00:36:11] [NORTHSTAR] [info] Mod Northstar.Custom registered starpak 'mp_weapon_shotgun_doublebarrel.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Northstar.Custom registered starpak 'eventmodels_stream.starpak'
+[00:36:11] [NORTHSTAR] [info] Registering Convar mm_centerdot_color
+[00:36:11] [NORTHSTAR] [info] Registering Convar mm_centerdot_type
+[00:36:11] [NORTHSTAR] [info] Registering Convar mm_centerdot_enabled
+[00:36:11] [NORTHSTAR] [info] Registering Convar mm_centerdot_adsfade
+[00:36:11] [NORTHSTAR] [info] Registering Convar mm_centerdot_sniperhide
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_body.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_extra.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_gauntlet.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_gear.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_head.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_jumpkit.starpak'
+[00:36:11] [NORTHSTAR] [info] Mod Dusk.Spectre 2.0 registered starpak 'spectre_tail.starpak'
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_SQUADS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_REAPERS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_PROWLERS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_PILOTS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_TITANS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_MRVNS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRTDM_GUNSHIPS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRLEVEL_SPECTRES
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRLEVEL_STALKERS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRLEVEL_REAPERS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRLEVEL_GUNSHIPS
+[00:36:11] [NORTHSTAR] [info] Registering Convar GRLEVEL_TITANS
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_SNIPER_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_SPECTRE_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_SNIPESPECTRE_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_SPECTRELEADER_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_BLASTSPECTRE_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_PILOT_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_SENTRY_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_OPPILOT_UNLOCK_STREAK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_HEMLOK_UNLOCK
+[00:36:11] [NORTHSTAR] [info] Registering Convar CLASS_OPPILOT_UNLOCK_TYPE
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_MARKSMAN
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SNIPER
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_HEAVY
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SHIELD_CAPTAIN
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SPECIALIST
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SPECTRE
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_BLAST_SPECTRE
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SNIPESPECTRE
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SENTRY
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_SPECTRE_LEADER
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_PILOT
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_OPPILOT
+[00:36:11] [NORTHSTAR] [info] Registering Convar COST_HEMLOK
+[00:36:11] [NORTHSTAR] [info] Registering Convar GR_OPTICS_LEVEL
+[00:36:11] [NORTHSTAR] [info] Registering Convar GR_ATTACHMENT_LEVEL
+[00:36:11] [NORTHSTAR] [info] Registering Convar GR_ATTACHMENT_LEVEL_MULTIPLE
+[00:36:11] [NORTHSTAR] [info] Registering Convar GR_ATTACHMENT_LEVEL_MULTIPLE_2
+[00:36:11] [NORTHSTAR] [info] Registering Convar MAX_CAPPERS
+[00:36:11] [NORTHSTAR] [info] Registering Convar DISABLE_KILLCAMS
+[00:36:11] [NORTHSTAR] [info] Registering Convar CUSTOM_GRUNT_SPAWNING
+[00:36:11] [NORTHSTAR] [info] Registering Convar SPECIALIST_PLAYER_MODELS
+[00:36:11] [NORTHSTAR] [info] Registering Convar HEMLOK_ENABLED
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_metric
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_hammer
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_vertical
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_pos
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_col
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_alpha
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_size
+[00:36:11] [NORTHSTAR] [info] Registering Convar s2_speedometer_fade
+[00:36:11] [NORTHSTAR] [info] Registering Convar IDCard.Intercept
+[00:36:11] [NORTHSTAR] [info] Registering Convar IDCard.Position
+[00:36:11] [NORTHSTAR] [info] Registering Convar IDCard.Frontier_Defense
+[00:36:11] [NORTHSTAR] [info] Registering Convar IDCard.Use_Davis
+[00:36:11] [NORTHSTAR] [info] Registering Convar IDCard.Print
+[00:36:11] [NORTHSTAR] [info] Registering ConCommand reload_mods
+[00:36:11] [NORTHSTAR] [info] CreateInterface ENGINE VCvarQuery001
+[00:36:11] [NORTHSTAR] [info] CreateInterface ENGINE VAvi001
+[00:36:11] [NORTHSTAR] [info] CreateInterface ENGINE VBik001
+[00:36:11] [NORTHSTAR] [info] CreateInterface ENGINE VENGINE_LAUNCHER_API_VERSION004
+[00:36:11] [NORTHSTAR] [info] CreateInterface ENGINE VDataCache003
+[00:36:11] [NORTHSTAR] [info] CreateInterface ENGINE VPrecacheSystem001
+d3d11: D3D11CreateDevice: initializing d3d11 stub for northstar (github.com/R2Northstar/NorthstarStubs)
+[00:36:12] [FILESYSTM] [info] MountVPK vpk/client_frontend.bsp
+[00:36:12] [NORTHSTAR] [info] Successfully loaded XInput1_4.dll as a replacement for XInput1_3.dll
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NATIVE EN] [info] warning: Unknown nb_ctl request:  4
+[00:36:12] [NORTHSTAR] [info] Registering Convar navmesh_debug_hull
+[00:36:12] [NORTHSTAR] [info] Registering Convar navmesh_debug_camera_radius
+[00:36:12] [NORTHSTAR] [info] Registering Convar navmesh_debug_lossy_optimization
+[00:36:12] [NORTHSTAR] [info] Registering Convar ns_ai_dumpAINfileFromLoad
+[00:36:12] [NORTHSTAR] [info] Enabling hook ReadUsercmd
+[00:36:12] [NORTHSTAR] [info] Enabling hook GetEntByIndex
+[00:36:12] [NORTHSTAR] [info] Patched AntiTamper function export "ANTITAMPER_SPOTCHECK_CODEMARKER"
+[00:36:12] [NORTHSTAR] [info] Patched AntiTamper function export "ANTITAMPER_TESTVALUE_CODEMARKER"
+[00:36:12] [NORTHSTAR] [info] Patched AntiTamper function export "ANTITAMPER_TRIGGER_CODEMARKER"
+[00:36:12] [NORTHSTAR] [info] Registering Convar ns_exploitfixes_log
+[00:36:12] [NORTHSTAR] [info] Registering Convar ns_should_log_all_clientcommands
+[00:36:12] [NORTHSTAR] [info] Registering Convar ns_recvfrom_per_frame_limit
+[00:36:12] [NORTHSTAR] [info] Enabling hook CPlayerMove__RunCommand
+[00:36:12] [NORTHSTAR] [info] Enabling hook RegisterSquirrelFunctionHook<ScriptContext::SERVER>
+[00:36:12] [NORTHSTAR] [info] Enabling hook sq_compiler_createHook<ScriptContext::SERVER>
+[00:36:12] [NORTHSTAR] [info] Enabling hook SQPrintHook<ScriptContext::SERVER>
+[00:36:12] [NORTHSTAR] [info] Enabling hook CreateNewVMHook<ScriptContext::SERVER>
+[00:36:13] [NORTHSTAR] [info] Enabling hook DestroyVMHook<ScriptContext::SERVER>
+[00:36:13] [NORTHSTAR] [info] Enabling hook ScriptCompileErrorHook<ScriptContext::SERVER>
+[00:36:13] [NORTHSTAR] [info] Enabling hook CallScriptInitCallbackHook<ScriptContext::SERVER>
+[00:36:13] [NORTHSTAR] [info] Enabling hook CSquirrelVM_initHook<ScriptContext::SERVER>
+[00:36:13] [NORTHSTAR] [info] Registering ConCommand script
+[00:36:13] [NORTHSTAR] [info] CreateInterface SERVER ServerGameDLL005
+[00:36:13] [NORTHSTAR] [info] CreateInterface SERVER ServerGameEnts002
+[00:36:13] [NORTHSTAR] [info] CreateInterface SERVER ServerGameClients004
+[00:36:13] [NORTHSTAR] [info] CreateInterface SERVER VServerDllSharedAppSystems001
+[00:36:13] [NORTHSTAR] [info] CreateInterface ENGINE VTOOLFRAMEWORKVERSION002
+[00:36:13] [NORTHSTAR] [info] Host_Init()
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync common.rpak 1
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\mods\Northstar.Custom\paks\mp_weapon_shotgun_doublebarrel.rpak 2
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\mods\Northstar.Custom\paks\northstarEventModels.rpak 3
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_body.rpak 4
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_extra.rpak 5
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_gauntlet.rpak 6
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_gear.rpak 7
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_head.rpak 8
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_jumpkit.rpak 9
+[00:36:13] [RPAK_FSYS] [info] LoadPakAsync ./R2Northstar\packages\Trinity_Dusk-Dusk_SpectreMDL-2.1.0\mods\Dusk.Spectre-2.0\paks\spectre_tail.rpak 10
+[00:36:13] [RPAK_FSYS] [info] Not loading pak ui.rpak for dedicated server
+[00:36:13] [RPAK_FSYS] [info] Not loading pak particle_scripts.rpak for dedicated server
+[00:36:13] [RPAK_FSYS] [info] Not loading pak highlight.rpak for dedicated server
+[00:36:13] [RPAK_FSYS] [info] Not loading pak mp_lobby.rpak for dedicated server
+[00:36:13] [RPAK_FSYS] [info] Not loading pak mp_lobby_loadscreen.rpak for dedicated server
+[00:36:15] [NORTHSTAR] [info] Registering ConCommand convar_find
+[00:36:15] [NORTHSTAR] [info] Enabling hook _Host_Map_f_CompletionFunc
+[00:36:15] [NORTHSTAR] [info] Enabling hook Host_Map_f
+[00:36:15] [NORTHSTAR] [info] CDedicatedExports::RunServer(): starting
+[00:36:15] [NORTHSTAR] [info] NorthstarLauncher.exe  -dedicated -multiple +setplaylist private_match -game R2 -nomenuvid -nosound -windowed -nomessagebox +host_preload_shaders 0 +net_usesocketsforloopback 1 +community_frame_run 0
+[00:36:15] [NORTHSTAR] [info] Building KeyValues for file playlists_v2.txt
+[00:36:15] [NORTHSTAR] [info] Set playlist to Load a map on the command line
+[00:36:15] [NORTHSTAR] [info] Set playlist to Load a map on the command line
+[00:36:15] [NORTHSTAR] [info] Set playlist to private_match
+[00:36:15] [NORTHSTAR] [info] Set playlist to private_match
+[00:36:15] [RPAK_FSYS] [info] Not loading pak ui_mp.rpak for dedicated server
+[00:36:15] [RPAK_FSYS] [info] LoadPakAsync common_mp.rpak 11
+[00:36:15] [NORTHSTAR] [info] HostState: GameShutdown
+[00:36:15] [NORTHSTAR] [info] HostState: NewGame
+[00:36:15] [RPAK_FSYS] [info] Not loading pak mp_lobby_loadscreen.rpak for dedicated server
+[00:36:15] [FILESYSTM] [info] MountVPK vpk/client_mp_common.bsp
+[00:36:15] [FILESYSTM] [info] MountVPK vpk/client_mp_common.bsp
+[00:36:16] [RPAK_FSYS] [info] Not loading pak ui_mp.rpak for dedicated server
+[00:36:16] [NORTHSTAR] [info] Building persistent_player_data_version_231.pdef...
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSFetchVerifiedModsManifesto
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsModDownloadable
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSDownloadMod
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetModInstallState
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSCancelModDownload
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSSaveFile
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSSaveJSONFile
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NS_InternalLoadFile
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSDoesFileExist
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetFileSize
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSDeleteFile
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NS_InternalGetAllFiles
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsFolder
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetTotalSpaceRemaining
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetModsInformation
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetModInformation
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetModNames
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSSetModEnabled
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSEarlyWritePlayerPersistenceForLeave
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsWritingPlayerPersistence
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsPlayerLocalPlayer
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsDedicated
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSDisconnectPlayer
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSSendClientPrint
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function GetUserInfoKVString_Internal
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function GetUserInfoKVAsset_Internal
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function GetUserInfoKVInt_Internal
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function GetUserInfoKVFloat_Internal
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function GetUserInfoKVBool_Internal
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function DecodeJSON
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function EncodeJSON
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function StringToAsset
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetLocalPlayerUID
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSSendMessage
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSBroadcastMessage
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetCurrentModName
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetCallingModName
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSGetLoadedMapNames
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NS_InternalMakeHttpRequest
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsHttpEnabled
+[00:36:16] [NORTHSTAR] [info] Registering SERVER function NSIsLocalHttpAllowed
+[00:36:16] [NORTHSTAR] [info] CreateNewVM SERVER 0x22897bc0900
+[00:36:16] [NORTHSTAR] [info] Replacing Dev_CommandLineAddParm in Client
+[00:36:16] [NORTHSTAR] [info] Replacing DevP4Checkout in Client
+[00:36:16] [NORTHSTAR] [info] Replacing DevP4Add in Client
+[00:36:16] [NORTHSTAR] [info] Replacing DevTextBufferWrite in Client
+[00:36:16] [NORTHSTAR] [info] Replacing DevTextBufferClear in Client
+[00:36:16] [NORTHSTAR] [info] Replacing DevTextBufferDumpToFile in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTable in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableColumnByName in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDatatableRowCount in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableBool in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableInt in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableFloat in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableVector in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableString in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableAsset in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowMatchingIntValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowLessThanOrEqualToIntValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowGreaterThanOrEqualToIntValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowMatchingFloatValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowLessThanOrEqualToFloatValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowGreaterThanOrEqualToFloatValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowMatchingVectorValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowMatchingStringValue in Client
+[00:36:16] [NORTHSTAR] [info] Replacing GetDataTableRowMatchingAssetValue in Client
+[00:36:16] [NORTHSTAR] [info] Building custom scripts.rson
+[00:36:16] [NORTHSTAR] [info] Building KeyValues for file scripts/players/mp/pilot_grapple.set
+[00:36:16] [NORTHSTAR] [info] Building KeyValues for file scripts/players/mp/pilot_grapple.set
+[00:36:16] [NORTHSTAR] [info] Building KeyValues for file scripts/players/mp/pilot_grapple.set
+[00:36:16] [NORTHSTAR] [info] Building KeyValues for file scripts/players/mp/pilot_grapple.set
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "GamemodeFRA_AddAdditionalInitCallback"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "RespawnProtection_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Progression_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeChamber_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeHidden_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "SNSMode_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "SHCreateGamemodeFW_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeGG_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeTT_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeInfection_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeArena_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeKR_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeFastball_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeHideAndSeek_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "ShGamemodeCTFComp_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Sh_GamemodeTFFA_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "FirstPersonSequenceForce1P_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "BleedoutDamage_PreInit"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "MessageUtils_ServerInit"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Testing_Init"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "EventModelsInit"
+[00:36:16] [NORTHSTAR] [info] Running custom SERVER script callback "Server_CustomScoreboardColumns_Init"
+[00:36:16] [NORTHSTAR] [info] SERVER CodeCallback CodeCallback_MapSpawn called
+[00:36:16] [SCRIPT SV] [info]
+[00:36:16] [SCRIPT SV] [info]
+[00:36:16] [SCRIPT SV] [info]
+[00:36:16] [SCRIPT SV] [info]        *
+[00:36:16] [SCRIPT SV] [info]       ***
+[00:36:16] [SCRIPT SV] [info]      *****
+[00:36:16] [SCRIPT SV] [info]     *******
+[00:36:16] [SCRIPT SV] [info]    * *******
+[00:36:16] [SCRIPT SV] [info]   *  ********
+[00:36:16] [SCRIPT SV] [info]    * *******
+[00:36:16] [SCRIPT SV] [info]     *******
+[00:36:16] [SCRIPT SV] [info]      *****
+[00:36:16] [SCRIPT SV] [info]       ***
+[00:36:16] [SCRIPT SV] [info]        *
+[00:36:16] [SCRIPT SV] [info]
+[00:36:16] [SCRIPT SV] [info]
+[00:36:16] [SCRIPT SV] [info]
+[00:36:16] [SCRIPT SV] [info] Code Script: _mapspawn
+[00:36:16] [SCRIPT SV] [info] Code Script: _mp_mapspawn
+[00:36:16] [SCRIPT SV] [info] InitCustomGamemodes
+[00:36:16] [SCRIPT SV] [info] GAMETYPE: tdm
+[00:36:16] [SCRIPT SV] [info] MAX_TEAMS: 2
+[00:36:16] [SCRIPT SV] [info] InitCustomNetworkVars
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_r97.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_r97.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_alternator_smg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_alternator_smg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_car.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_car.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_hemlok_smg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_hemlok_smg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_vinson.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_vinson.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_hemlok.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_hemlok.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_sniper.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_sniper.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_epg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_epg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_smr.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_smr.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_pulse_lmg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_pulse_lmg.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_softball.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_softball.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_wingman.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_wingman.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_rocket_launcher.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_rocket_launcher.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_defender.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_defender.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_mgl.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_mgl.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/melee_pilot_emptyhanded.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/melee_pilot_emptyhanded.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/melee_pilot_arena.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/melee_pilot_arena.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_wingman_n.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_wingman_n.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_rspn101_og.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_rspn101_og.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_frag_grenade.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_frag_grenade.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_grenade_emp.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_grenade_emp.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_grenade_gravity.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_grenade_gravity.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_grenade_electric_smoke.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_grenade_electric_smoke.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_thermite_grenade.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_thermite_grenade.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_satchel.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_satchel.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/melee_pilot_sword.txt
+[00:36:17] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/melee_pilot_sword.txt
+[00:36:18] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_smart_pistol.txt
+[00:36:18] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_smart_pistol.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_dronebeam.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_dronebeam.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_dronerocket.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_dronerocket.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_droneplasma.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_droneplasma.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_gunship_turret.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_gunship_turret.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_gunship_missile.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_gunship_missile.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_frag_drone.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_weapon_frag_drone.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_ability_turretweapon.txt
+[00:36:19] [NORTHSTAR] [info] Building KeyValues for file scripts/weapons/mp_ability_turretweapon.txt
+[00:36:19] [SCRIPT SV] [info] PrivateLobby_Init()
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "NorthstarCheatCommands_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "Spectator_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "SvLoadoutsMP_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "AiTurretSentry_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "ScriptedMeleeWeaponSound_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "NorthstarCustomPrecache"
+[00:36:19] [NORTHSTAR] [info] [DEDICATED SERVER] Error: [1]
+[00:36:19] [NORTHSTAR] [info] [DEDICATED SERVER] KeyValues Error: RecursiveLoadFromBuffer:  got } in key in file scripts/weapons/mp_titanweapon_arc_cannon.txt
+WeaponData, RUI_CrosshairData, Crosshair_1, Element0,
+
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "DropPodSpawn_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "InitialiseArenaLoadouts"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "FirstPersonSequenceForce1P_InitPlaylistVars"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "RiffInstagib_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "CustomAirAccelVars_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "Promode_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "BleedoutDamage_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "CustomOOBTimer_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "ClassicRodeo_InitPlaylistVars"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "DisallowedWeapons_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "DisallowedTacticals_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "ForceMelee_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "CustomPilotCollision_InitPlaylistVars"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "DropPodSpawn1Player_Init"
+[00:36:19] [NORTHSTAR] [info] Running custom SERVER script callback "BecomesGruntMode_Init"
+[00:36:19] [NORTHSTAR] [info] SERVER CodeCallback CodeCallback_PostEntityInit called
+[00:36:19] [NORTHSTAR] [info] Not executing custom callbacks for CodeCallback CodeCallback_PostEntityInit
+[00:36:19] [SCRIPT SV] [info] Code Script: _init
+[00:36:19] [NORTHSTAR] [info] loading took 3.7020834999999996s
+[00:36:19] [NORTHSTAR] [info] Attempting to register the local server to the master server.
+[00:36:29] [NORTHSTAR] [errr] Couldn't find request id in response
+[00:36:29] [NORTHSTAR] [errr] Failed reading masterserver response: got fastify error response
+[00:36:29] [NORTHSTAR] [errr] {"error":{"enum":"NO_GAMESERVER_RESPONSE","msg":"Couldn't reach game server: failed to connect to game port (addr 93.190.140.162:37015)"},"request_id":"d7pslgh3ngoj3dskgvn0","success":false}
+
+[00:36:30] [NORTHSTAR] [info] Attempting to register the local server to the master server.
+[00:36:41] [NORTHSTAR] [errr] Couldn't find request id in response
+[00:36:41] [NORTHSTAR] [errr] Failed reading masterserver response: got fastify error response
+[00:36:41] [NORTHSTAR] [errr] {"error":{"enum":"NO_GAMESERVER_RESPONSE","msg":"Couldn't reach game server: failed to connect to game port (addr 93.190.140.162:37015)"},"request_id":"d7pslj93ngoj3dskh2mg","success":false}
+
+[00:36:45] [NORTHSTAR] [info] Attempting to register the local server to the master server.

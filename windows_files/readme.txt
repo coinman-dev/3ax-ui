@@ -10,4 +10,8 @@ pass: admin
 port: 2053
 
 
+to create a self-signed certificate you need OpenSSL for Windows:
+download it from https://slproweb.com/products/Win32OpenSSL.html (Win64 OpenSSL Light),
+then run:
+
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout localhost.key -out localhost.crt
