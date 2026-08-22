@@ -2292,6 +2292,25 @@ func (s *InboundService) GetInboundTags() (string, error) {
 		return "", err
 	}
 
+	// A routed MTProto inbound does have an identity inside the generated
+	// config: injectMtprotoEgress (xray.go) adds a loopback SOCKS inbound
+	// carrying the inbound's own tag. Offer that tag so its Telegram traffic can
+	// be steered by hand-written rules — the same reason the TPROXY tags below
+	// are offered. Unrouted mtproto inbounds stay hidden: nothing in the config
+	// answers to their tag.
+	var mtprotoInbounds []*model.Inbound
+	if err := db.Model(model.Inbound{}).
+		Where("protocol = ? AND enable = ?", string(model.MTProto), true).
+		Order("id").Find(&mtprotoInbounds).Error; err != nil {
+		logger.Warning("GetInboundTags: could not read mtproto inbounds:", err)
+	} else {
+		for _, in := range mtprotoInbounds {
+			if in.Tag != "" && mtprotoRoutesThroughXray(in) {
+				inboundTags = append(inboundTags, in.Tag)
+			}
+		}
+	}
+
 	// Append synthetic TPROXY-inbound tags for enabled tunnel servers that
 	// chose RouteViaXray: these are the tags the user actually targets when
 	// building Home → WG/AWG → Xray → upstream-VPN routes.
