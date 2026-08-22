@@ -772,6 +772,16 @@ func (s *TunnelService[K]) UpdateTrafficStats() {
 		return
 	}
 
+	// The TPROXY wiring of a tunnel routing through Xray can be taken apart by
+	// things outside the panel — systemd-networkd drops routing policy rules it
+	// did not create whenever it reconfigures an interface, which leaves the
+	// tunnel marking packets that have nowhere to go. Check and repair it here,
+	// on the same 10s tick that collects traffic.
+	if repaired := tunnel.EnsureTproxyRouting(s.kind(), server); len(repaired) > 0 {
+		logger.Warningf("%s: restored TPROXY wiring removed outside the panel: %s",
+			s.kind().Title, strings.Join(repaired, ", "))
+	}
+
 	peers, err := tunnel.GetPeerStats(s.kind(), server.InterfaceName)
 	if err != nil {
 		return

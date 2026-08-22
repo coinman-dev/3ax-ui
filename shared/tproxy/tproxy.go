@@ -18,6 +18,10 @@ type Params struct {
 	IPv6        bool   // emit the IPv6 half as well
 }
 
+// EffectivePort is the port the rules actually use: the configured one, or the
+// flavour's default when unset.
+func (p Params) EffectivePort() int { return p.port() }
+
 func (p Params) port() int {
 	if p.Port > 0 {
 		return p.Port
