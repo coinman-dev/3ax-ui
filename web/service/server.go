@@ -20,14 +20,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coinman-dev/3ax-ui/v2/awg"
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
 	"github.com/coinman-dev/3ax-ui/v2/mtproto"
+	"github.com/coinman-dev/3ax-ui/v2/tunnel"
 	"github.com/coinman-dev/3ax-ui/v2/util/common"
 	"github.com/coinman-dev/3ax-ui/v2/util/sys"
-	"github.com/coinman-dev/3ax-ui/v2/wg"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 
 	"github.com/google/uuid"
@@ -59,6 +58,21 @@ type MtprotoStatus struct {
 
 // Status represents comprehensive system and application status information.
 // It includes CPU, memory, disk, network statistics, and Xray process status.
+// AwgStatus and WgStatus keep the per-flavour JSON shape the frontend reads
+// (awgInstalled/wgInstalled). The service itself now returns a neutral
+// TunnelStatus; these are the presentation types built from it.
+type AwgStatus struct {
+	Running      bool   `json:"running"`
+	AwgInstalled bool   `json:"awgInstalled"`
+	AwgVersion   string `json:"awgVersion"`
+}
+
+type WgStatus struct {
+	Running     bool   `json:"running"`
+	WgInstalled bool   `json:"wgInstalled"`
+	WgVersion   string `json:"wgVersion"`
+}
+
 type Status struct {
 	T           time.Time `json:"-"`
 	Cpu         float64   `json:"cpu"`
@@ -252,16 +266,16 @@ func (s *ServerService) refreshTunnelMetaCache(now time.Time) {
 		return
 	}
 
-	s.cachedAwgInstalled = awg.IsAwgInstalled()
+	s.cachedAwgInstalled = tunnel.IsInstalled(tunnel.AWG)
 	if s.cachedAwgInstalled {
-		s.cachedAwgVersion = awg.GetAwgVersion()
+		s.cachedAwgVersion = tunnel.Version(tunnel.AWG)
 	} else {
 		s.cachedAwgVersion = "unknown"
 	}
 
-	s.cachedWgInstalled = wg.IsWgInstalled()
+	s.cachedWgInstalled = tunnel.IsInstalled(tunnel.WG)
 	if s.cachedWgInstalled {
-		s.cachedWgVersion = wg.GetWgVersion()
+		s.cachedWgVersion = tunnel.Version(tunnel.WG)
 	} else {
 		s.cachedWgVersion = "unknown"
 	}
@@ -459,14 +473,14 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	status.Awg.AwgInstalled = awgInstalled
 	status.Awg.AwgVersion = awgVersion
 	if awgServer, err := awgService.GetServer(); err == nil {
-		status.Awg.Running = awg.IsInterfaceUp(awgServer.InterfaceName)
+		status.Awg.Running = tunnel.IsInterfaceUp(tunnel.AWG, awgServer.InterfaceName)
 	}
 
 	var wgService WgService
 	status.Wg.WgInstalled = wgInstalled
 	status.Wg.WgVersion = wgVersion
 	if wgServer, err := wgService.GetServer(); err == nil {
-		status.Wg.Running = wg.IsInterfaceUp(wgServer.InterfaceName)
+		status.Wg.Running = tunnel.IsInterfaceUp(tunnel.WG, wgServer.InterfaceName)
 	}
 
 	// MTProto: many-users-per-port is available only when mtg-multi is installed.
@@ -477,8 +491,8 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	runtime.ReadMemStats(&rtm)
 	status.AppStats.Mem = rtm.Sys
 	status.AppStats.Threads = uint32(runtime.NumGoroutine())
-	if p != nil && p.IsRunning() {
-		status.AppStats.Uptime = p.GetUptime()
+	if proc := currentProcess(); proc != nil && proc.IsRunning() {
+		status.AppStats.Uptime = proc.GetUptime()
 	} else {
 		status.AppStats.Uptime = 0
 	}

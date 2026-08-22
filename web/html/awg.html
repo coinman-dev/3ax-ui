@@ -152,7 +152,7 @@
                           "pages.awg.serverEnabledDesc" }}</template>
                         <template #control>
                           <a-switch :checked="awgServer.enable"
-                            @change="toggleAwgServer"
+                            @change="(enable) => toggleTunnelServer('awg', enable)"
                             :loading="awgToggling"
                             checked-children="ON"
                             un-checked-children="OFF" />
@@ -546,7 +546,7 @@
                           "pages.nativewg.serverEnabledDesc" }}</template>
                         <template #control>
                           <a-switch :checked="wgServer.enable"
-                            @change="toggleWgServer"
+                            @change="(enable) => toggleTunnelServer('wg', enable)"
                             :loading="wgToggling"
                             checked-children="ON"
                             un-checked-children="OFF" />
@@ -806,8 +806,7 @@
 </a-layout>
 
 {{template "page/body_scripts" .}}
-<script src="{{ .base_path }}assets/js/model/awg.js?{{ .cur_ver }}"></script>
-<script src="{{ .base_path }}assets/js/model/wg.js?{{ .cur_ver }}"></script>
+<script src="{{ .base_path }}assets/js/model/tunnel.js?{{ .cur_ver }}"></script>
 {{template "component/aSidebar" .}}
 {{template "component/aThemeSwitch" .}}
 {{template "component/aSettingListItem" .}}
@@ -928,6 +927,75 @@
         }
         return interfaces[0].name || '';
       },
+      // The two tunnel flavours are driven by the same endpoints under
+      // different prefixes, so one set of methods serves both; `kind` is
+      // 'awg' or 'wg' and also names the data properties.
+      tunnelModel(kind) {
+        return kind === 'awg' ? AwgServer : WgServer;
+      },
+      async loadTunnelServer(kind) {
+        const msg = await HttpUtil.get(`panel/api/${kind}/server`);
+        if (msg.success) this[kind + 'Server'] = new (this.tunnelModel(kind))(msg.obj);
+      },
+      async loadTunnelStatus(kind) {
+        const msg = await HttpUtil.get(`panel/api/${kind}/server/status`);
+        if (msg.success) this[kind + 'Status'] = msg.obj;
+      },
+      async loadTunnelInterfaces(kind) {
+        const msg = await HttpUtil.get(`panel/api/${kind}/interfaces`);
+        if (msg.success) this[kind + 'NetworkInterfaces'] = msg.obj || [];
+      },
+      async loadTunnelData(kind) {
+        this[kind + 'Loading'] = true;
+        try {
+          await Promise.all([
+            this.loadTunnelServer(kind),
+            this.loadTunnelStatus(kind),
+            this.loadTunnelInterfaces(kind)
+          ]);
+          this.applyDetectedInterfaceDefaults(this[kind + 'Server'], this[kind + 'NetworkInterfaces']);
+          this[kind + 'ServerLoaded'] = true;
+        } finally {
+          this[kind + 'Loading'] = false;
+        }
+      },
+      async saveTunnelServer(kind) {
+        this[kind + 'Saving'] = true;
+        try {
+          const msg = await HttpUtil.postJson(`panel/api/${kind}/server`, this[kind + 'Server']);
+          if (msg.success) await this.loadTunnelStatus(kind);
+        } finally {
+          this[kind + 'Saving'] = false;
+        }
+      },
+      async toggleTunnelServer(kind, enable) {
+        this[kind + 'Toggling'] = true;
+        try {
+          const msg = await HttpUtil.postJson(`panel/api/${kind}/server/toggle`, { enable });
+          if (msg.success) {
+            this[kind + 'Server'].enable = enable;
+            await this.loadTunnelStatus(kind);
+          }
+        } finally {
+          this[kind + 'Toggling'] = false;
+        }
+      },
+      async resetTunnelToDefaults(kind) {
+        this[kind + 'Resetting'] = true;
+        try {
+          const msg = await HttpUtil.postJson(`panel/api/${kind}/server/reset`, {});
+          if (msg.success) {
+            this[kind + 'Server'] = new (this.tunnelModel(kind))(msg.obj);
+            await this.loadTunnelStatus(kind);
+            this.$message.success(kind === 'awg'
+              ? '{{ i18n "pages.awg.resetSuccess" }}'
+              : '{{ i18n "pages.nativewg.resetSuccess" }}');
+          }
+        } finally {
+          this[kind + 'Resetting'] = false;
+        }
+      },
+
       applyDetectedInterfaceDefaults(server, interfaces) {
         if (!server || !Array.isArray(interfaces) || interfaces.length === 0) {
           return;
@@ -947,7 +1015,7 @@
       async loadAllData() {
         this.loadingStates.spinning = true;
         try {
-          await Promise.all([this.loadAwgData(), this.loadWgData()]);
+          await Promise.all([this.loadTunnelData('awg'), this.loadTunnelData('wg')]);
         } finally {
           this.loadingStates.fetched = true;
           this.loadingStates.spinning = false;
@@ -956,55 +1024,20 @@
 
       async saveActiveServer() {
         if (this.isAwgTab) {
-          await this.saveAwgServer();
+          await this.saveTunnelServer('awg');
           return;
         }
-        await this.saveWgServer();
+        await this.saveTunnelServer('wg');
       },
       async resetActiveServer() {
         if (this.isAwgTab) {
-          await this.resetAwgToDefaults();
+          await this.resetTunnelToDefaults('awg');
           return;
         }
-        await this.resetWgToDefaults();
+        await this.resetTunnelToDefaults('wg');
       },
 
       // ---- AWG methods ----
-      async loadAwgData() {
-        this.awgLoading = true;
-        try {
-          await Promise.all([
-            this.loadAwgServer(),
-            this.loadAwgStatus(),
-            this.loadAwgInterfaces()
-          ]);
-          this.applyDetectedInterfaceDefaults(this.awgServer, this.awgNetworkInterfaces);
-          this.awgServerLoaded = true;
-        } finally {
-          this.awgLoading = false;
-        }
-      },
-      async loadAwgServer() {
-        const msg = await HttpUtil.get('panel/api/awg/server');
-        if (msg.success) this.awgServer = new AwgServer(msg.obj);
-      },
-      async loadAwgStatus() {
-        const msg = await HttpUtil.get('panel/api/awg/server/status');
-        if (msg.success) this.awgStatus = msg.obj;
-      },
-      async loadAwgInterfaces() {
-        const msg = await HttpUtil.get('panel/api/awg/interfaces');
-        if (msg.success) this.awgNetworkInterfaces = msg.obj || [];
-      },
-      async saveAwgServer() {
-        this.awgSaving = true;
-        try {
-          const msg = await HttpUtil.postJson('panel/api/awg/server', this.awgServer);
-          if (msg.success) await this.loadAwgStatus();
-        } finally {
-          this.awgSaving = false;
-        }
-      },
       async generateObfuscation() {
         this.generating = true;
         try {
@@ -1039,93 +1072,8 @@
           this.notifying = false;
         }
       },
-      async toggleAwgServer(enable) {
-        this.awgToggling = true;
-        try {
-          const msg = await HttpUtil.postJson('panel/api/awg/server/toggle', { enable });
-          if (msg.success) {
-            this.awgServer.enable = enable;
-            await this.loadAwgStatus();
-          }
-        } finally {
-          this.awgToggling = false;
-        }
-      },
-      async resetAwgToDefaults() {
-        this.awgResetting = true;
-        try {
-          const msg = await HttpUtil.postJson('panel/api/awg/server/reset', {});
-          if (msg.success) {
-            this.awgServer = new AwgServer(msg.obj);
-            await this.loadAwgStatus();
-            this.$message.success('{{ i18n "pages.awg.resetSuccess" }}');
-          }
-        } finally {
-          this.awgResetting = false;
-        }
-      },
 
       // ---- WG Native methods ----
-      async loadWgData() {
-        this.wgLoading = true;
-        try {
-          await Promise.all([
-            this.loadWgServer(),
-            this.loadWgStatus(),
-            this.loadWgInterfaces()
-          ]);
-          this.applyDetectedInterfaceDefaults(this.wgServer, this.wgNetworkInterfaces);
-          this.wgServerLoaded = true;
-        } finally {
-          this.wgLoading = false;
-        }
-      },
-      async loadWgServer() {
-        const msg = await HttpUtil.get('panel/api/wg/server');
-        if (msg.success) this.wgServer = new WgServer(msg.obj);
-      },
-      async loadWgStatus() {
-        const msg = await HttpUtil.get('panel/api/wg/server/status');
-        if (msg.success) this.wgStatus = msg.obj;
-      },
-      async loadWgInterfaces() {
-        const msg = await HttpUtil.get('panel/api/wg/interfaces');
-        if (msg.success) this.wgNetworkInterfaces = msg.obj || [];
-      },
-      async saveWgServer() {
-        this.wgSaving = true;
-        try {
-          const msg = await HttpUtil.postJson('panel/api/wg/server', this.wgServer);
-          if (msg.success) await this.loadWgStatus();
-        } finally {
-          this.wgSaving = false;
-        }
-      },
-      async toggleWgServer(enable) {
-        this.wgToggling = true;
-        try {
-          const msg = await HttpUtil.postJson('panel/api/wg/server/toggle', { enable });
-          if (msg.success) {
-            this.wgServer.enable = enable;
-            await this.loadWgStatus();
-          }
-        } finally {
-          this.wgToggling = false;
-        }
-      },
-      async resetWgToDefaults() {
-        this.wgResetting = true;
-        try {
-          const msg = await HttpUtil.postJson('panel/api/wg/server/reset', {});
-          if (msg.success) {
-            this.wgServer = new WgServer(msg.obj);
-            await this.loadWgStatus();
-            this.$message.success('{{ i18n "pages.nativewg.resetSuccess" }}');
-          }
-        } finally {
-          this.wgResetting = false;
-        }
-      },
 
       // ---- Shared ----
       copyText(text) {

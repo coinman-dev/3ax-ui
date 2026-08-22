@@ -80,7 +80,12 @@ func (j *XrayTrafficJob) Run() {
 	if onlineClients == nil {
 		onlineClients = []string{}
 	}
-	lastOnlineMap, err := j.inboundService.GetClientsLastOnline()
+	// Only clients that moved traffic this window can have a new last_online,
+	// and the frontend merges this map, so send the delta rather than the whole
+	// client_traffics table (which was a full scan plus a large payload on
+	// installs with thousands of clients).
+	active := activeEmails(clientTraffics)
+	lastOnlineMap, err := j.inboundService.GetClientsLastOnlineFor(active)
 	if err != nil {
 		logger.Warning("get clients last online failed:", err)
 	}
@@ -100,8 +105,8 @@ func (j *XrayTrafficJob) Run() {
 	// Replaces the old full-inbound-list broadcast that hit WS size limits
 	// (5–10MB) and forced the frontend into a REST refetch.
 	clientStatsPayload := map[string]any{}
-	if activeEmails := activeEmails(clientTraffics); len(activeEmails) > 0 {
-		if stats, err := j.inboundService.GetActiveClientTraffics(activeEmails); err != nil {
+	if len(active) > 0 {
+		if stats, err := j.inboundService.GetActiveClientTraffics(active); err != nil {
 			logger.Warning("get active client traffics for websocket failed:", err)
 		} else if len(stats) > 0 {
 			clientStatsPayload["clients"] = stats

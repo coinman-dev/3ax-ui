@@ -211,6 +211,9 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		Path:     basePath,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		// Mirrors the TLS decision in Start(): when the panel serves HTTPS the
+		// session cookie must never be sent over a plaintext request.
+		Secure: s.panelServesTLS(),
 	}
 	if sessionMaxAge, err := s.settingService.GetSessionMaxAge(); err == nil && sessionMaxAge > 0 {
 		sessionOptions.MaxAge = sessionMaxAge * 60 // minutes -> seconds
@@ -295,6 +298,45 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	return engine, nil
 }
 
+// panelServesTLS reports whether Start() will actually wrap the listener in
+// TLS. It mirrors that decision exactly — including the key-pair load — because
+// marking the session cookie Secure while the panel is in fact serving plain
+// HTTP (a mistyped or missing certificate path) would make login impossible:
+// the browser would refuse to store the cookie.
+func (s *Server) panelServesTLS() bool {
+	certFile, err := s.settingService.GetCertFile()
+	if err != nil {
+		return false
+	}
+	keyFile, err := s.settingService.GetKeyFile()
+	if err != nil {
+		return false
+	}
+	if certFile == "" || keyFile == "" {
+		return false
+	}
+	if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+		logger.Warning("session cookie stays non-Secure, certificate cannot be loaded:", err)
+		return false
+	}
+	return true
+}
+
+// addJob registers a cron job and logs a failure instead of dropping it: a bad
+// schedule spec used to disable the job silently, with no trace in the log.
+func (s *Server) addJob(spec string, j cron.Job) {
+	if _, err := s.cron.AddJob(spec, j); err != nil {
+		logger.Warningf("failed to schedule job %T at %q: %v", j, spec, err)
+	}
+}
+
+// addFunc is addJob for plain functions.
+func (s *Server) addFunc(spec string, fn func()) {
+	if _, err := s.cron.AddFunc(spec, fn); err != nil {
+		logger.Warningf("failed to schedule func at %q: %v", spec, err)
+	}
+}
+
 // startTask schedules background jobs (Xray checks, traffic jobs, cron
 // jobs) which the panel relies on for periodic maintenance and monitoring.
 func (s *Server) startTask() {
@@ -304,10 +346,10 @@ func (s *Server) startTask() {
 		logger.Warning("start xray failed:", err)
 	}
 	// Check whether xray is running every second
-	s.cron.AddJob("@every 1s", job.NewCheckXrayRunningJob())
+	s.addJob("@every 1s", job.NewCheckXrayRunningJob())
 
 	// Check if xray needs to be restarted every 30 seconds
-	s.cron.AddFunc("@every 30s", func() {
+	s.addFunc("@every 30s", func() {
 		if s.xrayService.IsNeedRestartAndSetFalse() {
 			err := s.xrayService.RestartXray(false)
 			if err != nil {
@@ -319,30 +361,30 @@ func (s *Server) startTask() {
 	go func() {
 		time.Sleep(time.Second * 5)
 		// Statistics every 10 seconds, start the delay for 5 seconds for the first time, and staggered with the time to restart xray
-		s.cron.AddJob("@every 10s", job.NewXrayTrafficJob())
+		s.addJob("@every 10s", job.NewXrayTrafficJob())
 		// AmneziaWG traffic stats every 10 seconds
-		s.cron.AddJob("@every 10s", job.NewAwgTrafficJob())
+		s.addJob("@every 10s", job.NewAwgTrafficJob())
 		// WireGuard Native traffic stats every 10 seconds
-		s.cron.AddJob("@every 10s", job.NewWgTrafficJob())
+		s.addJob("@every 10s", job.NewWgTrafficJob())
 		// Reconcile mtproto (mtg) sidecars + scrape their traffic every 10 seconds
-		s.cron.AddJob("@every 10s", job.NewMtprotoJob())
+		s.addJob("@every 10s", job.NewMtprotoJob())
 	}()
 
 	// check client ips from log file every 10 sec
-	s.cron.AddJob("@every 10s", job.NewCheckClientIpJob())
+	s.addJob("@every 10s", job.NewCheckClientIpJob())
 
 	// check client ips from log file every day
-	s.cron.AddJob("@daily", job.NewClearLogsJob())
+	s.addJob("@daily", job.NewClearLogsJob())
 
 	// Inbound traffic reset jobs
 	// Run every hour
-	s.cron.AddJob("@hourly", job.NewPeriodicTrafficResetJob("hourly"))
+	s.addJob("@hourly", job.NewPeriodicTrafficResetJob("hourly"))
 	// Run once a day, midnight
-	s.cron.AddJob("@daily", job.NewPeriodicTrafficResetJob("daily"))
+	s.addJob("@daily", job.NewPeriodicTrafficResetJob("daily"))
 	// Run once a week, midnight between Sat/Sun
-	s.cron.AddJob("@weekly", job.NewPeriodicTrafficResetJob("weekly"))
+	s.addJob("@weekly", job.NewPeriodicTrafficResetJob("weekly"))
 	// Run once a month, midnight, first of month
-	s.cron.AddJob("@monthly", job.NewPeriodicTrafficResetJob("monthly"))
+	s.addJob("@monthly", job.NewPeriodicTrafficResetJob("monthly"))
 
 	// LDAP sync scheduling
 	if ldapEnabled, _ := s.settingService.GetLdapEnable(); ldapEnabled {
@@ -352,7 +394,7 @@ func (s *Server) startTask() {
 		}
 		j := job.NewLdapSyncJob()
 		// job has zero-value services with method receivers that read settings on demand
-		s.cron.AddJob(runtime, j)
+		s.addJob(runtime, j)
 	}
 
 	// Make a traffic condition every day, 8:30
@@ -375,12 +417,12 @@ func (s *Server) startTask() {
 		}
 
 		// check for Telegram bot callback query hash storage reset
-		s.cron.AddJob("@every 2m", job.NewCheckHashStorageJob())
+		s.addJob("@every 2m", job.NewCheckHashStorageJob())
 
 		// Check CPU load and alarm to TgBot if threshold passes
 		cpuThreshold, err := s.settingService.GetTgCpu()
 		if (err == nil) && (cpuThreshold > 0) {
-			s.cron.AddJob("@every 10s", job.NewCheckCpuJob())
+			s.addJob("@every 10s", job.NewCheckCpuJob())
 		}
 	} else {
 		s.cron.Remove(entry)
@@ -403,7 +445,14 @@ func (s *Server) Start() (err error) {
 	s.cron = cron.New(
 		cron.WithLocation(loc),
 		cron.WithSeconds(),
-		cron.WithChain(cron.SkipIfStillRunning(cron.DiscardLogger)),
+		// Recover must come first: robfig/cron runs each job in a bare
+		// goroutine with no recover of its own, so an unhandled panic in any
+		// job (traffic collection, ip-limit, mtproto reconcile, ...) would
+		// take down the whole panel process.
+		cron.WithChain(
+			cron.Recover(cron.DefaultLogger),
+			cron.SkipIfStillRunning(cron.DiscardLogger),
+		),
 	)
 	s.cron.Start()
 

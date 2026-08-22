@@ -609,11 +609,13 @@
                           @click="FileManager.downloadTextFile(infoModal.links[index], `peer-${index + 1}.conf`)"></a-button>
                       </a-tooltip>
                     </tr-info-title>
+                    <!-- Rendered as text, not v-html: these links embed the
+                         client remark, which an operator (or an imported
+                         config) can fill with markup. pre-wrap keeps the
+                         line breaks the old <br /> replacement provided. -->
                     <div
-                      v-html="infoModal.links[index].replaceAll(`\n`,`<br />`)"
-                      :style="{ borderRadius: '1rem', padding: '0.5rem' }"
-                      class="client-table-odd-row">
-                    </div>
+                      :style="{ borderRadius: '1rem', padding: '0.5rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }"
+                      class="client-table-odd-row">[[ infoModal.links[index] ]]</div>
                   </tr-info-row>
                 </td>
               </tr>

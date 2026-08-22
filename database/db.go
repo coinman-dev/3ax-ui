@@ -18,6 +18,8 @@ import (
 
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	xuilogger "github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/shared/datagen"
 	"github.com/coinman-dev/3ax-ui/v2/util/crypto"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 	"github.com/google/uuid"
@@ -48,6 +50,8 @@ func initModels() error {
 		&model.WgServer{},
 		&model.WgClient{},
 		&model.MtprotoClient{},
+		&model.TunnelServer{},
+		&model.TunnelClient{},
 		&model.CustomGeoResource{},
 	}
 	for _, model := range models {
@@ -131,6 +135,75 @@ func isTableEmpty(tableName string) (bool, error) {
 }
 
 // InitDB sets up the database connection, migrates models, and runs seeders.
+// inboundDataTables are the tables whose contents shape what the subscription
+// endpoints render. Traffic counters (client_traffics) are deliberately absent:
+// they are rewritten on every collection tick, and treating that as a change
+// would invalidate the subscription cache constantly for numbers that its TTL
+// already keeps fresh enough.
+var inboundDataTables = map[string]struct{}{
+	"inbounds":        {},
+	"mtproto_clients": {},
+	"awg_clients":     {},
+	"wg_clients":      {},
+}
+
+// registerDataGenerationHooks bumps the shared data generation after any write
+// to an inbound-shaping table, wherever it comes from. Doing it here rather
+// than in each service method means a future write path cannot forget to
+// invalidate the caches that depend on it.
+func registerDataGenerationHooks(db *gorm.DB) {
+	bump := func(tx *gorm.DB) {
+		if tx.Statement == nil {
+			return
+		}
+		if _, ok := inboundDataTables[tx.Statement.Table]; ok {
+			datagen.Bump()
+		}
+	}
+	bumpRaw := func(tx *gorm.DB) {
+		if tx.Statement == nil {
+			return
+		}
+		sql := strings.TrimSpace(tx.Statement.SQL.String())
+		if len(sql) < 6 {
+			return
+		}
+		switch strings.ToUpper(sql[:6]) {
+		case "UPDATE", "INSERT", "DELETE":
+		default:
+			return
+		}
+		lower := strings.ToLower(sql)
+		for table := range inboundDataTables {
+			if strings.Contains(lower, table) {
+				datagen.Bump()
+				return
+			}
+		}
+	}
+	for name, cb := range map[string]func(*gorm.DB){
+		"datagen:create": bump,
+		"datagen:update": bump,
+		"datagen:delete": bump,
+	} {
+		var err error
+		switch name {
+		case "datagen:create":
+			err = db.Callback().Create().After("gorm:create").Register(name, cb)
+		case "datagen:update":
+			err = db.Callback().Update().After("gorm:update").Register(name, cb)
+		case "datagen:delete":
+			err = db.Callback().Delete().After("gorm:delete").Register(name, cb)
+		}
+		if err != nil {
+			xuilogger.Warning("could not register data generation hook:", err)
+		}
+	}
+	if err := db.Callback().Raw().After("gorm:raw").Register("datagen:raw", bumpRaw); err != nil {
+		xuilogger.Warning("could not register raw data generation hook:", err)
+	}
+}
+
 func InitDB(dbPath string) error {
 	dir := path.Dir(dbPath)
 	err := os.MkdirAll(dir, fs.ModePerm)
@@ -165,6 +238,8 @@ func InitDB(dbPath string) error {
 	if err != nil {
 		return err
 	}
+	registerDataGenerationHooks(db)
+
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 	sqlDB.SetConnMaxLifetime(0)
@@ -193,6 +268,10 @@ func InitDB(dbPath string) error {
 
 	// Populate UUIDs for existing AWG clients that don't have one
 	migrateAwgClientUUIDs()
+
+	// One-time move of the four legacy tunnel tables into the merged
+	// tunnel_servers/tunnel_clients (see migrateTunnelTablesFromLegacy).
+	migrateTunnelTablesFromLegacy(db)
 
 	// Convert legacy mixed/http inbounds from settings.accounts[] to settings.clients[]
 	// so they share the rich per-user infrastructure (traffic, expiry, quota) with VLESS.

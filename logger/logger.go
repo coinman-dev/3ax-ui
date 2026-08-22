@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/coinman-dev/3ax-ui/v2/config"
@@ -19,16 +20,30 @@ const (
 	timeFormat       = "2006/01/02 15:04:05" // Log timestamp format
 )
 
+// logEntry is one buffered record shown in the panel's log viewer.
+type logEntry struct {
+	time  string
+	level logging.Level
+	log   string
+}
+
 var (
-	logger  *logging.Logger
+	// Pre-initialised so that any logger.X() call before InitLogger (early
+	// startup paths, tests, library use) writes to go-logging's default
+	// backend instead of dereferencing a nil *Logger and crashing.
+	logger  = logging.MustGetLogger("x-ui")
 	logFile *os.File
 
-	// logBuffer maintains recent log entries in memory for web UI retrieval
-	logBuffer []struct {
-		time  string
-		level logging.Level
-		log   string
-	}
+	// logBuffer is a fixed-size ring of the most recent entries, guarded by
+	// logBufferMu: every logger.X() call writes to it from whichever goroutine
+	// logged (cron jobs, HTTP handlers, the xray log writer, the tg bot) while
+	// GetLogs reads it from an HTTP handler. Ring indices (instead of the old
+	// `logBuffer = logBuffer[1:]` + append) avoid re-copying all
+	// maxLogBufferSize entries whenever the backing array filled up.
+	logBufferMu    sync.Mutex
+	logBuffer      = make([]logEntry, maxLogBufferSize)
+	logBufferStart int // index of the oldest entry
+	logBufferLen   int // number of valid entries, <= maxLogBufferSize
 )
 
 // InitLogger initializes dual logging backends: console/syslog and file.
@@ -149,18 +164,6 @@ func Infof(format string, args ...any) {
 	addToBuffer("INFO", fmt.Sprintf(format, args...))
 }
 
-// Notice logs a notice message and adds it to the log buffer.
-func Notice(args ...any) {
-	logger.Notice(args...)
-	addToBuffer("NOTICE", fmt.Sprint(args...))
-}
-
-// Noticef logs a formatted notice message and adds it to the log buffer.
-func Noticef(format string, args ...any) {
-	logger.Noticef(format, args...)
-	addToBuffer("NOTICE", fmt.Sprintf(format, args...))
-}
-
 // Warning logs a warning message and adds it to the log buffer.
 func Warning(args ...any) {
 	logger.Warning(args...)
@@ -187,21 +190,23 @@ func Errorf(format string, args ...any) {
 
 // addToBuffer adds a log entry to the in-memory ring buffer for web UI retrieval.
 func addToBuffer(level string, newLog string) {
-	t := time.Now()
-	if len(logBuffer) >= maxLogBufferSize {
-		logBuffer = logBuffer[1:]
-	}
-
 	logLevel, _ := logging.LogLevel(level)
-	logBuffer = append(logBuffer, struct {
-		time  string
-		level logging.Level
-		log   string
-	}{
-		time:  t.Format(timeFormat),
+	entry := logEntry{
+		time:  time.Now().Format(timeFormat),
 		level: logLevel,
 		log:   newLog,
-	})
+	}
+
+	logBufferMu.Lock()
+	defer logBufferMu.Unlock()
+
+	logBuffer[(logBufferStart+logBufferLen)%maxLogBufferSize] = entry
+	if logBufferLen < maxLogBufferSize {
+		logBufferLen++
+	} else {
+		// Buffer full: the write above overwrote the oldest entry.
+		logBufferStart = (logBufferStart + 1) % maxLogBufferSize
+	}
 }
 
 // GetLogs retrieves up to c log entries from the buffer that are at or below the specified level.
@@ -209,9 +214,13 @@ func GetLogs(c int, level string) []string {
 	var output []string
 	logLevel, _ := logging.LogLevel(level)
 
-	for i := len(logBuffer) - 1; i >= 0 && len(output) <= c; i-- {
-		if logBuffer[i].level <= logLevel {
-			output = append(output, fmt.Sprintf("%s %s - %s", logBuffer[i].time, logBuffer[i].level, logBuffer[i].log))
+	logBufferMu.Lock()
+	defer logBufferMu.Unlock()
+
+	for i := logBufferLen - 1; i >= 0 && len(output) <= c; i-- {
+		entry := logBuffer[(logBufferStart+i)%maxLogBufferSize]
+		if entry.level <= logLevel {
+			output = append(output, fmt.Sprintf("%s %s - %s", entry.time, entry.level, entry.log))
 		}
 	}
 	return output

@@ -299,10 +299,10 @@ func (t *Tgbot) createRobustFastHTTPClient(proxyUrl string) *fasthttp.Client {
 		MaxConnWaitTimeout:            10 * time.Second,
 		DisableHeaderNamesNormalizing: false,
 		DisablePathNormalizing:        false,
-		// Retry on connection errors
-		RetryIf: func(request *fasthttp.Request) bool {
-			// Retry on connection errors for GET requests
-			return string(request.Header.Method()) == "GET" || string(request.Header.Method()) == "POST"
+		// Retry on connection errors (RetryIf is deprecated in fasthttp).
+		RetryIfErr: func(request *fasthttp.Request, attempts int, err error) (resetTimeout bool, retry bool) {
+			method := string(request.Header.Method())
+			return false, method == "GET" || method == "POST"
 		},
 	}
 
@@ -2767,7 +2767,7 @@ func (t *Tgbot) prepareServerUsageInfo() string {
 		t.lastStatus = t.serverService.GetStatus(t.lastStatus)
 		t.setCachedStatus(t.lastStatus)
 	}
-	onlines := p.GetOnlineClients()
+	onlines := xrayOnlineClients()
 	// Include AWG online clients
 	awgOnlines := t.awgService.GetOnlineClients()
 	onlines = append(onlines, awgOnlines...)
@@ -3123,8 +3123,8 @@ func (t *Tgbot) clientInfoMsg(
 
 	status := t.I18nBot("tgbot.offline")
 	isOnline := false
-	if p.IsRunning() {
-		if slices.Contains(p.GetOnlineClients(), traffic.Email) {
+	if xrayProcRunning() {
+		if slices.Contains(xrayOnlineClients(), traffic.Email) {
 			status = t.I18nBot("tgbot.online")
 			isOnline = true
 		}
@@ -3710,11 +3710,11 @@ func int64Contains(slice []int64, item int64) bool {
 
 // onlineClients retrieves and sends information about online clients.
 func (t *Tgbot) onlineClients(chatId int64, messageID ...int) {
-	if !p.IsRunning() {
+	if !xrayProcRunning() {
 		return
 	}
 
-	onlines := p.GetOnlineClients()
+	onlines := xrayOnlineClients()
 	onlinesCount := len(onlines)
 	output := t.I18nBot("tgbot.messages.onlinesCount", "Count=="+fmt.Sprint(onlinesCount))
 	keyboard := tu.InlineKeyboard(tu.InlineKeyboardRow(

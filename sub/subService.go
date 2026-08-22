@@ -52,7 +52,18 @@ func NewSubService(showInfo bool, remarkModel string, subTheme string) *SubServi
 }
 
 // GetSubs retrieves subscription links for a given subscription ID and host.
+//
+// One SubService instance is shared by every concurrent subscription request
+// (see NewSubController), so per-request values must never be written to the
+// shared receiver: doing so both raced and could hand one visitor links built
+// from another visitor's Host header. Everything below therefore runs against
+// a copy that lives only for this call.
 func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.ClientTraffic, error) {
+	local := *s
+	return local.buildSubs(subId, host)
+}
+
+func (s *SubService) buildSubs(subId string, host string) ([]string, int64, xray.ClientTraffic, error) {
 	s.address = host
 	var result []string
 	var traffic xray.ClientTraffic
@@ -131,6 +142,12 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 }
 
 func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) {
+	// Public, unauthenticated endpoint: serve from the short-lived cache when
+	// possible instead of re-running the JSON_EACH scan below on every request.
+	if cached, ok := cachedInboundsBySubId(subId); ok {
+		return cached, nil
+	}
+
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 	// allow "hysteria2" so imports stored with the literal v2 protocol
@@ -146,6 +163,7 @@ func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) 
 	if err != nil {
 		return nil, err
 	}
+	storeInboundsBySubId(subId, inbounds)
 	return inbounds, nil
 }
 
@@ -1462,8 +1480,10 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		remained = common.FormatTraffic(left)
 	}
 
-	datepicker := s.datepicker
-	if datepicker == "" {
+	// Read the setting here rather than relying on GetSubs having stored it on
+	// the receiver — that state is now request-local (see GetSubs).
+	datepicker, err := s.settingService.GetDatepicker()
+	if err != nil || datepicker == "" {
 		datepicker = "gregorian"
 	}
 

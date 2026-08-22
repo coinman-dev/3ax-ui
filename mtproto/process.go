@@ -201,17 +201,6 @@ func (p *Process) IsRunning() bool {
 	return false
 }
 
-// GetResult returns the last log line or the exit error from the mtg process.
-func (p *Process) GetResult() string {
-	if line := p.logWriter.LastLine(); line != "" {
-		return line
-	}
-	if p.exitErr != nil {
-		return p.exitErr.Error()
-	}
-	return ""
-}
-
 // Start launches the mtg process against its generated config file.
 func (p *Process) Start() error {
 	if p.IsRunning() {

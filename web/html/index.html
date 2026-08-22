@@ -937,6 +937,18 @@
     },
   };
 
+  // Log lines are rendered with v-html, and they carry attacker-influenced
+  // text: client emails/remarks and, for the access log, the destination the
+  // client asked for. Everything interpolated below goes through this first.
+  const escapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    })[ch]);
+
   const logModal = {
     visible: false,
     logs: [],
@@ -963,21 +975,26 @@
           const d = parts[0];
           const t = parts[1];
           const level = parts[2];
-          const levelIndex = levels.indexOf(level, levels) || 5;
+          // indexOf's second argument is fromIndex, not a haystack: the old
+          // `indexOf(level, levels) || 5` only worked by accident and mapped
+          // DEBUG (index 0) to the fallback colour.
+          const found = levels.indexOf(level);
+          const levelIndex = found === -1 ? 5 : found;
 
-          //formattedLogs += `<span style="color: gray;">${index + 1}.</span>`;
-          formattedLogs += `<span style="color: ${levelColors[0]};">${d} ${t}</span> `;
-          formattedLogs += `<span style="color: ${levelColors[levelIndex]}">${level}</span>`;
+          formattedLogs += `<span style="color: ${levelColors[0]};">${escapeHtml(d)} ${escapeHtml(t)}</span> `;
+          formattedLogs += `<span style="color: ${levelColors[levelIndex]}">${escapeHtml(level)}</span>`;
         } else {
-          const levelIndex = levels.indexOf(data, levels) || 5;
-          formattedLogs += `<span style="color: ${levelColors[levelIndex]}">${data}</span>`;
+          const found = levels.indexOf(data);
+          const levelIndex = found === -1 ? 5 : found;
+          formattedLogs += `<span style="color: ${levelColors[levelIndex]}">${escapeHtml(data)}</span>`;
         }
 
         if (message) {
-          if (message.startsWith("XRAY:"))
-            message = "<b>XRAY: </b>" + message.substring(5);
+          const safeMessage = escapeHtml(message);
+          if (safeMessage.startsWith("XRAY:"))
+            message = "<b>XRAY: </b>" + safeMessage.substring(5);
           else
-            message = "<b>X-UI: </b>" + message;
+            message = "<b>X-UI: </b>" + safeMessage;
         }
 
         formattedLogs += message ? ' - ' + message : '';
@@ -1038,16 +1055,16 @@
 
           let text = ``;
           if (log.Email !== "") {
-            text = `<td>${log.Email}</td>`;
+            text = `<td>${escapeHtml(log.Email)}</td>`;
           }
 
           formattedLogs += `
 <tr ${outboundColor}>
-    <td><b>${IntlUtil.formatDate(log.DateTime)}</b></td>
-    <td>${log.FromAddress}</td>
-    <td>${log.ToAddress}</td>
-    <td>${log.Inbound}</td>
-    <td>${log.Outbound}</td>
+    <td><b>${escapeHtml(IntlUtil.formatDate(log.DateTime))}</b></td>
+    <td>${escapeHtml(log.FromAddress)}</td>
+    <td>${escapeHtml(log.ToAddress)}</td>
+    <td>${escapeHtml(log.Inbound)}</td>
+    <td>${escapeHtml(log.Outbound)}</td>
     ${text}
 </tr>
 `;

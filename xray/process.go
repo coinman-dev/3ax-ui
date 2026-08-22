@@ -33,16 +33,6 @@ func GetConfigPath() string {
 	return config.GetBinFolderPath() + "/config.json"
 }
 
-// GetGeositePath returns the path to the geosite data file used by Xray.
-func GetGeositePath() string {
-	return config.GetBinFolderPath() + "/geosite.dat"
-}
-
-// GetGeoipPath returns the path to the geoip data file used by Xray.
-func GetGeoipPath() string {
-	return config.GetBinFolderPath() + "/geoip.dat"
-}
-
 // GetIPLimitLogPath returns the path to the IP limit log file.
 func GetIPLimitLogPath() string {
 	return config.GetLogFolder() + "/3xipl.log"
@@ -83,10 +73,10 @@ func GetAccessLogPath() (string, error) {
 		return "", err
 	}
 
-	if jsonConfig["log"] != nil {
-		jsonLog := jsonConfig["log"].(map[string]any)
-		if jsonLog["access"] != nil {
-			accessLogPath := jsonLog["access"].(string)
+	// The template is operator-editable JSON: "log" may be absent or hold a
+	// non-object, so never assert blindly here.
+	if jsonLog, ok := jsonConfig["log"].(map[string]any); ok {
+		if accessLogPath, ok := jsonLog["access"].(string); ok {
 			return accessLogPath, nil
 		}
 	}

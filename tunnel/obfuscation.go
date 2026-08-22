@@ -1,4 +1,4 @@
-package awg
+package tunnel
 
 import (
 	"crypto/rand"
@@ -6,8 +6,6 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
-
-	"github.com/coinman-dev/3ax-ui/v2/database/model"
 )
 
 // Obfuscation20 is a generated AmneziaWG 2.0 obfuscation parameter set. The
@@ -117,7 +115,7 @@ const hMaxValid int64 = 4294967295
 // saved and applied, so a bad manual entry can't bring the interface down on
 // `awg-quick up`. Empty H values are allowed (they fall back to a default when
 // the config is generated). Accepts a single value ("1") or a range ("100-800").
-func ValidateObfuscation(server *model.AwgServer) error {
+func ValidateObfuscation(server *Server) error {
 	if server.Jmin > server.Jmax {
 		return fmt.Errorf("invalid Jmin/Jmax: %d must not exceed %d", server.Jmin, server.Jmax)
 	}

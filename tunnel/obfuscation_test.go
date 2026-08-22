@@ -1,15 +1,13 @@
-package awg
+package tunnel
 
 import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/coinman-dev/3ax-ui/v2/database/model"
 )
 
-func toServer(o Obfuscation20) *model.AwgServer {
-	return &model.AwgServer{
+func toServer(o Obfuscation20) *Server {
+	return &Server{
 		Jc: o.Jc, Jmin: o.Jmin, Jmax: o.Jmax,
 		S1: o.S1, S2: o.S2, S3: o.S3, S4: o.S4,
 		H1: o.H1, H2: o.H2, H3: o.H3, H4: o.H4, I1: o.I1,
@@ -27,17 +25,17 @@ func TestValidateObfuscation(t *testing.T) {
 		}
 	}
 	// Legacy 1.x defaults and an empty (fallback) H value are valid.
-	if err := ValidateObfuscation(&model.AwgServer{Jmin: 50, Jmax: 1000, H1: "1", H2: "2", H3: "3", H4: "4"}); err != nil {
+	if err := ValidateObfuscation(&Server{Jmin: 50, Jmax: 1000, H1: "1", H2: "2", H3: "3", H4: "4"}); err != nil {
 		t.Fatalf("1.x defaults rejected: %v", err)
 	}
-	if err := ValidateObfuscation(&model.AwgServer{Jmax: 1, H1: "", H2: "2", H3: "3", H4: "4"}); err != nil {
+	if err := ValidateObfuscation(&Server{Jmax: 1, H1: "", H2: "2", H3: "3", H4: "4"}); err != nil {
 		t.Fatalf("empty H rejected: %v", err)
 	}
-	if err := ValidateObfuscation(&model.AwgServer{Jmax: 1, H1: "100000-800000", H2: "2", H3: "3", H4: "4"}); err != nil {
+	if err := ValidateObfuscation(&Server{Jmax: 1, H1: "100000-800000", H2: "2", H3: "3", H4: "4"}); err != nil {
 		t.Fatalf("valid range rejected: %v", err)
 	}
 	// Malformed inputs must be rejected.
-	bad := []*model.AwgServer{
+	bad := []*Server{
 		{Jmin: 100, Jmax: 50, H1: "1", H2: "2", H3: "3", H4: "4"}, // Jmin > Jmax
 		{Jmax: 1, S3: 100, H1: "1", H2: "2", H3: "3", H4: "4"},    // S3 > 64
 		{Jmax: 1, S4: 100, H1: "1", H2: "2", H3: "3", H4: "4"},    // S4 > 32

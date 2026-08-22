@@ -27,7 +27,7 @@ type MtprotoClient struct {
 	// explicit Enable=false (its zero value), so a disabled client (e.g. one
 	// migrated in disabled) would be written back as enabled. Callers always set
 	// Enable; the UI's client form defaults it to true for new clients.
-	Enable  bool   `json:"enable"`
+	Enable  bool   `json:"enable" gorm:"index:idx_mtproto_enable_last_online,priority:1"`
 	Secret  string `json:"secret"` // FakeTLS hex secret ("ee"+middle+hex(domain))
 	Comment string `json:"comment"`
 	SubId   string `json:"subId"`
@@ -43,7 +43,7 @@ type MtprotoClient struct {
 	Reset      int   `json:"reset" gorm:"default:0"`      // auto-renew interval in days
 	LimitIp    int   `json:"limitIp" gorm:"default:0"`
 	TgId       int64 `json:"tgId" gorm:"default:0"`
-	LastOnline int64 `json:"lastOnline" gorm:"default:0"` // last_seen from /stats (ms)
+	LastOnline int64 `json:"lastOnline" gorm:"default:0;index:idx_mtproto_enable_last_online,priority:2"` // last_seen from /stats (ms)
 
 	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime:milli"`
 	UpdatedAt int64 `json:"updatedAt" gorm:"autoUpdateTime:milli"`

@@ -11,12 +11,12 @@ import (
 	"syscall"
 	_ "unsafe"
 
-	"github.com/coinman-dev/3ax-ui/v2/awg"
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
 	"github.com/coinman-dev/3ax-ui/v2/sub"
+	"github.com/coinman-dev/3ax-ui/v2/tunnel"
 	"github.com/coinman-dev/3ax-ui/v2/util/crypto"
 	"github.com/coinman-dev/3ax-ui/v2/util/sys"
 	"github.com/coinman-dev/3ax-ui/v2/web"
@@ -64,7 +64,6 @@ func runWebServer() {
 
 	var subServer *sub.Server
 	subServer = sub.NewServer()
-	global.SetSubServer(subServer)
 	err = subServer.Start()
 	if err != nil {
 		log.Fatalf("Error starting sub server: %v", err)
@@ -104,7 +103,6 @@ func runWebServer() {
 			log.Println("Web server restarted successfully.")
 
 			subServer = sub.NewServer()
-			global.SetSubServer(subServer)
 			err = subServer.Start()
 			if err != nil {
 				log.Fatalf("Error restarting sub server: %v", err)
@@ -125,6 +123,7 @@ func runWebServer() {
 
 			server.Stop()
 			subServer.Stop()
+			logger.CloseLogger()
 			log.Println("Shutting down servers.")
 			return
 		}
@@ -421,7 +420,7 @@ func generateAwg2() {
 		fmt.Println("No AmneziaWG server to configure:", err)
 		return
 	}
-	o := awg.GenerateObfuscation20("default")
+	o := tunnel.GenerateObfuscation20("default")
 	server.Jc, server.Jmin, server.Jmax = o.Jc, o.Jmin, o.Jmax
 	server.S1, server.S2, server.S3, server.S4 = o.S1, o.S2, o.S3, o.S4
 	server.H1, server.H2, server.H3, server.H4 = o.H1, o.H2, o.H3, o.H4

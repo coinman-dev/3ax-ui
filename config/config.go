@@ -49,15 +49,6 @@ func GetVersion() string {
 	return strings.TrimPrefix(v, "v")
 }
 
-// IsBeta reports whether the current build is a pre-release
-// (version string contains "beta", "alpha", or "rc").
-func IsBeta() bool {
-	v := strings.ToLower(GetVersion())
-	return strings.Contains(v, "beta") ||
-		strings.Contains(v, "alpha") ||
-		strings.Contains(v, "rc")
-}
-
 // GetName returns the name of the 3AX-UI application.
 func GetName() string {
 	return strings.TrimSpace(name)

@@ -409,8 +409,3 @@ func (s *Server) Stop() error {
 	}
 	return common.Combine(err1, err2, err3)
 }
-
-// GetCtx returns the server's context for cancellation and deadline management.
-func (s *Server) GetCtx() context.Context {
-	return s.ctx
-}

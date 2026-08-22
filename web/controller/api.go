@@ -14,8 +14,8 @@ type APIController struct {
 	BaseController
 	inboundController *InboundController
 	serverController  *ServerController
-	awgController     *AwgController
-	wgController      *WgController
+	awgController     *TunnelController
+	wgController      *TunnelController
 	mtprotoController *MtprotoController
 	Tgbot             service.Tgbot
 }

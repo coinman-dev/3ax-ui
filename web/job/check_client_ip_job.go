@@ -54,6 +54,12 @@ const defaultXrayAPIPort = 62789
 // in a bounded time and free its slot.
 const ipStaleAfterSeconds = int64(30 * 60)
 
+var (
+	ipRegex        = regexp.MustCompile(`from (?:tcp:|udp:)?\[?([0-9a-fA-F\.:]+)\]?:\d+ accepted`)
+	emailRegex     = regexp.MustCompile(`email: (.+)$`)
+	timestampRegex = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})`)
+)
+
 // NewCheckClientIpJob creates a new client IP monitoring job instance.
 func NewCheckClientIpJob() *CheckClientIpJob {
 	job = new(CheckClientIpJob)
@@ -80,9 +86,7 @@ func (j *CheckClientIpJob) Run() {
 				if f2bInstalled {
 					shouldClearAccessLog = j.processLogFile()
 				} else {
-					if !f2bInstalled {
-						logger.Warning("[LimitIP] Fail2Ban is not installed, Please install Fail2Ban from the x-ui bash menu.")
-					}
+					logger.Warning("[LimitIP] Fail2Ban is not installed, Please install Fail2Ban from the x-ui bash menu.")
 				}
 			}
 		}
@@ -145,9 +149,7 @@ func (j *CheckClientIpJob) hasLimitIp() bool {
 
 func (j *CheckClientIpJob) processLogFile() bool {
 
-	ipRegex := regexp.MustCompile(`from (?:tcp:|udp:)?\[?([0-9a-fA-F\.:]+)\]?:\d+ accepted`)
-	emailRegex := regexp.MustCompile(`email: (.+)$`)
-	timestampRegex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})`)
+	// Package-level: processLogFile runs on every tick of the 10s job.
 
 	accessLogPath, _ := xray.GetAccessLogPath()
 	file, _ := os.Open(accessLogPath)

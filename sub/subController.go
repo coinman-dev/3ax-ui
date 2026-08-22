@@ -125,7 +125,10 @@ func (a *SUBController) subs(c *gin.Context) {
 				basePath = "/"
 			}
 			// Add subId to base_path for asset URLs
-			basePathStr := basePath.(string)
+			basePathStr, _ := basePath.(string)
+			if basePathStr == "" {
+				basePathStr = "/"
+			}
 			if basePathStr == "/" {
 				basePathStr = "/" + subId + "/"
 			} else {

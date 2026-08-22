@@ -12,13 +12,3 @@ func GetFields(t reflect.Type) []reflect.StructField {
 	}
 	return fields
 }
-
-// GetFieldValues returns all field values of the given reflect.Value.
-func GetFieldValues(v reflect.Value) []reflect.Value {
-	num := v.NumField()
-	fields := make([]reflect.Value, 0, num)
-	for i := range num {
-		fields = append(fields, v.Field(i))
-	}
-	return fields
-}
