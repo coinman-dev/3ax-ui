@@ -75,7 +75,7 @@ A fresh install configures the server in 2.0 mode right away; empty S3/S4/I1 kee
 - **RandomTrailers** and **DisableCookies** — the two parameters 3.1 added;
 - **I2–I5** — the remaining 2.0 signature packets, alongside I1.
 
-A **Generate 3.0** button fills the whole set at once, because header protection needs S1–S4 wide enough to carry its nonce and the panel keeps the two halves consistent. The block is disabled with the installed version shown when the server's `amneziawg-tools` or kernel module predate 3.0 — writing those keys there would produce a config that refuses to load. Every field is optional and an unset one is not written at all, so a 1.x or 2.0 server keeps producing exactly the config it produced before.
+The generation is picked from a dropdown next to the **Generate** button: 2.0 or 3.x. Choosing 3.x also produces the 2.0 set, because header protection needs S1–S4 wide enough to carry its nonce and the panel keeps the two halves consistent. The 3.x option is disabled, with the installed version shown next to it, when the server's `amneziawg-tools` or kernel module predate 3.0 — writing those keys there would produce a config that refuses to load. Every field is optional and an unset one is not written at all, so a 1.x or 2.0 server keeps producing exactly the config it produced before.
 
 > Clients must support 3.0 too: after switching, everyone re-imports their config, and an older AmneziaVPN app will not read it.
 
