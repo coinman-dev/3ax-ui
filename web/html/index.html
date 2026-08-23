@@ -16,6 +16,13 @@
   }
   .index-page .protocol-switcher-item {
     flex: 1 1 0;
+    /* Required for the ratios to hold: a flex item will not shrink below its
+       content width without it, and one long state label is enough to move the
+       divider off the one in the card above. */
+    min-width: 0;
+    /* Clip rather than spill across the divider if a translated state label
+       ever outgrows its third. */
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -52,6 +59,9 @@
   }
   .index-page .panel-split-item + .panel-split-item {
     border-left: 1px solid rgba(0, 0, 0, 0.09);
+  }
+  .index-page .panel-split-item.is-centered {
+    justify-content: center;
   }
   .index-page.dark .panel-split {
     border-top-color: rgba(255, 255, 255, 0.1);
@@ -332,7 +342,7 @@
                         </a-tag>
                       </a>
                     </div>
-                    <div class="panel-split-item">
+                    <div class="panel-split-item is-centered">
                       <!-- Which sidecar is installed matters: mtg-multi serves
                            many clients on one port, plain mtg only one. -->
                       <a-tooltip :title="mtprotoCard.binaryTitle">
