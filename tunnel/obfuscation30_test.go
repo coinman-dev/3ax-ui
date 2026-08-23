@@ -3,6 +3,7 @@ package tunnel
 import (
 	"encoding/base64"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -192,7 +193,8 @@ func TestObfuscation30JSONShape(t *testing.T) {
 	}
 	want := []string{
 		// the 2.0 half the form has always read
-		"jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1",
+		"jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4",
+		"i1", "i2", "i3", "i4", "i5",
 		// and the 3.0 fields, named as AWG3_FIELDS in awg.html
 		"headerProtectionKey", "contentPaddingAddition", "rekeyAfterTime",
 		"rekeyTimeout", "rejectAfterTime", "keepaliveTimeout",
@@ -205,5 +207,36 @@ func TestObfuscation30JSONShape(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Errorf("payload has %d keys, expected %d: %v", len(got), len(want), got)
+	}
+}
+
+// TestGeneratedSignaturePackets: I2-I5 are parsed by the kernel module, and a
+// malformed tag is refused with EINVAL — the interface then fails to come up.
+// The grammar is <b 0xHEX> (even number of hex digits), <r N>, <c>, <t>.
+func TestGeneratedSignaturePackets(t *testing.T) {
+	tag := regexp.MustCompile(`^<(b 0x[0-9a-f]+|r [0-9]+|c|t)>$`)
+	for i := 0; i < 200; i++ {
+		o := GenerateObfuscation20("default")
+		for n, packet := range map[string]string{"I2": o.I2, "I3": o.I3, "I4": o.I4, "I5": o.I5} {
+			if packet == "" {
+				t.Fatalf("%s should be generated", n)
+			}
+			// Split "<a><b>" into its tags without losing the delimiters.
+			parts := strings.SplitAfter(packet, ">")
+			for _, p := range parts {
+				if p == "" {
+					continue
+				}
+				if !tag.MatchString(p) {
+					t.Fatalf("%s = %q has an unparsable tag %q", n, packet, p)
+				}
+				if hex, ok := strings.CutPrefix(p, "<b 0x"); ok {
+					hex = strings.TrimSuffix(hex, ">")
+					if len(hex)%2 != 0 {
+						t.Fatalf("%s = %q: literal bytes need an even number of hex digits", n, packet)
+					}
+				}
+			}
+		}
 	}
 }

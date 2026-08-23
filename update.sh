@@ -1362,6 +1362,20 @@ update_x-ui() {
         fi
     fi
     
+    # Verify the archive BEFORE anything is removed. An interrupted download
+    # used to reach the install step below, where tar failed with its output
+    # discarded and `cd x-ui` silently did nothing — the old version was already
+    # deleted by then, so the panel was left with no binary at all and every
+    # later step reported "No such file or directory".
+    if ! tar -tzf x-ui-linux-$(arch).tar.gz >/dev/null 2>&1; then
+        rm x-ui-linux-$(arch).tar.gz -f >/dev/null 2>&1
+        _fail "ERROR: the downloaded archive is corrupt (interrupted download?). Nothing has been changed — run the update again."
+    fi
+    if ! tar -tzf x-ui-linux-$(arch).tar.gz 2>/dev/null | grep -qx "x-ui/x-ui"; then
+        rm x-ui-linux-$(arch).tar.gz -f >/dev/null 2>&1
+        _fail "ERROR: the downloaded archive does not contain the x-ui binary. Nothing has been changed."
+    fi
+
     if [[ -e ${xui_folder}/ ]]; then
         for candidate in "${xui_folder}"/bin/xray-linux-*; do
             if [[ -f "$candidate" ]]; then
@@ -1420,9 +1434,13 @@ update_x-ui() {
     fi
     
     echo -e "${green}Installing new x-ui version...${plain}"
-    tar zxvf x-ui-linux-$(arch).tar.gz >/dev/null 2>&1
+    # Both steps are load-bearing and used to fail silently: the old version is
+    # gone at this point, so anything that goes wrong here has to say so.
+    if ! tar zxf x-ui-linux-$(arch).tar.gz >/dev/null 2>&1; then
+        _fail "ERROR: failed to unpack x-ui-linux-$(arch).tar.gz. The panel binary is missing — run the update again to restore it."
+    fi
     rm x-ui-linux-$(arch).tar.gz -f >/dev/null 2>&1
-    cd x-ui >/dev/null 2>&1
+    cd x-ui || _fail "ERROR: the unpacked x-ui folder is missing. The panel binary is missing — run the update again to restore it."
     chmod +x x-ui >/dev/null 2>&1
     
     # Check the system's architecture and rename the file accordingly

@@ -355,19 +355,20 @@
                           </span>
                         </template>
                         <template #control>
-                          <div :style="{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }">
-                            <a-select v-model="obfStd" :style="{ width: '150px' }"
-                              :dropdown-class-name="themeSwitcher.currentTheme">
-                              <a-select-option value="2">{{ i18n "pages.awg.std2" }}</a-select-option>
-                              <a-select-option value="3" :disabled="!awgStatus.supportsV3">{{ i18n "pages.awg.std3" }}</a-select-option>
-                            </a-select>
-                            <a-select v-model="obfPreset" :style="{ width: '170px' }"
-                              :dropdown-class-name="themeSwitcher.currentTheme">
-                              <a-select-option value="default">{{ i18n "pages.awg.presetDefault" }}</a-select-option>
-                              <a-select-option value="mobile">{{ i18n "pages.awg.presetMobile" }}</a-select-option>
-                            </a-select>
-                            <a-button type="primary" @click="generateObfuscation" :loading="generating">{{ i18n "pages.awg.generate" }}</a-button>
-                            <a-button @click="clearObfuscation3" v-if="hasObfuscation3">{{ i18n "pages.awg.clear3" }}</a-button>
+                          <div :style="{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }">
+                            <div :style="{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }">
+                              <a-select v-model="obfStd" :style="{ width: '150px' }"
+                                :dropdown-class-name="themeSwitcher.currentTheme">
+                                <a-select-option value="2">{{ i18n "pages.awg.std2" }}</a-select-option>
+                                <a-select-option value="3" :disabled="!awgStatus.supportsV3">{{ i18n "pages.awg.std3" }}</a-select-option>
+                              </a-select>
+                              <a-select v-model="obfPreset" :style="{ width: '170px' }"
+                                :dropdown-class-name="themeSwitcher.currentTheme">
+                                <a-select-option value="default">{{ i18n "pages.awg.presetDefault" }}</a-select-option>
+                                <a-select-option value="mobile">{{ i18n "pages.awg.presetMobile" }}</a-select-option>
+                              </a-select>
+                              <a-button type="primary" @click="generateObfuscation" :loading="generating">{{ i18n "pages.awg.generate" }}</a-button>
+                            </div>
                             <a-popconfirm @confirm="notifyClients"
                               ok-text="{{ i18n "confirm" }}" cancel-text="{{ i18n "cancel" }}">
                               <template slot="title">
@@ -1138,8 +1139,16 @@
       // present; the 3.0 ones only when the 3.0 generator produced them, so a
       // "Generate 2.0" never silently wipes header protection.
       applyObfuscation(o) {
-        ['jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4', 'h1', 'h2', 'h3', 'h4', 'i1']
+        ['jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4', 'h1', 'h2', 'h3', 'h4',
+         'i1', 'i2', 'i3', 'i4', 'i5']
           .forEach(f => { this.awgServer[f] = o[f]; });
+        // A 2.0 set carries no 3.0 fields, and leaving the old ones in place
+        // would keep the server on 3.x while the form claims otherwise — so
+        // generating 2.0 clears them.
+        if (o.headerProtectionKey === undefined) {
+          this.clearObfuscation3();
+          return;
+        }
         AWG3_FIELDS.forEach(f => {
           if (o[f] !== undefined) this.awgServer[f] = o[f];
         });
@@ -1159,7 +1168,9 @@
         }
       },
       // Back to a 2.0 server: every 3.0 key empty means none of them is written
-      // to the config, so the kernel keeps its defaults.
+      // to the config, so the kernel keeps its defaults. Called when a 2.0 set
+      // is generated — there is no separate button, since the generation
+      // dropdown already says which one the server should run.
       clearObfuscation3() {
         AWG3_FIELDS.forEach(f => {
           this.awgServer[f] = (f === 'randomTrailers' || f === 'disableCookies') ? false : '';

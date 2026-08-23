@@ -2227,16 +2227,36 @@ install_x-ui() {
         exit 1
     fi
 
+    # Verify the archive BEFORE the old install is removed: an interrupted
+    # download would otherwise leave the machine with neither version, which is
+    # exactly what happened on a live panel.
+    if ! tar -tzf x-ui-linux-$(arch).tar.gz >/dev/null 2>&1; then
+        rm x-ui-linux-$(arch).tar.gz -f
+        echo -e "${red}The downloaded archive is corrupt (interrupted download?). Nothing has been changed — run the install again.${plain}"
+        exit 1
+    fi
+    if ! tar -tzf x-ui-linux-$(arch).tar.gz 2>/dev/null | grep -qx "x-ui/x-ui"; then
+        rm x-ui-linux-$(arch).tar.gz -f
+        echo -e "${red}The downloaded archive does not contain the x-ui binary. Nothing has been changed.${plain}"
+        exit 1
+    fi
+
     # Remove old install before extracting fresh tarball.
     if [[ -e ${xui_folder}/ ]]; then
         rm ${xui_folder}/ -rf
     fi
 
     # Extract resources and set permissions
-    tar zxvf x-ui-linux-$(arch).tar.gz
+    if ! tar zxf x-ui-linux-$(arch).tar.gz; then
+        echo -e "${red}Failed to unpack x-ui-linux-$(arch).tar.gz — the panel is not installed.${plain}"
+        exit 1
+    fi
     rm x-ui-linux-$(arch).tar.gz -f
 
-    cd x-ui
+    cd x-ui || {
+        echo -e "${red}The unpacked x-ui folder is missing — the panel is not installed.${plain}"
+        exit 1
+    }
     install_x-ui_finalize
 }
 

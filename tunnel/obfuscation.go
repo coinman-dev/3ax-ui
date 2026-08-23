@@ -25,6 +25,10 @@ type Obfuscation20 struct {
 	H3   string `json:"h3"`
 	H4   string `json:"h4"`
 	I1   string `json:"i1"`
+	I2   string `json:"i2"`
+	I3   string `json:"i3"`
+	I4   string `json:"i4"`
+	I5   string `json:"i5"`
 }
 
 // awgHMax is the upper bound for H values: 2^31-1. The AmneziaWG spec allows the
@@ -83,10 +87,34 @@ func GenerateObfuscation20(preset string) Obfuscation20 {
 	h := generateHRanges()
 	o.H1, o.H2, o.H3, o.H4 = h[0], h[1], h[2], h[3]
 
-	// CPS signature packet: N random bytes prepended before each handshake.
+	// CPS signature packets, prepended before each handshake. I1 carries plain
+	// random bytes; I2-I5 open with a header borrowed from another protocol, so
+	// the first bytes on the wire read as something a censor already allows
+	// rather than as noise. Optional, and the receiver never validates them —
+	// they exist purely to shape what a classifier sees.
 	o.I1 = fmt.Sprintf("<r %d>", randInt(32, 256))
+	o.I2, o.I3, o.I4, o.I5 = generateSignaturePackets()
 
 	return o
+}
+
+// generateSignaturePackets builds I2-I5: a QUIC Initial, a STUN binding
+// request, a DTLS ClientHello record and a timestamped blob. Each keeps the
+// real header bytes of its protocol and randomises the rest, and the lengths
+// vary per call so two servers never emit the same preamble.
+//
+// Tag grammar (parsed by the kernel module): <b 0xHEX> literal bytes, <r N>
+// N random bytes, <c> a 4-byte counter, <t> a 4-byte unix timestamp.
+func generateSignaturePackets() (i2, i3, i4, i5 string) {
+	// QUIC long header: version 1, then a connection id and a counter.
+	i2 = fmt.Sprintf("<b 0xc30000000108><r %d><c>", randInt(8, 24))
+	// STUN binding request: type 0x0001, then the magic cookie 0x2112a442.
+	i3 = fmt.Sprintf("<b 0x000100002112a442><r %d>", randInt(12, 28))
+	// DTLS 1.2 handshake record: content type 22, version 0xfeff.
+	i4 = fmt.Sprintf("<b 0x16feff0000000000000000><r %d>", randInt(16, 48))
+	// A timestamped blob, which is what a keepalive of many protocols is.
+	i5 = fmt.Sprintf("<t><r %d>", randInt(16, 64))
+	return i2, i3, i4, i5
 }
 
 // generateHRanges returns four non-overlapping "low-high" ranges for H1-H4.
