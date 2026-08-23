@@ -84,7 +84,7 @@
       </a-form-item>
       <a-form-item label="{{ i18n "pages.inbounds.mtproto.frontingPort" }}">
         <a-input-number v-model="inbound.settings.domainFronting.port" :min="0" :max="65535"
-          :style="{ width: '100%' }" placeholder="443"></a-input-number>
+          placeholder="443"></a-input-number>
       </a-form-item>
       <a-form-item>
         <template slot="label">
@@ -122,7 +122,7 @@
       </a-form-item>
       <a-form-item label="{{ i18n "pages.inbounds.mtproto.doppelRepeats" }}">
         <a-input-number v-model="inbound.settings.doppelganger.repeatsPerRaid" :min="0" :max="100"
-          :style="{ width: '100%' }" placeholder="10"></a-input-number>
+          placeholder="10"></a-input-number>
       </a-form-item>
       <a-form-item label="{{ i18n "pages.inbounds.mtproto.doppelRaidEach" }}">
         <a-input v-model.trim="inbound.settings.doppelganger.raidEach" placeholder="6h"></a-input>
@@ -183,7 +183,7 @@
             <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
-        <a-input-number v-model="inbound.settings.concurrency" :min="0" :style="{ width: '100%' }"
+        <a-input-number v-model="inbound.settings.concurrency" :min="0"
           placeholder="8192"></a-input-number>
       </a-form-item>
       <a-form-item>
