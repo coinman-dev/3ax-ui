@@ -69,7 +69,9 @@ func TestInstanceFromInbound(t *testing.T) {
 	if !inst.Debug || !inst.ProxyProtocolListener || inst.PreferIP != "prefer-ipv4" {
 		t.Fatalf("scalar options not parsed: %+v", inst)
 	}
-	if inst.FrontingIP != "127.0.0.1" || inst.FrontingPort != 9443 || !inst.FrontingProxyProtocol {
+	// The legacy `ip` key still feeds FrontingHost, so an inbound configured
+	// before mtg deprecated it keeps its fronting target after an upgrade.
+	if inst.FrontingHost != "127.0.0.1" || inst.FrontingPort != 9443 || !inst.FrontingProxyProtocol {
 		t.Fatalf("domain-fronting not parsed: %+v", inst)
 	}
 	if !inst.RouteThroughXray || inst.XrayRoutePort != 50000 {
@@ -165,9 +167,21 @@ func TestFingerprintReactsToOptions(t *testing.T) {
 		"debug":         func(i *Instance) { i.Debug = true },
 		"listener":      func(i *Instance) { i.ProxyProtocolListener = true },
 		"preferIp":      func(i *Instance) { i.PreferIP = "only-ipv4" },
-		"frontingIP":    func(i *Instance) { i.FrontingIP = "127.0.0.1" },
+		"frontingHost":  func(i *Instance) { i.FrontingHost = "127.0.0.1" },
 		"frontingPort":  func(i *Instance) { i.FrontingPort = 9443 },
 		"frontingProxy": func(i *Instance) { i.FrontingProxyProtocol = true },
+		"concurrency":   func(i *Instance) { i.Concurrency = 4096 },
+		"publicIPv4":    func(i *Instance) { i.PublicIPv4 = "1.2.3.4" },
+		"publicIPv6":    func(i *Instance) { i.PublicIPv6 = "2001:db8::1" },
+		"timeSkew":      func(i *Instance) { i.TolerateTimeSkewness = "10s" },
+		"dns":           func(i *Instance) { i.DNS = "https://1.1.1.1" },
+		"doppelUrls":    func(i *Instance) { i.DoppelgangerURLs = []string{"https://example.com/a.js"} },
+		"doppelRepeats": func(i *Instance) { i.DoppelgangerRepeats = 10 },
+		"doppelRaid":    func(i *Instance) { i.DoppelgangerRaidEach = "6h" },
+		"doppelDRS":     func(i *Instance) { i.DoppelgangerDRS = true },
+		"antiReplayOff": func(i *Instance) { i.AntiReplayDisabled = true },
+		"blocklistOff":  func(i *Instance) { i.BlocklistDisabled = true },
+		"blocklistUrls": func(i *Instance) { i.BlocklistURLs = []string{"https://example.com/list.netset"} },
 		"routeXray":     func(i *Instance) { i.RouteThroughXray = true },
 		"routeXrayPort": func(i *Instance) { i.XrayRoutePort = 50000 },
 		"addClient": func(i *Instance) {

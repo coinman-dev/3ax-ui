@@ -44,9 +44,43 @@ type Instance struct {
 	Debug                 bool
 	ProxyProtocolListener bool
 	PreferIP              string
-	FrontingIP            string
+	Concurrency           int
+	PublicIPv4            string
+	PublicIPv6            string
+	TolerateTimeSkewness  string
+	// DNS is mtg's own resolver ("https://1.1.1.1", "tls://1.1.1.1", "1.1.1.1"
+	// or "" for the system one). mtg resolves the fronting hostname itself, so
+	// a poisoned local resolver is worked around here rather than in /etc.
+	DNS string
+
+	// Where a connection that fails the FakeTLS handshake is sent — an active
+	// prober, or anyone scanning the port. Without a fronting target mtg just
+	// drops the connection, which is itself a recognisable answer; with one the
+	// port behaves like the HTTPS server it claims to be.
+	//
+	// FrontingHost is written as `host`: mtg deprecated `ip`, logs a warning
+	// and ignores it. It takes a hostname or a literal address; the SNI still
+	// comes from the secret.
+	FrontingHost          string
 	FrontingPort          int
 	FrontingProxyProtocol bool
+
+	// Doppelganger makes the proxy's traffic SHAPE resemble a real site's:
+	// mtg crawls these URLs to learn the delay distribution between packets and
+	// reproduces it. This is what answers a censor that classifies by timing
+	// rather than by signature. Empty URLs leave the subsystem idle.
+	DoppelgangerURLs     []string
+	DoppelgangerRepeats  int
+	DoppelgangerRaidEach string
+	DoppelgangerDRS      bool
+
+	// Both defences are ON by default in mtg, so these carry the negative: the
+	// config gets `enabled = false` only when the operator turns one off.
+	// Blocklist is worth turning off on a LAN — the default FireHOL list
+	// contains RFC1918, so a client on the same network is refused.
+	AntiReplayDisabled bool
+	BlocklistDisabled  bool
+	BlocklistURLs      []string
 
 	// When RouteThroughXray is set, mtg dials Telegram through the loopback
 	// SOCKS bridge the panel injects into the Xray config at XrayRoutePort, so
@@ -73,9 +107,21 @@ func (inst Instance) fingerprint() string {
 		strconv.FormatBool(inst.Debug),
 		strconv.FormatBool(inst.ProxyProtocolListener),
 		inst.PreferIP,
-		inst.FrontingIP,
+		strconv.Itoa(inst.Concurrency),
+		inst.PublicIPv4,
+		inst.PublicIPv6,
+		inst.TolerateTimeSkewness,
+		inst.DNS,
+		inst.FrontingHost,
 		strconv.Itoa(inst.FrontingPort),
 		strconv.FormatBool(inst.FrontingProxyProtocol),
+		strings.Join(inst.DoppelgangerURLs, ","),
+		strconv.Itoa(inst.DoppelgangerRepeats),
+		inst.DoppelgangerRaidEach,
+		strconv.FormatBool(inst.DoppelgangerDRS),
+		strconv.FormatBool(inst.AntiReplayDisabled),
+		strconv.FormatBool(inst.BlocklistDisabled),
+		strings.Join(inst.BlocklistURLs, ","),
 		strconv.FormatBool(inst.RouteThroughXray),
 		strconv.Itoa(inst.XrayRoutePort),
 	}
@@ -175,16 +221,46 @@ func InstanceFromInbound(ib *model.Inbound, clients []model.MtprotoClient) (Inst
 		Debug                 bool   `json:"debug"`
 		ProxyProtocolListener bool   `json:"proxyProtocolListener"`
 		PreferIP              string `json:"preferIp"`
+		Concurrency           int    `json:"concurrency"`
+		PublicIPv4            string `json:"publicIpv4"`
+		PublicIPv6            string `json:"publicIpv6"`
+		TolerateTimeSkewness  string `json:"tolerateTimeSkewness"`
+		DNS                   string `json:"dns"`
 		DomainFronting        struct {
+			Host string `json:"host"`
+			// Legacy key from before mtg deprecated it; still read so an inbound
+			// configured earlier keeps its fronting target after an upgrade.
 			IP            string `json:"ip"`
 			Port          int    `json:"port"`
 			ProxyProtocol bool   `json:"proxyProtocol"`
 		} `json:"domainFronting"`
+		Doppelganger struct {
+			URLs           []string `json:"urls"`
+			RepeatsPerRaid int      `json:"repeatsPerRaid"`
+			RaidEach       string   `json:"raidEach"`
+			DRS            bool     `json:"drs"`
+		} `json:"doppelganger"`
+		// Pointers: absent means "leave mtg's default (on)", false means the
+		// operator turned the defence off.
+		AntiReplay struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"antiReplay"`
+		Blocklist struct {
+			Enabled *bool    `json:"enabled"`
+			URLs    []string `json:"urls"`
+		} `json:"blocklist"`
 		RouteThroughXray bool `json:"routeThroughXray"`
 		RouteXrayPort    int  `json:"routeXrayPort"`
 	}
 	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
 		return Instance{}, false
+	}
+
+	// `host` wins; `ip` is only a fallback for inbounds saved before mtg
+	// deprecated it, so upgrading does not quietly turn fronting off.
+	frontingHost := strings.TrimSpace(parsed.DomainFronting.Host)
+	if frontingHost == "" {
+		frontingHost = strings.TrimSpace(parsed.DomainFronting.IP)
 	}
 
 	nowMs := time.Now().UnixMilli()
@@ -214,12 +290,39 @@ func InstanceFromInbound(ib *model.Inbound, clients []model.MtprotoClient) (Inst
 		Debug:                 parsed.Debug,
 		ProxyProtocolListener: parsed.ProxyProtocolListener,
 		PreferIP:              parsed.PreferIP,
-		FrontingIP:            parsed.DomainFronting.IP,
+		Concurrency:           parsed.Concurrency,
+		PublicIPv4:            parsed.PublicIPv4,
+		PublicIPv6:            parsed.PublicIPv6,
+		TolerateTimeSkewness:  parsed.TolerateTimeSkewness,
+		DNS:                   parsed.DNS,
+		FrontingHost:          frontingHost,
 		FrontingPort:          parsed.DomainFronting.Port,
 		FrontingProxyProtocol: parsed.DomainFronting.ProxyProtocol,
+		DoppelgangerURLs:      nonEmpty(parsed.Doppelganger.URLs),
+		DoppelgangerRepeats:   parsed.Doppelganger.RepeatsPerRaid,
+		DoppelgangerRaidEach:  parsed.Doppelganger.RaidEach,
+		DoppelgangerDRS:       parsed.Doppelganger.DRS,
+		AntiReplayDisabled:    parsed.AntiReplay.Enabled != nil && !*parsed.AntiReplay.Enabled,
+		BlocklistDisabled:     parsed.Blocklist.Enabled != nil && !*parsed.Blocklist.Enabled,
+		BlocklistURLs:         nonEmpty(parsed.Blocklist.URLs),
 		RouteThroughXray:      parsed.RouteThroughXray,
 		XrayRoutePort:         parsed.RouteXrayPort,
 	}, true
+}
+
+// nonEmpty drops blank entries from a list the panel may have collected from a
+// textarea, where a stray newline is normal.
+func nonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Ensure starts the mtg process for an instance, or restarts it when its
@@ -575,6 +678,18 @@ func renderConfig(inst Instance, statsPort int) string {
 	if inst.PreferIP != "" {
 		fmt.Fprintf(&b, "prefer-ip = %q\n", inst.PreferIP)
 	}
+	if inst.Concurrency > 0 {
+		fmt.Fprintf(&b, "concurrency = %d\n", inst.Concurrency)
+	}
+	if inst.PublicIPv4 != "" {
+		fmt.Fprintf(&b, "public-ipv4 = %q\n", inst.PublicIPv4)
+	}
+	if inst.PublicIPv6 != "" {
+		fmt.Fprintf(&b, "public-ipv6 = %q\n", inst.PublicIPv6)
+	}
+	if inst.TolerateTimeSkewness != "" {
+		fmt.Fprintf(&b, "tolerate-time-skewness = %q\n", inst.TolerateTimeSkewness)
+	}
 	if inst.MultiUser {
 		// The secret name is the client Uuid; quote it so a UUID's dashes are a
 		// valid TOML key. mtg-multi reports /stats users under this exact name.
@@ -583,10 +698,12 @@ func renderConfig(inst Instance, statsPort int) string {
 			fmt.Fprintf(&b, "%q = %q\n", c.Id, c.Secret)
 		}
 	}
-	if inst.FrontingIP != "" || inst.FrontingPort > 0 || inst.FrontingProxyProtocol {
+	if inst.FrontingHost != "" || inst.FrontingPort > 0 || inst.FrontingProxyProtocol {
 		b.WriteString("\n[domain-fronting]\n")
-		if inst.FrontingIP != "" {
-			fmt.Fprintf(&b, "ip = %q\n", inst.FrontingIP)
+		if inst.FrontingHost != "" {
+			// `host`, never `ip`: mtg deprecated the latter and now logs a
+			// warning and ignores the value, silently leaving fronting off.
+			fmt.Fprintf(&b, "host = %q\n", inst.FrontingHost)
 		}
 		if inst.FrontingPort > 0 {
 			fmt.Fprintf(&b, "port = %d\n", inst.FrontingPort)
@@ -595,15 +712,65 @@ func renderConfig(inst Instance, statsPort int) string {
 			b.WriteString("proxy-protocol = true\n")
 		}
 	}
-	// When the inbound opts into Xray routing, the proxy reaches Telegram through
-	// the loopback SOCKS bridge the panel injects into the running Xray config.
-	if inst.RouteThroughXray && inst.XrayRoutePort > 0 {
-		fmt.Fprintf(&b, "\n[network]\nproxies = [\"socks5://127.0.0.1:%d\"]\n", inst.XrayRoutePort)
+	// [network] holds mtg's own resolver and, when the inbound opts into Xray
+	// routing, the loopback SOCKS bridge the panel injects into the running Xray
+	// config so the egress obeys the core's routing rules.
+	routed := inst.RouteThroughXray && inst.XrayRoutePort > 0
+	if inst.DNS != "" || routed {
+		b.WriteString("\n[network]\n")
+		if inst.DNS != "" {
+			fmt.Fprintf(&b, "dns = %q\n", inst.DNS)
+		}
+		if routed {
+			fmt.Fprintf(&b, "proxies = [\"socks5://127.0.0.1:%d\"]\n", inst.XrayRoutePort)
+		}
 	}
+	writeDefense(&b, inst)
 	if !inst.MultiUser {
 		fmt.Fprintf(&b, "\n[stats.prometheus]\nenabled = true\nbind-to = \"127.0.0.1:%d\"\nhttp-path = \"/metrics\"\nmetric-prefix = \"mtg\"\n", statsPort)
 	}
 	return b.String()
+}
+
+// writeDefense renders the [defense.*] sections. Doppelganger is the one that
+// answers traffic-shape classification; anti-replay and blocklist are already on
+// by default, so only an explicit "off" (or a custom list) is worth writing.
+func writeDefense(b *strings.Builder, inst Instance) {
+	if len(inst.DoppelgangerURLs) > 0 || inst.DoppelgangerDRS {
+		b.WriteString("\n[defense.doppelganger]\n")
+		if len(inst.DoppelgangerURLs) > 0 {
+			fmt.Fprintf(b, "urls = %s\n", tomlStringArray(inst.DoppelgangerURLs))
+		}
+		if inst.DoppelgangerRepeats > 0 {
+			fmt.Fprintf(b, "repeats-per-raid = %d\n", inst.DoppelgangerRepeats)
+		}
+		if inst.DoppelgangerRaidEach != "" {
+			fmt.Fprintf(b, "raid-each = %q\n", inst.DoppelgangerRaidEach)
+		}
+		if inst.DoppelgangerDRS {
+			b.WriteString("drs = true\n")
+		}
+	}
+	if inst.AntiReplayDisabled {
+		b.WriteString("\n[defense.anti-replay]\nenabled = false\n")
+	}
+	if inst.BlocklistDisabled || len(inst.BlocklistURLs) > 0 {
+		b.WriteString("\n[defense.blocklist]\n")
+		if inst.BlocklistDisabled {
+			b.WriteString("enabled = false\n")
+		} else {
+			fmt.Fprintf(b, "urls = %s\n", tomlStringArray(inst.BlocklistURLs))
+		}
+	}
+}
+
+// tomlStringArray renders a TOML inline array of quoted strings.
+func tomlStringArray(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, v := range values {
+		quoted = append(quoted, fmt.Sprintf("%q", v))
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 func writeConfig(path string, inst Instance, statsPort int) error {

@@ -3665,6 +3665,63 @@ Inbound.MtprotoSettings = class extends Inbound.Settings {
         this.fakeTlsDomain = fakeTlsDomain;
         this.routeThroughXray = routeThroughXray;
         this.outboundTag = outboundTag;
+        // mtg's anti-blocking options. All optional: an empty value is left out
+        // of the generated config, so mtg keeps its own default. They live here
+        // rather than in the constructor signature because they are set from the
+        // form, never positionally.
+        this.debug = false;
+        this.proxyProtocolListener = false;
+        this.preferIp = '';
+        this.concurrency = 0;
+        this.publicIpv4 = '';
+        this.publicIpv6 = '';
+        this.tolerateTimeSkewness = '';
+        this.dns = '';
+        // Where a connection that fails the FakeTLS handshake is sent, so a
+        // prober meets a real site instead of a dropped connection.
+        this.domainFronting = { host: '', port: 0, proxyProtocol: false };
+        // Traffic-shape mimicry: mtg crawls these URLs and reproduces their
+        // packet timing. Empty list = subsystem idle.
+        this.doppelganger = { urls: [], repeatsPerRaid: 0, raidEach: '', drs: false };
+        // Both are on by default in mtg; the panel only ever turns them off.
+        this.antiReplay = { enabled: true };
+        this.blocklist = { enabled: true, urls: [] };
+    }
+
+    // Reads the optional mtg options off a settings payload, keeping defaults
+    // for anything the inbound was saved without.
+    applyMtgOptions(json = {}) {
+        this.debug = !!json.debug;
+        this.proxyProtocolListener = !!json.proxyProtocolListener;
+        this.preferIp = json.preferIp || '';
+        this.concurrency = json.concurrency || 0;
+        this.publicIpv4 = json.publicIpv4 || '';
+        this.publicIpv6 = json.publicIpv6 || '';
+        this.tolerateTimeSkewness = json.tolerateTimeSkewness || '';
+        this.dns = json.dns || '';
+        const df = json.domainFronting || {};
+        this.domainFronting = {
+            // `host` supersedes the `ip` mtg deprecated; read both so an inbound
+            // saved earlier keeps its target.
+            host: df.host || df.ip || '',
+            port: df.port || 0,
+            proxyProtocol: !!df.proxyProtocol,
+        };
+        const dg = json.doppelganger || {};
+        this.doppelganger = {
+            urls: Array.isArray(dg.urls) ? dg.urls.slice() : [],
+            repeatsPerRaid: dg.repeatsPerRaid || 0,
+            raidEach: dg.raidEach || '',
+            drs: !!dg.drs,
+        };
+        const ar = json.antiReplay || {};
+        this.antiReplay = { enabled: ar.enabled !== undefined ? !!ar.enabled : true };
+        const bl = json.blocklist || {};
+        this.blocklist = {
+            enabled: bl.enabled !== undefined ? !!bl.enabled : true,
+            urls: Array.isArray(bl.urls) ? bl.urls.slice() : [],
+        };
+        return this;
     }
 
     addClient(client) {
@@ -3682,7 +3739,7 @@ Inbound.MtprotoSettings = class extends Inbound.Settings {
             json.fakeTlsDomain,
             json.routeThroughXray,
             json.outboundTag,
-        );
+        ).applyMtgOptions(json);
     }
 
     toJson() {
@@ -3691,6 +3748,30 @@ Inbound.MtprotoSettings = class extends Inbound.Settings {
             fakeTlsDomain: this.fakeTlsDomain,
             routeThroughXray: this.routeThroughXray,
             outboundTag: this.routeThroughXray ? (this.outboundTag || '') : '',
+            debug: this.debug,
+            proxyProtocolListener: this.proxyProtocolListener,
+            preferIp: this.preferIp || '',
+            concurrency: this.concurrency || 0,
+            publicIpv4: this.publicIpv4 || '',
+            publicIpv6: this.publicIpv6 || '',
+            tolerateTimeSkewness: this.tolerateTimeSkewness || '',
+            dns: this.dns || '',
+            domainFronting: {
+                host: this.domainFronting.host || '',
+                port: this.domainFronting.port || 0,
+                proxyProtocol: !!this.domainFronting.proxyProtocol,
+            },
+            doppelganger: {
+                urls: (this.doppelganger.urls || []).filter(u => u && u.trim()),
+                repeatsPerRaid: this.doppelganger.repeatsPerRaid || 0,
+                raidEach: this.doppelganger.raidEach || '',
+                drs: !!this.doppelganger.drs,
+            },
+            antiReplay: { enabled: !!this.antiReplay.enabled },
+            blocklist: {
+                enabled: !!this.blocklist.enabled,
+                urls: (this.blocklist.urls || []).filter(u => u && u.trim()),
+            },
         };
     }
 };

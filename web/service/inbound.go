@@ -638,6 +638,9 @@ func (s *InboundService) addMtprotoInbound(inbound *model.Inbound) (*model.Inbou
 	inbound.Settings = stripMtprotoClients(inbound.Settings)
 
 	// Allocate the loopback egress port when routing through Xray is enabled.
+	if err := mtproto.ValidateSettings(inbound.Settings); err != nil {
+		return inbound, false, common.NewError("mtproto:", err)
+	}
 	if err := s.normalizeMtprotoXrayPort(inbound, ""); err != nil {
 		return inbound, false, err
 	}
@@ -720,6 +723,9 @@ func (s *InboundService) updateMtprotoInbound(inbound *model.Inbound) (*model.In
 
 	// Allocate/strip the loopback egress port to match the new routing state,
 	// carrying the existing port across edits.
+	if err := mtproto.ValidateSettings(inbound.Settings); err != nil {
+		return inbound, false, common.NewError("mtproto:", err)
+	}
 	if err := s.normalizeMtprotoXrayPort(inbound, oldInbound.Settings); err != nil {
 		return inbound, false, err
 	}
