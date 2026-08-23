@@ -59,6 +59,18 @@
       <a-form-item>
         <template slot="label">
           <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.fillRecommendedDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.recommended" }}
+          </a-tooltip>
+        </template>
+        <a-button type="primary" @click="applyMtprotoRecommended()" :loading="mtprotoFilling">
+          {{ i18n "pages.inbounds.mtproto.fillRecommended" }}
+        </a-button>
+      </a-form-item>
+
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.frontingHostDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.frontingHost" }}
           </a-tooltip>
