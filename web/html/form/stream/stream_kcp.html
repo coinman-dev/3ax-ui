@@ -1,5 +1,5 @@
 {{define "form/streamKCP"}}
-<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
+<a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
   <a-form-item label="MTU">
     <a-input-number v-model.number="inbound.stream.kcp.mtu" :min="576" :max="1460"></a-input-number>
   </a-form-item>

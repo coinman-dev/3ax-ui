@@ -19,15 +19,15 @@
   </a-collapse-panel>
 </a-collapse>
 <template v-if=" inbound.isTcp">
-  <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
+  <a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
     <a-form-item label="Fallbacks">
       <a-button icon="plus" type="primary" size="small" @click="inbound.settings.addFallback()"></a-button>
     </a-form-item>
   </a-form>
 
   <!-- trojan fallbacks -->
-  <a-form v-for="(fallback, index) in inbound.settings.fallbacks" :colon="false" :label-col="{ md: {span:8} }"
-    :wrapper-col="{ md: {span:16} }">
+  <a-form v-for="(fallback, index) in inbound.settings.fallbacks" :colon="false" :label-col="{ md: {span:10} }"
+    :wrapper-col="{ md: {span:14} }">
     <a-divider :style="{ margin: '0' }"> Fallback [[ index + 1 ]] <a-icon type="delete"
         @click="() => inbound.settings.delFallback(index)"
         :style="{ color: 'rgb(255, 77, 79)', cursor: 'pointer' }"></a-icon>

@@ -1,5 +1,5 @@
 {{define "form/streamFinalMask"}}
-<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }"
+<a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }"
   v-if="inbound.protocol == Protocols.HYSTERIA || ['kcp', 'xhttp', 'raw', 'tcp', 'httpupgrade', 'ws', 'grpc'].includes(inbound.stream.network)">
   <a-divider :style="{ margin: '5px 0 0' }"></a-divider>
 
@@ -10,7 +10,7 @@
     </a-form-item>
     <template v-if="inbound.stream.finalmask.tcp && inbound.stream.finalmask.tcp.length > 0">
       <a-form v-for="(mask, index) in inbound.stream.finalmask.tcp" :key="index" :colon="false"
-        :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
+        :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
         <a-divider :style="{ margin: '0' }">
           TCP Mask [[ index + 1 ]]
           <a-icon type="delete" @click="() => inbound.stream.delTcpMask(index)"
@@ -167,7 +167,7 @@
     </a-form-item>
     <template v-if="inbound.stream.finalmask.udp && inbound.stream.finalmask.udp.length > 0">
       <a-form v-for="(mask, index) in inbound.stream.finalmask.udp" :key="index" :colon="false"
-        :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
+        :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
         <a-divider :style="{ margin: '0' }">
           UDP Mask [[ index + 1 ]]
           <a-icon type="delete" @click="() => inbound.stream.delUdpMask(index)"

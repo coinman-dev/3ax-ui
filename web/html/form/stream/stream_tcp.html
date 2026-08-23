@@ -1,6 +1,6 @@
 {{define "form/streamTCP"}}
 <!-- tcp type -->
-<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
+<a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
   <a-form-item label="Proxy Protocol" v-if="inbound.canEnableTls()">
     <a-switch v-model="inbound.stream.tcp.acceptProxyProtocol"></a-switch>
   </a-form-item>
@@ -10,8 +10,8 @@
   </a-form-item>
 </a-form>
 
-<a-form v-if="inbound.stream.tcp.type === 'http'" :colon="false" :label-col="{ md: {span:8} }"
-  :wrapper-col="{ md: {span:16} }">
+<a-form v-if="inbound.stream.tcp.type === 'http'" :colon="false" :label-col="{ md: {span:10} }"
+  :wrapper-col="{ md: {span:14} }">
   <!-- tcp request -->
   <a-divider :style="{ margin: '0' }">{{ i18n "pages.inbounds.stream.general.request" }}</a-divider>
   <a-form-item label='{{ i18n "pages.inbounds.stream.tcp.version" }}'>
