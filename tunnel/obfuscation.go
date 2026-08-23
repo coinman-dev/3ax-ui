@@ -319,7 +319,7 @@ func validateObfuscation30(server *Server) error {
 	for i, s := range []int{server.S1, server.S2, server.S3, server.S4} {
 		if s < headerProtectionNonceSize {
 			return fmt.Errorf(
-				"S%d = %d is too small for header protection: every packet type needs at least %d bytes of padding to carry the nonce",
+				"padding S%d = %d is too small for header protection: every packet type needs at least %d bytes to carry the nonce",
 				i+1, s, headerProtectionNonceSize)
 		}
 	}
