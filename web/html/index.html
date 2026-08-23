@@ -15,10 +15,10 @@
     overflow: hidden;
   }
   .index-page .protocol-switcher-item {
-    flex: 1 1 0;
-    /* Required for the ratios to hold: a flex item will not shrink below its
-       content width without it, and one long state label is enough to move the
-       divider off the one in the card above. */
+    flex: 0 0 33.3333%;
+    max-width: 33.3333%;
+    /* A flex item will not shrink below its content width without this, and one
+       long state label is enough to push the divider off the one above. */
     min-width: 0;
     /* Clip rather than spill across the divider if a translated state label
        ever outgrows its third. */
@@ -41,7 +41,8 @@
      MTProto the last one, split by the same hairline, in both rows. */
   .index-page .protocol-switcher-item.is-wide,
   .index-page .panel-split-item.is-wide {
-    flex: 2 1 0;
+    flex: 0 0 66.6667%;
+    max-width: 66.6667%;
   }
   .index-page .panel-split {
     display: flex;
@@ -49,7 +50,8 @@
     border-top: 1px solid rgba(0, 0, 0, 0.09);
   }
   .index-page .panel-split-item {
-    flex: 1 1 0;
+    flex: 0 0 33.3333%;
+    max-width: 33.3333%;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -144,6 +146,24 @@
   @media (max-width: 768px) {
     .index-page .protocol-switcher {
       flex-direction: column;
+    }
+    /* Stacked: the fixed thirds would become fixed heights. */
+    .index-page .protocol-switcher-item,
+    .index-page .protocol-switcher-item.is-wide,
+    .index-page .panel-split-item,
+    .index-page .panel-split-item.is-wide {
+      flex: 1 1 auto;
+      max-width: none;
+    }
+    .index-page .panel-split {
+      flex-direction: column;
+    }
+    .index-page .panel-split-item + .panel-split-item {
+      border-left: 0;
+      border-top: 1px solid rgba(0, 0, 0, 0.09);
+    }
+    .index-page.dark .panel-split-item + .panel-split-item {
+      border-top-color: rgba(255, 255, 255, 0.1);
     }
     .index-page .protocol-switcher-item + .protocol-switcher-item {
       border-left: 0;
