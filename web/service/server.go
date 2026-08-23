@@ -54,6 +54,12 @@ const (
 // client).
 type MtprotoStatus struct {
 	MultiUser bool `json:"multiUser"`
+	// Installed / Version describe the mtg sidecar binary; Running counts the
+	// live processes, so the dashboard can report MTProto the way it reports
+	// the tunnel flavours.
+	Installed bool   `json:"installed"`
+	Version   string `json:"version"`
+	Running   int    `json:"running"`
 }
 
 // Status represents comprehensive system and application status information.
@@ -488,6 +494,9 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 
 	// MTProto: many-users-per-port is available only when mtg-multi is installed.
 	status.Mtproto.MultiUser = mtproto.MultiUserSupported()
+	status.Mtproto.Version = mtproto.GetVersion()
+	status.Mtproto.Installed = status.Mtproto.Version != "unknown"
+	status.Mtproto.Running = mtproto.GetManager().RunningCount()
 
 	// Application stats
 	var rtm runtime.MemStats

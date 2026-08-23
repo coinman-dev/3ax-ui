@@ -471,6 +471,26 @@ func (m *Manager) Reconcile(desired []Instance) {
 }
 
 // StopAll stops every managed mtg process. Called on panel shutdown.
+// RunningCount returns how many mtg sidecars are alive right now. The panel's
+// dashboard shows MTProto as running when at least one is, mirroring how the
+// tunnel flavours report their interface.
+func (m *Manager) RunningCount() int {
+	m.mu.Lock()
+	procs := make([]*managed, 0, len(m.procs))
+	for _, cur := range m.procs {
+		procs = append(procs, cur)
+	}
+	m.mu.Unlock()
+
+	count := 0
+	for _, cur := range procs {
+		if cur.proc != nil && cur.proc.IsRunning() {
+			count++
+		}
+	}
+	return count
+}
+
 func (m *Manager) StopAll() {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()

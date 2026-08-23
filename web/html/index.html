@@ -260,28 +260,50 @@
               </a-col>
               <a-col :sm="24" :lg="12">
                 <a-card title='3AX-UI' hoverable>
-                  <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/releases" target="_blank">
-                    <a-tag color="green">
-                      <span>v{{ .cur_ver }}</span>
-                    </a-tag>
-                  </a>
-                  <a v-if="panelUpdate.updateAvailable" rel="noopener"
-                    href="https://github.com/coinman-dev/3ax-ui/releases/latest" target="_blank">
-                    <a-tag color="orange">
-                      <a-icon type="arrow-up"></a-icon>
-                      <span>{{ i18n "pages.index.panelUpdateAvailable" }} [[ panelUpdate.latestVersion ]]</span>
-                    </a-tag>
-                  </a>
-                  <a rel="noopener" href="https://t.me/XrayUI" target="_blank">
-                    <a-tag color="green">
-                      <span>@XrayUI</span>
-                    </a-tag>
-                  </a>
-                  <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/wiki" target="_blank">
-                    <a-tag color="purple">
-                      <span>{{ i18n "pages.index.documentation" }}</span>
-                    </a-tag>
-                  </a>
+                  <!-- Two thirds for the panel itself, one for MTProto: it is
+                       the one protocol with no place in the switcher above,
+                       because it runs as a sidecar rather than a service the
+                       panel starts and stops. -->
+                  <a-row :gutter="[8, 8]" type="flex" align="middle">
+                    <a-col :xs="24" :sm="16">
+                      <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/releases" target="_blank">
+                        <a-tag color="green">
+                          <span>v{{ .cur_ver }}</span>
+                        </a-tag>
+                      </a>
+                      <a v-if="panelUpdate.updateAvailable" rel="noopener"
+                        href="https://github.com/coinman-dev/3ax-ui/releases/latest" target="_blank">
+                        <a-tag color="orange">
+                          <a-icon type="arrow-up"></a-icon>
+                          <span>{{ i18n "pages.index.panelUpdateAvailable" }} [[ panelUpdate.latestVersion ]]</span>
+                        </a-tag>
+                      </a>
+                      <a rel="noopener" href="https://t.me/XrayUI" target="_blank">
+                        <a-tag color="green">
+                          <span>@XrayUI</span>
+                        </a-tag>
+                      </a>
+                      <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/wiki" target="_blank">
+                        <a-tag color="purple">
+                          <span>{{ i18n "pages.index.documentation" }}</span>
+                        </a-tag>
+                      </a>
+                    </a-col>
+                    <a-col :xs="24" :sm="8">
+                      <div class="protocol-switcher-item" :style="{ cursor: 'default' }">
+                        <span class="protocol-switcher-name">MTProto</span>
+                        <span class="protocol-switcher-state" :class="mtprotoCard.stateClass">
+                          <a-badge :status="mtprotoCard.badgeStatus"
+                            :text="mtprotoCard.stateText"
+                            :color="mtprotoCard.badgeColor"
+                            :class="mtprotoCard.animationClass" />
+                        </span>
+                        <a-tag color="green" :style="{ marginTop: '4px' }">
+                          [[ mtprotoCard.versionText ]]
+                        </a-tag>
+                      </div>
+                    </a-col>
+                  </a-row>
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
@@ -880,6 +902,7 @@
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "" };
       this.awg = { running: false, awgInstalled: false, awgVersion: "unknown" };
       this.wg = { running: false, wgInstalled: false, wgVersion: "unknown" };
+      this.mtproto = { multiUser: false, installed: false, version: "unknown", running: 0 };
 
       if (data == null) {
         return;
@@ -904,6 +927,7 @@
       this.xray = data.xray;
       this.awg = data.awg || this.awg;
       this.wg = data.wg || this.wg;
+      this.mtproto = data.mtproto || this.mtproto;
       switch (this.xray.state) {
         case 'running':
           this.xray.color = "green";
@@ -1234,6 +1258,39 @@
             ...wgState,
           },
         ];
+      },
+      // MTProto's state for the 3AX-UI card, built the same way as the three
+      // protocols in the switcher: not installed, running (at least one mtg
+      // sidecar alive) or stopped.
+      mtprotoCard() {
+        const mt = this.status.mtproto || {};
+        const state = !mt.installed
+          ? {
+              stateClass: 'is-missing',
+              stateText: '{{ i18n "pages.index.protocolStatusNotInstalled" }}',
+              badgeStatus: 'default',
+              badgeColor: 'gray',
+              animationClass: '',
+            }
+          : mt.running > 0
+            ? {
+                stateClass: 'is-running',
+                stateText: '{{ i18n "pages.index.protocolStatusRunning" }}',
+                badgeStatus: 'processing',
+                badgeColor: 'green',
+                animationClass: 'xray-running-animation',
+              }
+            : {
+                stateClass: 'is-stopped',
+                stateText: '{{ i18n "pages.index.protocolStatusStopped" }}',
+                badgeStatus: 'processing',
+                badgeColor: 'orange',
+                animationClass: 'xray-stop-animation',
+              };
+        return {
+          versionText: getCompactProtocolVersion(mt.version),
+          ...state,
+        };
       },
       activeProtocolCard() {
         return this.protocolCards.find(item => item.key === this.activeProtocol) || this.protocolCards[0];
