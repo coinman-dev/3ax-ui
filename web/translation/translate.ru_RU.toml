@@ -136,6 +136,8 @@
 "xrayStatusError" = "Ошибка"
 "protocolStatusRunning" = "Запущен"
 "protocolStatusStopped" = "Остановлен"
+"mtprotoMultiUser" = "много клиентов на одном порту"
+"mtprotoSingleUser" = "один клиент на порт"
 "protocolStatusNotInstalled" = "Не установлен"
 "xrayErrorPopoverTitle" = "Ошибка при запуске Xray"
 "operationHours" = "Время работы системы"

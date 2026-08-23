@@ -30,6 +30,35 @@
   .index-page .protocol-switcher-item.active {
     background: rgba(0, 135, 113, 0.08);
   }
+  /* The 3AX-UI card mirrors the protocol card: the panel takes two thirds and
+     MTProto the last one, split by the same hairline, in both rows. */
+  .index-page .protocol-switcher-item.is-wide,
+  .index-page .panel-split-item.is-wide {
+    flex: 2 1 0;
+  }
+  .index-page .panel-split {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid rgba(0, 0, 0, 0.09);
+  }
+  .index-page .panel-split-item {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 14px 20px;
+    min-width: 0;
+  }
+  .index-page .panel-split-item + .panel-split-item {
+    border-left: 1px solid rgba(0, 0, 0, 0.09);
+  }
+  .index-page.dark .panel-split {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+  .index-page.dark .panel-split-item + .panel-split-item {
+    border-left-color: rgba(255, 255, 255, 0.1);
+  }
   .index-page .protocol-switcher-item.active:first-child {
     border-top-left-radius: var(--protocol-card-radius);
   }
@@ -259,13 +288,27 @@
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
-                <a-card title='3AX-UI' hoverable>
-                  <!-- Two thirds for the panel itself, one for MTProto: it is
-                       the one protocol with no place in the switcher above,
-                       because it runs as a sidecar rather than a service the
-                       panel starts and stops. -->
-                  <a-row :gutter="[8, 8]" type="flex" align="middle">
-                    <a-col :xs="24" :sm="16">
+                <a-card hoverable class="protocol-card">
+                  <!-- Same two rows as the protocol card above, split two
+                       thirds / one third: MTProto has no place in that
+                       switcher because it runs as an mtg sidecar rather than a
+                       service the panel starts, so it lives here instead. -->
+                  <div class="protocol-switcher">
+                    <div class="protocol-switcher-item is-wide" :style="{ cursor: 'default' }">
+                      <span class="protocol-switcher-name">3AX-UI</span>
+                    </div>
+                    <div class="protocol-switcher-item" :style="{ cursor: 'default' }">
+                      <span class="protocol-switcher-name">MTProto</span>
+                      <span class="protocol-switcher-state" :class="mtprotoCard.stateClass">
+                        <a-badge :status="mtprotoCard.badgeStatus"
+                          :text="mtprotoCard.stateText"
+                          :color="mtprotoCard.badgeColor"
+                          :class="mtprotoCard.animationClass" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="panel-split">
+                    <div class="panel-split-item is-wide">
                       <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/releases" target="_blank">
                         <a-tag color="green">
                           <span>v{{ .cur_ver }}</span>
@@ -288,22 +331,19 @@
                           <span>{{ i18n "pages.index.documentation" }}</span>
                         </a-tag>
                       </a>
-                    </a-col>
-                    <a-col :xs="24" :sm="8">
-                      <div class="protocol-switcher-item" :style="{ cursor: 'default' }">
-                        <span class="protocol-switcher-name">MTProto</span>
-                        <span class="protocol-switcher-state" :class="mtprotoCard.stateClass">
-                          <a-badge :status="mtprotoCard.badgeStatus"
-                            :text="mtprotoCard.stateText"
-                            :color="mtprotoCard.badgeColor"
-                            :class="mtprotoCard.animationClass" />
-                        </span>
-                        <a-tag color="green" :style="{ marginTop: '4px' }">
-                          [[ mtprotoCard.versionText ]]
-                        </a-tag>
-                      </div>
-                    </a-col>
-                  </a-row>
+                    </div>
+                    <div class="panel-split-item">
+                      <!-- Which sidecar is installed matters: mtg-multi serves
+                           many clients on one port, plain mtg only one. -->
+                      <a-tooltip :title="mtprotoCard.binaryTitle">
+                        <a-icon type="info-circle"></a-icon>
+                      </a-tooltip>
+                      <span class="protocol-version-text">[[ mtprotoCard.versionText ]]</span>
+                      <a-tag :color="mtprotoCard.multiUser ? 'green' : 'blue'">
+                        [[ mtprotoCard.binaryLabel ]]
+                      </a-tag>
+                    </div>
+                  </div>
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
@@ -902,7 +942,7 @@
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "" };
       this.awg = { running: false, awgInstalled: false, awgVersion: "unknown" };
       this.wg = { running: false, wgInstalled: false, wgVersion: "unknown" };
-      this.mtproto = { multiUser: false, installed: false, version: "unknown", running: 0 };
+      this.mtproto = { multiUser: false, installed: false, version: "unknown", running: 0, binary: "" };
 
       if (data == null) {
         return;
@@ -1289,6 +1329,14 @@
               };
         return {
           versionText: getCompactProtocolVersion(mt.version),
+          multiUser: !!mt.multiUser,
+          // mtg-multi serves many clients on one port; plain mtg serves one.
+          binaryLabel: mt.multiUser ? 'mtg-multi' : 'mtg',
+          binaryTitle: mt.binary
+            ? mt.binary + ' — ' + (mt.multiUser
+                ? '{{ i18n "pages.index.mtprotoMultiUser" }}'
+                : '{{ i18n "pages.index.mtprotoSingleUser" }}')
+            : '{{ i18n "pages.index.protocolStatusNotInstalled" }}',
           ...state,
         };
       },

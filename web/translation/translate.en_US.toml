@@ -136,6 +136,8 @@
 "xrayStatusError" = "Error"
 "protocolStatusRunning" = "Running"
 "protocolStatusStopped" = "Stopped"
+"mtprotoMultiUser" = "many clients on one port"
+"mtprotoSingleUser" = "one client per port"
 "protocolStatusNotInstalled" = "Not Installed"
 "xrayErrorPopoverTitle" = "An error occurred while running Xray"
 "operationHours" = "Uptime"

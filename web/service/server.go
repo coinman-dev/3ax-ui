@@ -60,6 +60,10 @@ type MtprotoStatus struct {
 	Installed bool   `json:"installed"`
 	Version   string `json:"version"`
 	Running   int    `json:"running"`
+	// Binary is the file the panel would run — mtg-multi where a build exists
+	// for this architecture, plain mtg otherwise. Two different programs with
+	// two different version schemes, so the dashboard names the one in use.
+	Binary string `json:"binary"`
 }
 
 // Status represents comprehensive system and application status information.
@@ -497,6 +501,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	status.Mtproto.Version = mtproto.GetVersion()
 	status.Mtproto.Installed = status.Mtproto.Version != "unknown"
 	status.Mtproto.Running = mtproto.GetManager().RunningCount()
+	status.Mtproto.Binary = mtproto.GetBinaryName()
 
 	// Application stats
 	var rtm runtime.MemStats
