@@ -1,12 +1,14 @@
 {{define "form/mtproto"}}
-<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
   <a-form-item>
     <template slot="label">
       <a-tooltip>
         <template slot="title">
           <span>{{ i18n "pages.inbounds.mtproto.fakeTlsDomainRandom" }}</span>
         </template>
-        {{ i18n "pages.inbounds.mtproto.fakeTlsDomain" }} <a-icon @click="randomizeMtprotoDomain()" type="sync"></a-icon>
+        {{ i18n "pages.inbounds.mtproto.fakeTlsDomain" }}
+        <a-icon type="question-circle"></a-icon>
+        <a-icon @click="randomizeMtprotoDomain()" type="sync" style="cursor: pointer"></a-icon>
       </a-tooltip>
     </template>
     <a-input
@@ -61,6 +63,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.fillRecommendedDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.recommended" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-button type="primary" @click="applyMtprotoRecommended()" :loading="mtprotoFilling">
@@ -73,6 +76,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.frontingHostDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.frontingHost" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-input v-model.trim="inbound.settings.domainFronting.host"
@@ -87,6 +91,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.frontingProxyProtocolDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.frontingProxyProtocol" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-switch v-model="inbound.settings.domainFronting.proxyProtocol"></a-switch>
@@ -96,6 +101,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.proxyProtocolListenerDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.proxyProtocolListener" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-switch v-model="inbound.settings.proxyProtocolListener"></a-switch>
@@ -106,7 +112,9 @@
         <template slot="label">
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.doppelUrlsDesc" }}</span></template>
-            {{ i18n "pages.inbounds.mtproto.doppelUrls" }} <a-icon @click="fillDoppelgangerPreset()" type="sync"></a-icon>
+            {{ i18n "pages.inbounds.mtproto.doppelUrls" }}
+            <a-icon type="question-circle"></a-icon>
+            <a-icon @click="fillDoppelgangerPreset()" type="sync" style="cursor: pointer"></a-icon>
           </a-tooltip>
         </template>
         <a-textarea v-model="mtprotoDoppelUrlsText" :auto-size="{ minRows: 2, maxRows: 6 }"
@@ -124,6 +132,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.doppelDrsDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.doppelDrs" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-switch v-model="inbound.settings.doppelganger.drs"></a-switch>
@@ -135,6 +144,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.preferIpDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.preferIp" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-select v-model="inbound.settings.preferIp" :dropdown-class-name="themeSwitcher.currentTheme">
@@ -150,6 +160,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.dnsDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.dns" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-input v-model.trim="inbound.settings.dns" placeholder="https://1.1.1.1"></a-input>
@@ -159,6 +170,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.timeSkewDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.timeSkew" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-input v-model.trim="inbound.settings.tolerateTimeSkewness" placeholder="3s"></a-input>
@@ -168,6 +180,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.concurrencyDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.concurrency" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-input-number v-model="inbound.settings.concurrency" :min="0" :style="{ width: '100%' }"
@@ -178,6 +191,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.publicIpDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.publicIpv4" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-input v-model.trim="inbound.settings.publicIpv4" placeholder='{{ i18n "pages.inbounds.mtproto.autoDetect" }}'></a-input>
@@ -192,6 +206,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.antiReplayDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.antiReplay" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-switch v-model="inbound.settings.antiReplay.enabled"></a-switch>
@@ -201,6 +216,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.blocklistDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.blocklist" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-switch v-model="inbound.settings.blocklist.enabled"></a-switch>
@@ -216,6 +232,7 @@
           <a-tooltip>
             <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.debugDesc" }}</span></template>
             {{ i18n "pages.inbounds.mtproto.debug" }}
+            <a-icon type="question-circle"></a-icon>
           </a-tooltip>
         </template>
         <a-switch v-model="inbound.settings.debug"></a-switch>

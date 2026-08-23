@@ -377,6 +377,7 @@
 "doppelganger" = "Traffic-shape mimicry"
 "doppelUrls" = "URLs to mimic"
 "doppelUrlsDesc" = "One HTTPS URL per line. mtg crawls them and reproduces the delays between their packets, so the session's timing profile stops looking like a proxy and starts looking like that site. The ↻ button fills in the cover domain; heavy CDN assets give better statistics. Empty = the subsystem stays idle."
+"doppelUrlsFilled" = "Mimicry targets filled in"
 "doppelRepeats" = "Requests per raid"
 "doppelRaidEach" = "Interval between raids"
 "doppelDrs" = "Dynamic TLS record sizing"

@@ -336,20 +336,39 @@
                 }
             },
             // Seed the doppelganger with the site this proxy already claims to
-            // be: mtg mimics the timing of what it crawls, so the cover domain
-            // is the one target guaranteed to match the SNI clients present.
+            // be — mtg mimics the timing of what it crawls, so the cover domain
+            // is the one target guaranteed to match the SNI clients present —
+            // plus a couple of other large sites, because a single page gives a
+            // thin sample. Every press picks different companions, so pressing
+            // it twice visibly does something instead of rewriting the same
+            // line, and two servers do not end up with identical statistics.
             fillDoppelgangerPreset() {
-                const domain = (this.inbound.settings.fakeTlsDomain || "").trim();
-                if (!domain) {
-                    return;
+                const dg = this.inbound.settings.doppelganger;
+                let domain = (this.inbound.settings.fakeTlsDomain || "").trim();
+                if (!domain && typeof getRandomRealityTarget !== "undefined") {
+                    // No cover domain yet: take one from the same curated list
+                    // the FakeTLS field uses, so the button still does its job.
+                    domain = getRandomRealityTarget().sni;
+                    this.inbound.settings.fakeTlsDomain = domain;
                 }
-                this.inbound.settings.doppelganger.urls = ["https://" + domain + "/"];
-                if (!this.inbound.settings.doppelganger.repeatsPerRaid) {
-                    this.inbound.settings.doppelganger.repeatsPerRaid = 10;
+                const urls = domain ? ["https://" + domain + "/"] : [];
+                if (typeof REALITY_TARGETS !== "undefined") {
+                    const others = REALITY_TARGETS
+                        .map(t => t.sni)
+                        .filter(sni => sni !== domain)
+                        .sort(() => Math.random() - 0.5)
+                        .slice(0, 2)
+                        .map(sni => "https://" + sni + "/");
+                    urls.push(...others);
                 }
-                if (!this.inbound.settings.doppelganger.raidEach) {
-                    this.inbound.settings.doppelganger.raidEach = "6h";
+                dg.urls = urls;
+                if (!dg.repeatsPerRaid) {
+                    dg.repeatsPerRaid = 10;
                 }
+                if (!dg.raidEach) {
+                    dg.raidEach = "6h";
+                }
+                this.$message.success('{{ i18n "pages.inbounds.mtproto.doppelUrlsFilled" }}');
             },
             streamNetworkChange() {
                 if (!inModal.inbound.canEnableTls()) {

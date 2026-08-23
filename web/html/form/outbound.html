@@ -3,7 +3,7 @@
 <a-tabs :active-key="outModal.activeKey" :style="{ padding: '0', backgroundColor: 'transparent' }"
   @change="(activeKey) => {outModal.toggleJson(activeKey == '2'); }">
   <a-tab-pane key="1" tab="Form">
-    <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+    <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
       <a-form-item label='{{ i18n "protocol" }}'>
         <a-select v-model="outbound.protocol" :dropdown-class-name="themeSwitcher.currentTheme">
           <a-select-option v-for="x,y in Protocols" :value="x">[[ y ]]</a-select-option>
@@ -32,7 +32,7 @@
           <a-button icon="plus" type="primary" size="small" @click="outbound.settings.addFinalRule()"></a-button>
         </a-form-item>
         <a-form v-for="(rule, index) in outbound.settings.finalRules" :key="index" :colon="false"
-          :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+          :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
           <a-divider :style="{ margin: '0' }">
             Final Rule [[ index + 1 ]]
             <a-icon type="delete" @click="() => outbound.settings.delFinalRule(index)"
@@ -129,7 +129,7 @@
 
           <!-- Noise Configurations -->
           <a-form v-for="(noise, index) in outbound.settings.noises" :key="index" :colon="false"
-            :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+            :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
             <a-divider :style="{ margin: '0' }">
               Noise [[ index + 1 ]]
               <a-icon v-if="outbound.settings.noises.length > 1" type="delete"
@@ -177,7 +177,7 @@
         </a-form-item>
 
         <a-form v-for="(rule, index) in outbound.settings.rules" :colon="false" :label-col="{ md: {span:8} }"
-          :wrapper-col="{ md: {span:14} }">
+          :wrapper-col="{ md: {span:16} }">
           <a-divider :style="{ margin: '0' }">
             Rule [[ index + 1 ]]
             <a-icon type="delete" @click="() => outbound.settings.delRule(index)"
@@ -278,7 +278,7 @@
           <a-button icon="plus" type="primary" size="small" @click="outbound.settings.addPeer()"></a-button>
         </a-form-item>
         <a-form v-for="(peer, index) in outbound.settings.peers" :colon="false" :label-col="{ md: {span:8} }"
-          :wrapper-col="{ md: {span:14} }">
+          :wrapper-col="{ md: {span:16} }">
           <a-divider :style="{ margin: '0' }">
             Peer [[ index + 1 ]]
             <a-icon v-if="outbound.settings.peers.length>1" type="delete"
@@ -625,7 +625,7 @@
         </a-form-item>
         <template v-if="outbound.stream.finalmask.tcp && outbound.stream.finalmask.tcp.length > 0">
           <a-form v-for="(mask, index) in outbound.stream.finalmask.tcp" :key="index" :colon="false"
-            :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+            :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
             <a-divider :style="{ margin: '0' }">
               TCP Mask [[ index + 1 ]]
               <a-icon type="delete" @click="() => outbound.stream.delTcpMask(index)"
@@ -771,7 +771,7 @@
         </a-form-item>
         <template v-if="outbound.stream.finalmask.udp && outbound.stream.finalmask.udp.length > 0">
           <a-form v-for="(mask, index) in outbound.stream.finalmask.udp" :key="index" :colon="false"
-            :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+            :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:16} }">
             <a-divider :style="{ margin: '0' }">
               UDP Mask [[ index + 1 ]]
               <a-icon type="delete" @click="() => outbound.stream.delUdpMask(index)"
