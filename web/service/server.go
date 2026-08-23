@@ -65,6 +65,9 @@ type AwgStatus struct {
 	Running      bool   `json:"running"`
 	AwgInstalled bool   `json:"awgInstalled"`
 	AwgVersion   string `json:"awgVersion"`
+	// SupportsV3 tells the panel whether this host's AmneziaWG can run the 3.0
+	// parameters; the fields are disabled when it cannot.
+	SupportsV3 bool `json:"supportsV3"`
 }
 
 type WgStatus struct {

@@ -173,7 +173,17 @@ func (s *TunnelService[K]) SaveServer(server *model.TunnelServer) error {
 		if prev.Jc != server.Jc || prev.Jmin != server.Jmin || prev.Jmax != server.Jmax ||
 			prev.S1 != server.S1 || prev.S2 != server.S2 || prev.S3 != server.S3 || prev.S4 != server.S4 ||
 			prev.H1 != server.H1 || prev.H2 != server.H2 || prev.H3 != server.H3 || prev.H4 != server.H4 ||
-			prev.I1 != server.I1 {
+			prev.I1 != server.I1 || prev.I2 != server.I2 || prev.I3 != server.I3 ||
+			prev.I4 != server.I4 || prev.I5 != server.I5 ||
+			prev.HeaderProtectionKey != server.HeaderProtectionKey ||
+			prev.ContentPaddingAddition != server.ContentPaddingAddition ||
+			prev.RekeyAfterTime != server.RekeyAfterTime ||
+			prev.RekeyTimeout != server.RekeyTimeout ||
+			prev.RejectAfterTime != server.RejectAfterTime ||
+			prev.KeepaliveTimeout != server.KeepaliveTimeout ||
+			prev.MaxHandshakeAttempts != server.MaxHandshakeAttempts ||
+			prev.RandomTrailers != server.RandomTrailers ||
+			prev.DisableCookies != server.DisableCookies {
 			obfDirty = true
 		}
 	}
@@ -274,6 +284,19 @@ func (s *TunnelService[K]) ResetToDefaults() (*model.TunnelServer, error) {
 	server.H3 = "3"
 	server.H4 = "4"
 	server.I1 = ""
+	server.I2 = ""
+	server.I3 = ""
+	server.I4 = ""
+	server.I5 = ""
+	server.HeaderProtectionKey = ""
+	server.ContentPaddingAddition = ""
+	server.RekeyAfterTime = ""
+	server.RekeyTimeout = ""
+	server.RejectAfterTime = ""
+	server.KeepaliveTimeout = ""
+	server.MaxHandshakeAttempts = ""
+	server.RandomTrailers = false
+	server.DisableCookies = false
 	server.DnsIpv4 = "1.1.1.1"
 	server.DnsIpv6 = "2606:4700:4700::1111"
 	server.PostUp = ""
@@ -305,6 +328,19 @@ func (s *TunnelService[K]) ResetToDefaults() (*model.TunnelServer, error) {
 // clients must re-import their config to keep working).
 func (s *TunnelService[K]) GenerateObfuscation(preset string) tunnel.Obfuscation20 {
 	return tunnel.GenerateObfuscation20(preset)
+}
+
+// GenerateObfuscation30 returns the 2.0 set plus the AmneziaWG 3.0 parameters —
+// header protection and randomised timers — again WITHOUT persisting it. Only
+// offered when the host's tools and kernel module are new enough; see
+// SupportsV3.
+func (s *TunnelService[K]) GenerateObfuscation30(preset string) tunnel.Obfuscation30 {
+	return tunnel.GenerateObfuscation30(preset)
+}
+
+// SupportsV3 reports whether this host can run AmneziaWG 3.0 parameters.
+func (s *TunnelService[K]) SupportsV3() bool {
+	return tunnel.SupportsV3(s.kind())
 }
 
 // ToggleServer enables or disables the tunnel interface.
@@ -343,6 +379,10 @@ type TunnelStatus struct {
 	Running   bool   `json:"running"`
 	Installed bool   `json:"installed"`
 	Version   string `json:"version"`
+	// SupportsV3 gates the AmneziaWG 3.0 fields in the panel: writing them on a
+	// host whose tools or module predate 3.0 produces a config that refuses to
+	// load, and the operator would see only "Invalid argument".
+	SupportsV3 bool `json:"supportsV3"`
 }
 
 // GetServerStatus returns basic status info.
@@ -353,9 +393,10 @@ func (s *TunnelService[K]) GetServerStatus() *TunnelStatus {
 		running = tunnel.IsInterfaceUp(s.kind(), server.InterfaceName)
 	}
 	return &TunnelStatus{
-		Running:   running,
-		Installed: tunnel.IsInstalled(s.kind()),
-		Version:   tunnel.Version(s.kind()),
+		Running:    running,
+		Installed:  tunnel.IsInstalled(s.kind()),
+		Version:    tunnel.Version(s.kind()),
+		SupportsV3: tunnel.SupportsV3(s.kind()),
 	}
 }
 

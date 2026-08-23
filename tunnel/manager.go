@@ -193,6 +193,34 @@ func versionToken(banner string) string {
 	return ""
 }
 
+// SupportsV3 reports whether this host can run AmneziaWG 3.0 — header
+// protection and the randomised protocol timers.
+//
+// Both halves have to understand the new keys: amneziawg-tools parses them out
+// of the config, the kernel module accepts them over netlink. Either one being
+// 3.x is taken as proof, because they are packaged and upgraded together and
+// the tools have historically been the ones to under-report (see Version). A
+// host where neither reports 3.x gets the 3.0 fields disabled in the panel
+// instead of an interface that refuses to come up.
+func SupportsV3(k Kind) bool {
+	if !k.Obfuscation {
+		return false
+	}
+	return majorVersion(toolVersion(k)) >= 3 || majorVersion(ModuleVersion(k)) >= 3
+}
+
+// majorVersion pulls the leading number out of "v3.1.20260812" / "3.1.20260812",
+// returning 0 when there is nothing to read.
+func majorVersion(v string) int {
+	v = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(v), "v"), "V")
+	major, _, _ := strings.Cut(v, ".")
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // ModuleVersion returns the kernel module version (e.g. "3.1.20260812"),
 // preferring sysfs and falling back to modinfo.
 func ModuleVersion(k Kind) string {

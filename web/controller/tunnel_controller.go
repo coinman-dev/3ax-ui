@@ -38,6 +38,8 @@ type tunnelService interface {
 	ResetClientTrafficByUUID(clientUUID string) error
 
 	GenerateObfuscation(preset string) tunnel.Obfuscation20
+	GenerateObfuscation30(preset string) tunnel.Obfuscation30
+	SupportsV3() bool
 }
 
 // TunnelController serves one tunnel flavour. The route set is identical for
@@ -141,11 +143,23 @@ func (a *TunnelController) resetServer(c *gin.Context) {
 	jsonObj(c, server, nil)
 }
 
-// generateObfuscation returns a randomized AmneziaWG 2.0 parameter set for the
-// requested preset ("default" or "mobile"). It does not save anything — the UI
-// fills the form with the result and the admin saves to apply.
+// generateObfuscation returns a randomized AmneziaWG parameter set for the
+// requested preset ("default" or "mobile"). std=3 asks for the 3.0 set — the
+// same 2.0 values plus header protection and randomised timers — and is refused
+// on a host whose tools or kernel module cannot run them, since the resulting
+// config would only fail to load. Nothing is saved: the UI fills the form with
+// the result and the admin saves to apply.
 func (a *TunnelController) generateObfuscation(c *gin.Context) {
 	preset := c.Query("preset")
+	if c.Query("std") == "3" {
+		if !a.svc.SupportsV3() {
+			jsonMsg(c, "generate", fmt.Errorf(
+				"AmneziaWG 3.0 needs newer amneziawg-tools and kernel module on this server"))
+			return
+		}
+		jsonObj(c, a.svc.GenerateObfuscation30(preset), nil)
+		return
+	}
 	jsonObj(c, a.svc.GenerateObfuscation(preset), nil)
 }
 
@@ -169,6 +183,7 @@ func (a *TunnelController) getServerStatus(c *gin.Context) {
 			Running:      status.Running,
 			AwgInstalled: status.Installed,
 			AwgVersion:   status.Version,
+			SupportsV3:   status.SupportsV3,
 		}, nil)
 		return
 	}

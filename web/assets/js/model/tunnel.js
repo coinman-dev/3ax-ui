@@ -54,6 +54,21 @@ class TunnelServer {
             this.h3 = data.h3 !== undefined ? String(data.h3) : '3';
             this.h4 = data.h4 !== undefined ? String(data.h4) : '4';
             this.i1 = data.i1 !== undefined ? data.i1 : '';
+            this.i2 = data.i2 !== undefined ? data.i2 : '';
+            this.i3 = data.i3 !== undefined ? data.i3 : '';
+            this.i4 = data.i4 !== undefined ? data.i4 : '';
+            this.i5 = data.i5 !== undefined ? data.i5 : '';
+            // AmneziaWG 3.0. Empty means "not written to the config", so the
+            // kernel keeps its default and a 2.0 server stays exactly as it was.
+            this.headerProtectionKey = data.headerProtectionKey || '';
+            this.contentPaddingAddition = data.contentPaddingAddition || '';
+            this.rekeyAfterTime = data.rekeyAfterTime || '';
+            this.rekeyTimeout = data.rekeyTimeout || '';
+            this.rejectAfterTime = data.rejectAfterTime || '';
+            this.keepaliveTimeout = data.keepaliveTimeout || '';
+            this.maxHandshakeAttempts = data.maxHandshakeAttempts || '';
+            this.randomTrailers = data.randomTrailers || false;
+            this.disableCookies = data.disableCookies || false;
         }
 
         this.dnsIpv4 = data.dnsIpv4 || '1.1.1.1';
