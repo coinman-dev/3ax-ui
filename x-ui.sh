@@ -19,6 +19,10 @@ function LOGI() {
     echo -e "${green}[INF] $* ${plain}"
 }
 
+function LOGW() {
+    echo -e "${yellow}[WAR] $* ${plain}"
+}
+
 # Port helpers: detect listener and owning process (best effort)
 is_port_in_use() {
     local port="$1"
@@ -48,6 +52,36 @@ is_ip() {
 }
 is_domain() {
     [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+(xn--[a-z0-9]{2,}|[A-Za-z]{2,})$ ]] && return 0 || return 1
+}
+
+# acme.sh helpers.
+# The local folder name is not always the acme.sh identifier: IP certificates
+# are installed into /root/cert/ip while acme.sh knows them by the IP address.
+# Revoke/renew must therefore work off the acme.sh list, not off folder names.
+acme_cert_domains() {
+    [[ -f ~/.acme.sh/acme.sh ]] || return 1
+    ~/.acme.sh/acme.sh --list 2>/dev/null | awk 'NR>1 && NF && $1 != "Main_Domain" {print $1}'
+}
+
+cert_dir_for() {
+    if is_ip "$1"; then
+        echo "/root/cert/ip"
+    else
+        echo "/root/cert/$1"
+    fi
+}
+
+print_acme_certs() {
+    local d dir
+    while read -r d; do
+        [[ -z "$d" ]] && continue
+        dir=$(cert_dir_for "$d")
+        if [[ -f "${dir}/fullchain.pem" ]]; then
+            echo -e "  ${green}${d}${plain} -> ${dir}"
+        else
+            echo -e "  ${green}${d}${plain} ${yellow}(no installed files in ${dir})${plain}"
+        fi
+    done <<< "$1"
 }
 
 # check root
@@ -1121,56 +1155,89 @@ ssl_cert_issue_main() {
         ssl_cert_issue_main
         ;;
     2)
-        local domains=$(find /root/cert/ -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+        local domains=$(acme_cert_domains)
         if [ -z "$domains" ]; then
-            echo "No certificates found to revoke."
+            echo "No certificates found in acme.sh to revoke."
         else
-            echo "Existing domains:"
-            echo "$domains"
-            read -rp "Please enter a domain from the list to revoke the certificate: " domain
-            if echo "$domains" | grep -qw "$domain"; then
-                ~/.acme.sh/acme.sh --revoke -d ${domain}
-                LOGI "Certificate revoked for domain: $domain"
+            echo "Existing certificates:"
+            print_acme_certs "$domains"
+            read -rp "Please enter a domain/IP from the list to revoke the certificate: " domain
+            domain="${domain// /}"
+            if [[ -n "$domain" ]] && echo "$domains" | grep -Fxq "$domain"; then
+                if ~/.acme.sh/acme.sh --revoke -d "${domain}"; then
+                    LOGI "Certificate revoked for: $domain"
+                    # Revoking only tells the CA to distrust the certificate. The
+                    # acme.sh record, the renewal cron and the installed files all
+                    # stay, so without this the entry keeps showing up in these
+                    # menus and keeps renewing itself.
+                    LOGW "Revoking does not delete anything locally: acme.sh still tracks ${domain} and will keep renewing it."
+                    confirm "Remove it from acme.sh as well (stops the renewals and clears it from these lists)?" "y"
+                    if [[ $? == 0 ]]; then
+                        if ~/.acme.sh/acme.sh --remove -d "${domain}" --ecc || ~/.acme.sh/acme.sh --remove -d "${domain}"; then
+                            LOGI "acme.sh no longer tracks ${domain}."
+                        else
+                            LOGE "Could not remove the acme.sh record for ${domain}."
+                        fi
+                    fi
+                    certDir=$(cert_dir_for "$domain")
+                    LOGW "The installed files in ${certDir} are still there and the panel keeps serving them until another certificate is set."
+                    LOGI "To issue a fresh certificate for the same name, use option 1 and answer yes when asked to re-issue."
+                else
+                    LOGE "Revoke failed for: $domain"
+                fi
             else
-                echo "Invalid domain entered."
+                LOGE "Invalid entry. Copy one of the values listed above."
             fi
         fi
         ssl_cert_issue_main
         ;;
     3)
-        local domains=$(find /root/cert/ -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+        local domains=$(acme_cert_domains)
         if [ -z "$domains" ]; then
-            echo "No certificates found to renew."
+            echo "No certificates found in acme.sh to renew."
         else
-            echo "Existing domains:"
-            echo "$domains"
-            read -rp "Please enter a domain from the list to renew the SSL certificate: " domain
-            if echo "$domains" | grep -qw "$domain"; then
-                ~/.acme.sh/acme.sh --renew -d ${domain} --force
-                LOGI "Certificate forcefully renewed for domain: $domain"
+            echo "Existing certificates:"
+            print_acme_certs "$domains"
+            read -rp "Please enter a domain/IP from the list to renew the SSL certificate: " domain
+            domain="${domain// /}"
+            if [[ -n "$domain" ]] && echo "$domains" | grep -Fxq "$domain"; then
+                if ~/.acme.sh/acme.sh --renew -d "${domain}" --force; then
+                    LOGI "Certificate forcefully renewed for: $domain"
+                else
+                    LOGE "Renew failed for: $domain"
+                fi
             else
-                echo "Invalid domain entered."
+                LOGE "Invalid entry. Copy one of the values listed above."
             fi
         fi
         ssl_cert_issue_main
         ;;
     4)
-        local domains=$(find /root/cert/ -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+        local domains=$(acme_cert_domains)
+        local expected="" d dir orphans=""
         if [ -z "$domains" ]; then
-            echo "No certificates found."
+            echo "No certificates found in acme.sh."
         else
-            echo "Existing domains and their paths:"
-            for domain in $domains; do
-                local cert_path="/root/cert/${domain}/fullchain.pem"
-                local key_path="/root/cert/${domain}/privkey.pem"
-                if [[ -f "${cert_path}" && -f "${key_path}" ]]; then
-                    echo -e "Domain: ${domain}"
-                    echo -e "\tCertificate Path: ${cert_path}"
-                    echo -e "\tPrivate Key Path: ${key_path}"
+            echo "Certificates known to acme.sh (auto-renewed):"
+            while read -r d; do
+                [[ -z "$d" ]] && continue
+                dir=$(cert_dir_for "$d")
+                expected+="$(basename "$dir")"$'\n'
+                if [[ -f "${dir}/fullchain.pem" && -f "${dir}/privkey.pem" ]]; then
+                    echo -e "Domain: ${d}"
+                    echo -e "\tCertificate Path: ${dir}/fullchain.pem"
+                    echo -e "\tPrivate Key Path: ${dir}/privkey.pem"
                 else
-                    echo -e "Domain: ${domain} - Certificate or Key missing."
+                    echo -e "Domain: ${d} - Certificate or Key missing in ${dir}."
                 fi
-            done
+            done <<< "$domains"
+        fi
+        for dir in $(find /root/cert/ -mindepth 1 -maxdepth 1 -type d 2>/dev/null); do
+            echo "$expected" | grep -Fxq "$(basename "$dir")" || orphans+="  ${dir}\n"
+        done
+        if [[ -n "$orphans" ]]; then
+            echo "Certificate folders without an acme.sh record (NOT auto-renewed):"
+            echo -en "$orphans"
         fi
         ssl_cert_issue_main
         ;;
@@ -1182,8 +1249,9 @@ ssl_cert_issue_main() {
             echo "Available domains:"
             echo "$domains"
             read -rp "Please choose a domain to set the panel paths: " domain
+            domain="${domain// /}"
 
-            if echo "$domains" | grep -qw "$domain"; then
+            if [[ -n "$domain" ]] && echo "$domains" | grep -Fxq "$domain"; then
                 local webCertFile="/root/cert/${domain}/fullchain.pem"
                 local webKeyFile="/root/cert/${domain}/privkey.pem"
 
@@ -1412,7 +1480,7 @@ ssl_cert_issue() {
         install_acme
         if [ $? -ne 0 ]; then
             LOGE "install acme failed, please check logs"
-            exit 1
+            return 1
         fi
     fi
 
@@ -1446,7 +1514,7 @@ ssl_cert_issue() {
     esac
     if [ $? -ne 0 ]; then
         LOGE "install socat failed, please check logs"
-        exit 1
+        return 1
     else
         LOGI "install socat succeed..."
     fi
@@ -1472,12 +1540,14 @@ ssl_cert_issue() {
     LOGD "Your domain is: ${domain}, checking it..."
 
     # check if there already exists a certificate
-    local currentCert=$(~/.acme.sh/acme.sh --list | tail -1 | awk '{print $1}')
-    if [ "${currentCert}" == "${domain}" ]; then
-        local certInfo=$(~/.acme.sh/acme.sh --list)
-        LOGE "System already has certificates for this domain. Cannot issue again. Current certificate details:"
-        LOGI "$certInfo"
-        exit 1
+    if acme_cert_domains | grep -Fxq "${domain}"; then
+        LOGW "acme.sh already has a certificate for ${domain}:"
+        ~/.acme.sh/acme.sh --list
+        confirm "Re-issue it now (the existing certificate will be overwritten)?" "n"
+        if [[ $? != 0 ]]; then
+            LOGI "Keeping the existing certificate."
+            return 0
+        fi
     else
         LOGI "Your domain is ready for issuing certificates now..."
     fi
@@ -1492,10 +1562,12 @@ ssl_cert_issue() {
     fi
 
     # get the port number for the standalone server
-    local WebPort=80
+    local WebPort=""
     read -rp "Please choose which port to use (default is 80): " WebPort
-    if [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
-        LOGE "Your input ${WebPort} is invalid, will use default port 80."
+    WebPort="${WebPort// /}"
+    WebPort="${WebPort:-80}"
+    if ! [[ "${WebPort}" =~ ^[0-9]+$ ]] || ((WebPort < 1 || WebPort > 65535)); then
+        LOGW "Your input '${WebPort}' is invalid, will use default port 80."
         WebPort=80
     fi
     LOGI "Will use port: ${WebPort} to issue certificates. Please make sure this port is open."
@@ -1506,9 +1578,9 @@ ssl_cert_issue() {
     if [ $? -ne 0 ]; then
         LOGE "Issuing certificate failed, please check logs."
         rm -rf ~/.acme.sh/${domain}
-        exit 1
+        return 1
     else
-        LOGE "Issuing certificate succeeded, installing certificates..."
+        LOGI "Issuing certificate succeeded, installing certificates..."
     fi
 
     reloadCmd="x-ui restart"
@@ -1523,8 +1595,13 @@ ssl_cert_issue() {
         read -rp "Choose an option: " choice
         case "$choice" in
         1)
-            LOGI "Reloadcmd is: systemctl reload nginx ; x-ui restart"
-            reloadCmd="systemctl reload nginx ; x-ui restart"
+            if systemctl list-unit-files 2>/dev/null | grep -q '^nginx\.service' || command -v nginx >/dev/null 2>&1; then
+                reloadCmd="systemctl reload nginx ; x-ui restart"
+                LOGI "Reloadcmd is: ${reloadCmd}"
+            else
+                LOGW "nginx is not installed on this system, its reload would fail on every renewal."
+                LOGI "Keeping default reloadcmd: x-ui restart"
+            fi
             ;;
         2)
             LOGD "It's recommended to put x-ui restart at the end, so it won't raise an error if other services fails"
@@ -1545,7 +1622,7 @@ ssl_cert_issue() {
     if [ $? -ne 0 ]; then
         LOGE "Installing certificate failed, exiting."
         rm -rf ~/.acme.sh/${domain}
-        exit 1
+        return 1
     else
         LOGI "Installing certificate succeeded, enabling auto renew..."
     fi
@@ -1554,20 +1631,23 @@ ssl_cert_issue() {
     ~/.acme.sh/acme.sh --upgrade --auto-upgrade
     if [ $? -ne 0 ]; then
         LOGE "Auto renew failed, certificate details:"
-        ls -lah cert/*
+        ls -lah /root/cert/*
         chmod 600 $certPath/privkey.pem
         chmod 644 $certPath/fullchain.pem
-        exit 1
+        return 1
     else
         LOGI "Auto renew succeeded, certificate details:"
-        ls -lah cert/*
+        ls -lah /root/cert/*
         chmod 600 $certPath/privkey.pem
         chmod 644 $certPath/fullchain.pem
     fi
 
     # Prompt user to set panel paths after successful certificate installation
-    read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+    # Empty answer means yes: a certificate that was just issued for this
+    # panel is almost always meant to be used by it, and skipping the step
+    # silently leaves the panel serving the previous certificate.
+    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         local webCertFile="/root/cert/${domain}/fullchain.pem"
         local webKeyFile="/root/cert/${domain}/privkey.pem"
 
@@ -1707,8 +1787,11 @@ ssl_cert_issue_CF() {
         fi
 
         # Prompt user to set panel paths after successful certificate installation
-        read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-        if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+        read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+        # Empty answer means yes: a certificate that was just issued for this
+        # panel is almost always meant to be used by it, and skipping the step
+        # silently leaves the panel serving the previous certificate.
+        if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
             local webCertFile="${certPath}/fullchain.pem"
             local webKeyFile="${certPath}/privkey.pem"
 

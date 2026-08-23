@@ -18,6 +18,8 @@ import (
 
 	"github.com/coinman-dev/3ax-ui/v2/config"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	xuilogger "github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/shared/datagen"
 	"github.com/coinman-dev/3ax-ui/v2/util/crypto"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 	"github.com/google/uuid"
@@ -48,15 +50,66 @@ func initModels() error {
 		&model.WgServer{},
 		&model.WgClient{},
 		&model.MtprotoClient{},
+		&model.TunnelServer{},
+		&model.TunnelClient{},
 		&model.CustomGeoResource{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {
+			// SQLite keeps index names in one namespace for the whole database,
+			// and gorm only looks for an index on the table it is migrating. If
+			// the name is taken elsewhere — a leftover from the table rebuild
+			// the driver performs when adding a column, or from a second x-ui
+			// process migrating at the same time — CreateIndex fails. Losing an
+			// index is a performance problem; failing InitDB takes the panel
+			// down, so this is logged and skipped rather than returned.
+			if strings.Contains(err.Error(), "already exists") {
+				xuilogger.Warningf("auto migration skipped an existing object: %v", err)
+				continue
+			}
 			log.Printf("Error auto migrating model: %v", err)
 			return err
 		}
 	}
 	return nil
+}
+
+// namedIndexes maps every index this schema declares by name to the table it
+// belongs on. SQLite index names are global, so an index of ours sitting on the
+// wrong table blocks the right one from being created.
+var namedIndexes = map[string]string{
+	"idx_ct_enable_last_online":      "client_traffics",
+	"idx_awg_enable_last_online":     "awg_clients",
+	"idx_wg_enable_last_online":      "wg_clients",
+	"idx_mtproto_enable_last_online": "mtproto_clients",
+	"idx_tunnel_enable_last_online":  "tunnel_clients",
+	"idx_tunnel_client_server_email": "tunnel_clients",
+	"idx_enable_traffic_reset":       "inbounds",
+}
+
+// dropStrayNamedIndexes removes indexes that carry one of our names but hang off
+// another table, so AutoMigrate can recreate them where they belong.
+func dropStrayNamedIndexes(db *gorm.DB) {
+	type row struct {
+		Name    string
+		TblName string
+	}
+	var rows []row
+	if err := db.Raw(`SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'`).
+		Scan(&rows).Error; err != nil {
+		xuilogger.Warning("could not inspect indexes:", err)
+		return
+	}
+	for _, r := range rows {
+		want, ours := namedIndexes[r.Name]
+		if !ours || want == r.TblName {
+			continue
+		}
+		xuilogger.Warningf("index %s belongs on %s but was found on %s, recreating it", r.Name, want, r.TblName)
+		if err := db.Exec("DROP INDEX IF EXISTS " + r.Name).Error; err != nil {
+			xuilogger.Warningf("could not drop stray index %s: %v", r.Name, err)
+		}
+	}
 }
 
 // initUser creates a default admin user if the users table is empty.
@@ -131,6 +184,75 @@ func isTableEmpty(tableName string) (bool, error) {
 }
 
 // InitDB sets up the database connection, migrates models, and runs seeders.
+// inboundDataTables are the tables whose contents shape what the subscription
+// endpoints render. Traffic counters (client_traffics) are deliberately absent:
+// they are rewritten on every collection tick, and treating that as a change
+// would invalidate the subscription cache constantly for numbers that its TTL
+// already keeps fresh enough.
+var inboundDataTables = map[string]struct{}{
+	"inbounds":        {},
+	"mtproto_clients": {},
+	"awg_clients":     {},
+	"wg_clients":      {},
+}
+
+// registerDataGenerationHooks bumps the shared data generation after any write
+// to an inbound-shaping table, wherever it comes from. Doing it here rather
+// than in each service method means a future write path cannot forget to
+// invalidate the caches that depend on it.
+func registerDataGenerationHooks(db *gorm.DB) {
+	bump := func(tx *gorm.DB) {
+		if tx.Statement == nil {
+			return
+		}
+		if _, ok := inboundDataTables[tx.Statement.Table]; ok {
+			datagen.Bump()
+		}
+	}
+	bumpRaw := func(tx *gorm.DB) {
+		if tx.Statement == nil {
+			return
+		}
+		sql := strings.TrimSpace(tx.Statement.SQL.String())
+		if len(sql) < 6 {
+			return
+		}
+		switch strings.ToUpper(sql[:6]) {
+		case "UPDATE", "INSERT", "DELETE":
+		default:
+			return
+		}
+		lower := strings.ToLower(sql)
+		for table := range inboundDataTables {
+			if strings.Contains(lower, table) {
+				datagen.Bump()
+				return
+			}
+		}
+	}
+	for name, cb := range map[string]func(*gorm.DB){
+		"datagen:create": bump,
+		"datagen:update": bump,
+		"datagen:delete": bump,
+	} {
+		var err error
+		switch name {
+		case "datagen:create":
+			err = db.Callback().Create().After("gorm:create").Register(name, cb)
+		case "datagen:update":
+			err = db.Callback().Update().After("gorm:update").Register(name, cb)
+		case "datagen:delete":
+			err = db.Callback().Delete().After("gorm:delete").Register(name, cb)
+		}
+		if err != nil {
+			xuilogger.Warning("could not register data generation hook:", err)
+		}
+	}
+	if err := db.Callback().Raw().After("gorm:raw").Register("datagen:raw", bumpRaw); err != nil {
+		xuilogger.Warning("could not register raw data generation hook:", err)
+	}
+}
+
 func InitDB(dbPath string) error {
 	dir := path.Dir(dbPath)
 	err := os.MkdirAll(dir, fs.ModePerm)
@@ -165,6 +287,8 @@ func InitDB(dbPath string) error {
 	if err != nil {
 		return err
 	}
+	registerDataGenerationHooks(db)
+
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 	sqlDB.SetConnMaxLifetime(0)
@@ -187,12 +311,18 @@ func InitDB(dbPath string) error {
 	// while also rebuilding awg_servers for the H1-H4 int→string type change.
 	preMigrateAwgWgColumns()
 
+	dropStrayNamedIndexes(db)
+
 	if err := initModels(); err != nil {
 		return err
 	}
 
 	// Populate UUIDs for existing AWG clients that don't have one
 	migrateAwgClientUUIDs()
+
+	// One-time move of the four legacy tunnel tables into the merged
+	// tunnel_servers/tunnel_clients (see migrateTunnelTablesFromLegacy).
+	migrateTunnelTablesFromLegacy(db)
 
 	// Convert legacy mixed/http inbounds from settings.accounts[] to settings.clients[]
 	// so they share the rich per-user infrastructure (traffic, expiry, quota) with VLESS.

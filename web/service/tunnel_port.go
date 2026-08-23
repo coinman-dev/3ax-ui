@@ -57,17 +57,15 @@ func isUDPPortAvailable(port int) bool {
 	return true
 }
 
-func getExistingAwgListenPort(db *gorm.DB) int {
-	var server model.AwgServer
-	if err := db.Select("listen_port").First(&server).Error; err != nil {
-		return 0
+// otherTunnelListenPort returns the listen port of the *other* flavour, so a
+// freshly generated port never lands on the one already in use.
+func otherTunnelListenPort(db *gorm.DB, kind string) int {
+	other := model.TunnelKindWg
+	if kind == model.TunnelKindWg {
+		other = model.TunnelKindAwg
 	}
-	return server.ListenPort
-}
-
-func getExistingWgListenPort(db *gorm.DB) int {
-	var server model.WgServer
-	if err := db.Select("listen_port").First(&server).Error; err != nil {
+	var server model.TunnelServer
+	if err := db.Select("listen_port").Where("kind = ?", other).First(&server).Error; err != nil {
 		return 0
 	}
 	return server.ListenPort

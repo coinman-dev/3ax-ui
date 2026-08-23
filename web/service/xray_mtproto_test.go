@@ -2,8 +2,11 @@ package service
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/util/json_util"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
@@ -115,5 +118,41 @@ func TestInjectMtprotoEgress_NoPort(t *testing.T) {
 	injectMtprotoEgress(cfg, routedMtprotoInbound(true, 0, "proxy"))
 	if len(cfg.InboundConfigs) != before {
 		t.Fatal("routed inbound with no egress port must not add a bridge")
+	}
+}
+
+// TestGetInboundTagsOffersRoutedMtproto: a routed mtproto inbound answers to
+// its own tag in the generated config (the loopback SOCKS bridge), so the
+// routing-rule dropdown must offer it — otherwise the only way to steer
+// Telegram is the inbound form's single "outbound tag" field. An unrouted one
+// must stay out: nothing in the config carries that tag.
+func TestGetInboundTagsOffersRoutedMtproto(t *testing.T) {
+	if err := database.InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	db := database.GetDB()
+
+	routed := routedMtprotoInbound(true, 62001, "nl-vpn")
+	routed.Id = 0
+	routed.Tag = "inbound-10777"
+	plain := routedMtprotoInbound(false, 0, "")
+	plain.Id = 0
+	plain.Port = 10888
+	plain.Tag = "inbound-10888"
+	for _, in := range []*model.Inbound{routed, plain} {
+		if err := db.Create(in).Error; err != nil {
+			t.Fatalf("seed inbound %s: %v", in.Tag, err)
+		}
+	}
+
+	tags, err := (&InboundService{}).GetInboundTags()
+	if err != nil {
+		t.Fatalf("GetInboundTags: %v", err)
+	}
+	if !strings.Contains(tags, routed.Tag) {
+		t.Errorf("routing tag list %s does not offer the routed mtproto tag %q", tags, routed.Tag)
+	}
+	if strings.Contains(tags, plain.Tag) {
+		t.Errorf("routing tag list %s offers %q, but that inbound never enters the Xray config", tags, plain.Tag)
 	}
 }

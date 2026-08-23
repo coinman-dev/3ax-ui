@@ -89,6 +89,12 @@ is_domain() {
     [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+(xn--[a-z0-9]{2,}|[A-Za-z]{2,})$ ]] && return 0 || return 1
 }
 
+# List certificate identifiers known to acme.sh (main domain of each cert)
+acme_cert_domains() {
+    [[ -f ~/.acme.sh/acme.sh ]] || return 1
+    ~/.acme.sh/acme.sh --list 2>/dev/null | awk 'NR>1 && NF && $1 != "Main_Domain" {print $1}'
+}
+
 # Port helpers
 is_port_in_use() {
     local port="$1"
@@ -524,14 +530,18 @@ ssl_cert_issue() {
     done
     echo -e "${green}Your domain is: ${domain}, checking it...${plain}"
 
+    # remember the domain for the caller (Access URL)
+    ISSUED_DOMAIN="${domain}"
+
     # check if there already exists a certificate
-    local currentCert=$(~/.acme.sh/acme.sh --list | tail -1 | awk '{print $1}')
-    if [ "${currentCert}" == "${domain}" ]; then
-        local certInfo=$(~/.acme.sh/acme.sh --list)
-        echo -e "${red}System already has certificates for this domain. Cannot issue again.${plain}"
-        echo -e "${yellow}Current certificate details:${plain}"
-        echo "$certInfo"
-        return 1
+    if acme_cert_domains | grep -Fxq "${domain}"; then
+        echo -e "${yellow}acme.sh already has a certificate for ${domain}:${plain}"
+        ~/.acme.sh/acme.sh --list
+        read -rp "Re-issue it now (the existing certificate will be overwritten)? (y/n): " reissue
+        if [[ "$reissue" != "y" && "$reissue" != "Y" ]]; then
+            echo -e "${green}Keeping the existing certificate.${plain}"
+            return 0
+        fi
     else
         echo -e "${green}Your domain is ready for issuing certificates now...${plain}"
     fi
@@ -546,10 +556,12 @@ ssl_cert_issue() {
     fi
 
     # get the port number for the standalone server
-    local WebPort=80
+    local WebPort=""
     read -rp "Please choose which port to use (default is 80): " WebPort
-    if [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
-        echo -e "${yellow}Your input ${WebPort} is invalid, will use default port 80.${plain}"
+    WebPort="${WebPort// /}"
+    WebPort="${WebPort:-80}"
+    if ! [[ "${WebPort}" =~ ^[0-9]+$ ]] || ((WebPort < 1 || WebPort > 65535)); then
+        echo -e "${yellow}Your input '${WebPort}' is invalid, will use default port 80.${plain}"
         WebPort=80
     fi
     echo -e "${green}Will use port: ${WebPort} to issue certificates. Please make sure this port is open.${plain}"
@@ -565,6 +577,7 @@ ssl_cert_issue() {
         echo -e "${red}Issuing certificate failed, please check logs.${plain}"
         rm -rf ~/.acme.sh/${domain}
         systemctl start x-ui 2>/dev/null || rc-service x-ui start 2>/dev/null
+        ISSUED_DOMAIN=""
         return 1
     else
         echo -e "${green}Issuing certificate succeeded, installing certificates...${plain}"
@@ -583,8 +596,13 @@ ssl_cert_issue() {
         read -rp "Choose an option: " choice
         case "$choice" in
         1)
-            echo -e "${green}Reloadcmd is: systemctl reload nginx ; systemctl restart x-ui${plain}"
-            reloadCmd="systemctl reload nginx ; systemctl restart x-ui"
+            if systemctl list-unit-files 2>/dev/null | grep -q '^nginx\.service' || command -v nginx >/dev/null 2>&1; then
+                reloadCmd="systemctl reload nginx ; systemctl restart x-ui"
+                echo -e "${green}Reloadcmd is: ${reloadCmd}${plain}"
+            else
+                echo -e "${yellow}nginx is not installed on this system, its reload would fail on every renewal.${plain}"
+                echo -e "${green}Keeping default reloadcmd: ${reloadCmd}${plain}"
+            fi
             ;;
         2)
             echo -e "${yellow}It's recommended to put x-ui restart at the end${plain}"
@@ -629,8 +647,11 @@ ssl_cert_issue() {
     systemctl start x-ui 2>/dev/null || rc-service x-ui start 2>/dev/null
 
     # Prompt user to set panel paths after successful certificate installation
-    read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+    # Empty answer means yes: a certificate that was just issued for this
+    # panel is almost always meant to be used by it, and skipping the step
+    # silently leaves the panel serving the previous certificate.
+    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         local webCertFile="/root/cert/${domain}/fullchain.pem"
         local webKeyFile="/root/cert/${domain}/privkey.pem"
 
@@ -679,14 +700,15 @@ prompt_and_setup_ssl() {
     1)
         # User chose Let's Encrypt domain option
         echo -e "${green}Using Let's Encrypt for domain certificate...${plain}"
+        ISSUED_DOMAIN=""
         ssl_cert_issue
-        # Extract the domain that was used from the certificate
-        local cert_domain=$(~/.acme.sh/acme.sh --list 2>/dev/null | tail -1 | awk '{print $1}')
+        # ssl_cert_issue reports the domain it worked on via ISSUED_DOMAIN
+        local cert_domain="${ISSUED_DOMAIN}"
         if [[ -n "${cert_domain}" ]]; then
             SSL_HOST="${cert_domain}"
             echo -e "${green}✓ SSL certificate configured successfully with domain: ${cert_domain}${plain}"
         else
-            echo -e "${yellow}SSL setup may have completed, but domain extraction failed${plain}"
+            echo -e "${yellow}No certificate was issued; using the IP address for the Access URL${plain}"
             SSL_HOST="${server_ip}"
         fi
         ;;

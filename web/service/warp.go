@@ -101,9 +101,12 @@ func (s *WarpService) RegWarp(secretKey string, publicKey string) (string, error
 		return "", err
 	}
 
-	deviceId := rspData["id"].(string)
-	token := rspData["token"].(string)
-	license, ok := rspData["account"].(map[string]any)["license"].(string)
+	// Remote API response: every field is checked, an unexpected shape must not
+	// take down the handler.
+	deviceId, _ := rspData["id"].(string)
+	token, _ := rspData["token"].(string)
+	account, _ := rspData["account"].(map[string]any)
+	license, ok := account["license"].(string)
 	if !ok {
 		logger.Debug("Error accessing license value.")
 		return "", err
@@ -158,7 +161,10 @@ func (s *WarpService) SetWarpLicense(license string) (string, error) {
 	}
 	if response["success"] == false {
 		errorArr, _ := response["errors"].([]any)
-		errorObj := errorArr[0].(map[string]any)
+		if len(errorArr) == 0 {
+			return "", common.NewError("warp api reported failure without details")
+		}
+		errorObj, _ := errorArr[0].(map[string]any)
 		return "", common.NewError(errorObj["code"], errorObj["message"])
 	}
 

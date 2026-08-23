@@ -609,11 +609,13 @@
                           @click="FileManager.downloadTextFile(infoModal.links[index], `peer-${index + 1}.conf`)"></a-button>
                       </a-tooltip>
                     </tr-info-title>
+                    <!-- Rendered as text, not v-html: these links embed the
+                         client remark, which an operator (or an imported
+                         config) can fill with markup. pre-wrap keeps the
+                         line breaks the old <br /> replacement provided. -->
                     <div
-                      v-html="infoModal.links[index].replaceAll(`\n`,`<br />`)"
-                      :style="{ borderRadius: '1rem', padding: '0.5rem' }"
-                      class="client-table-odd-row">
-                    </div>
+                      :style="{ borderRadius: '1rem', padding: '0.5rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }"
+                      class="client-table-odd-row">[[ infoModal.links[index] ]]</div>
                   </tr-info-row>
                 </td>
               </tr>
@@ -750,6 +752,15 @@
         // Use just the client's name to avoid the confusing "<inbound>-<client>"
         // (e.g. "Anya-Phone-Vova-test").
         this.links = this.inbound.genAllLinks('', '-e', this.clientSettings);
+        // MTProto links are addressed by IP (see MtprotoLinkHost). show() stays
+        // synchronous, so render whatever address is known now and rebuild once
+        // the lookup lands — unless the modal has moved on to another client.
+        const mtInbound = this.inbound, mtClient = this.clientSettings;
+        MtprotoLinkHost.load().then(ip => {
+          if (ip && this.inbound === mtInbound && this.clientSettings === mtClient) {
+            this.links = mtInbound.genAllLinks('', '-e', mtClient);
+          }
+        });
       } else {
         this.links = this.inbound.genAllLinks(this.dbInbound.remark, app.remarkModel, this.clientSettings);
       }

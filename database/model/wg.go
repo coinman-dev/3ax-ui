@@ -65,7 +65,7 @@ type WgClient struct {
 	UUID    string `json:"uuid" gorm:"index"`
 	Name    string `json:"name"`
 	Email   string `json:"email" gorm:"uniqueIndex"`
-	Enable  bool   `json:"enable" gorm:"default:true"`
+	Enable  bool   `json:"enable" gorm:"default:true;index:idx_wg_enable_last_online,priority:1"`
 	Comment string `json:"comment"`
 
 	// Client keys
@@ -106,10 +106,10 @@ type WgClient struct {
 	ExpiryTime int64 `json:"expiryTime" gorm:"default:0"` // 0 = never
 	Reset      int   `json:"reset" gorm:"default:0"`      // auto-renew interval in days, 0 = disabled
 
-	LimitIp    int    `json:"limitIp" gorm:"default:0"`    // max simultaneous IPs, 0 = unlimited
-	TgId       int64  `json:"tgId" gorm:"default:0"`       // Telegram chat ID for notifications
-	LastOnline int64  `json:"lastOnline" gorm:"default:0"` // last handshake timestamp (ms)
-	LastIP     string `json:"lastIp" gorm:"default:''"`    // last known endpoint IP
+	LimitIp    int    `json:"limitIp" gorm:"default:0"`                                               // max simultaneous IPs, 0 = unlimited
+	TgId       int64  `json:"tgId" gorm:"default:0"`                                                  // Telegram chat ID for notifications
+	LastOnline int64  `json:"lastOnline" gorm:"default:0;index:idx_wg_enable_last_online,priority:2"` // last handshake timestamp (ms)
+	LastIP     string `json:"lastIp" gorm:"default:''"`                                               // last known endpoint IP
 
 	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime:milli"`
 	UpdatedAt int64 `json:"updatedAt" gorm:"autoUpdateTime:milli"`

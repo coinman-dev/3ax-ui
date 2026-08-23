@@ -132,7 +132,15 @@ type clientCounter struct {
 }
 
 // Manager owns the set of running mtg processes keyed by inbound id.
+//
+// Two locks, deliberately: opMu serialises process lifecycle work (spawning,
+// stopping, writing configs, allocating a stats port) so two callers can never
+// race over the same inbound, while mu only ever guards in-memory state and is
+// never held across exec, disk or network I/O. Keeping them apart means a
+// traffic scrape or a reconcile batch no longer blocks behind a starting mtg.
 type Manager struct {
+	opMu sync.Mutex
+
 	mu    sync.Mutex
 	procs map[int]*managed
 	// swept records that the one-time startup cleanup of orphaned mtg
@@ -217,21 +225,23 @@ func InstanceFromInbound(ib *model.Inbound, clients []model.MtprotoClient) (Inst
 // Ensure starts the mtg process for an instance, or restarts it when its
 // configuration changed. A no-op when the desired process is already running.
 func (m *Manager) Ensure(inst Instance) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.sweepOrphansLocked()
-	return m.ensureLocked(inst)
+	m.sweepOrphansOnce()
+	return m.ensureOne(inst)
 }
 
-// sweepOrphansLocked kills mtg processes left running by a previous x-ui run,
+// sweepOrphansOnce kills mtg processes left running by a previous x-ui run,
 // exactly once per process lifetime and before any of our own mtg are started.
 // Because x-ui owns every mtg process, anything alive at this point is an orphan
 // that would otherwise keep holding an inbound port with a stale secret.
-func (m *Manager) sweepOrphansLocked() {
+// The kill itself runs without mu held — only the "already swept" flag needs it.
+func (m *Manager) sweepOrphansOnce() {
+	m.mu.Lock()
 	if m.swept {
+		m.mu.Unlock()
 		return
 	}
 	m.swept = true
+	m.mu.Unlock()
 	// Sweep both backend binaries: a panel may have switched between mtg and
 	// mtg-multi across updates, leaving an orphan of the other kind.
 	bin := config.GetBinFolderPath()
@@ -244,16 +254,31 @@ func (m *Manager) sweepOrphansLocked() {
 	}
 }
 
-func (m *Manager) ensureLocked(inst Instance) error {
+// ensureOne brings a single inbound to the desired state. It takes opMu for the
+// duration (so concurrent callers cannot spawn two processes for the same
+// inbound) but only takes mu for the map lookups and the final commit.
+func (m *Manager) ensureOne(inst Instance) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+
 	fp := inst.fingerprint()
-	if cur, ok := m.procs[inst.Id]; ok {
+	m.mu.Lock()
+	cur, exists := m.procs[inst.Id]
+	m.mu.Unlock()
+
+	if exists {
 		if cur.fingerprint == fp && cur.proc.IsRunning() {
+			m.mu.Lock()
 			cur.tag = inst.Tag
+			m.mu.Unlock()
 			return nil
 		}
-		cur.proc.Stop()
+		cur.proc.Stop() // process I/O: mu intentionally not held
+		m.mu.Lock()
 		delete(m.procs, inst.Id)
+		m.mu.Unlock()
 	}
+
 	statsPort, err := FreeLocalPort()
 	if err != nil {
 		return err
@@ -266,6 +291,8 @@ func (m *Manager) ensureLocked(inst Instance) error {
 	if err := proc.Start(); err != nil {
 		return err
 	}
+
+	m.mu.Lock()
 	m.procs[inst.Id] = &managed{
 		proc:         proc,
 		tag:          inst.Tag,
@@ -275,42 +302,66 @@ func (m *Manager) ensureLocked(inst Instance) error {
 		clients:      inst.activeClients(),
 		lastByClient: map[string]clientCounter{},
 	}
+	m.mu.Unlock()
+
 	logger.Infof("mtproto: started %s for inbound %d on %s (%d client(s))", GetBinaryName(), inst.Id, inst.bindTo(), len(inst.activeClients()))
 	return nil
 }
 
 // Remove stops and forgets the mtg process for an inbound id.
 func (m *Manager) Remove(id int) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	m.removeOne(id)
+}
+
+// removeOne drops the process from the map first, then stops it outside mu.
+// Caller holds opMu.
+func (m *Manager) removeOne(id int) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if cur, ok := m.procs[id]; ok {
-		cur.proc.Stop()
+	cur, ok := m.procs[id]
+	if ok {
 		delete(m.procs, id)
-		_ = os.Remove(configPathForID(id))
-		logger.Infof("mtproto: stopped mtg for inbound %d", id)
 	}
+	m.mu.Unlock()
+	if !ok {
+		return
+	}
+	cur.proc.Stop()
+	_ = os.Remove(configPathForID(id))
+	logger.Infof("mtproto: stopped mtg for inbound %d", id)
 }
 
 // Reconcile drives the running set toward the desired instances: it stops
 // processes that are no longer wanted and (re)starts the rest. Used at boot
 // and periodically to recover from crashes.
 func (m *Manager) Reconcile(desired []Instance) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.sweepOrphansLocked()
+	m.sweepOrphansOnce()
+
 	want := make(map[int]struct{}, len(desired))
 	for _, inst := range desired {
 		want[inst.Id] = struct{}{}
 	}
-	for id, cur := range m.procs {
+
+	m.mu.Lock()
+	stale := make([]int, 0, len(m.procs))
+	for id := range m.procs {
 		if _, ok := want[id]; !ok {
-			cur.proc.Stop()
-			delete(m.procs, id)
-			_ = os.Remove(configPathForID(id))
+			stale = append(stale, id)
 		}
 	}
+	m.mu.Unlock()
+
+	// Each item takes opMu on its own instead of holding it for the whole
+	// batch, so a client add/edit arriving mid-reconcile waits for one
+	// process at most rather than for every mtproto inbound on the server.
+	for _, id := range stale {
+		m.opMu.Lock()
+		m.removeOne(id)
+		m.opMu.Unlock()
+	}
 	for _, inst := range desired {
-		if err := m.ensureLocked(inst); err != nil {
+		if err := m.ensureOne(inst); err != nil {
 			logger.Warningf("mtproto: reconcile failed for inbound %d: %v", inst.Id, err)
 		}
 	}
@@ -318,12 +369,17 @@ func (m *Manager) Reconcile(desired []Instance) {
 
 // StopAll stops every managed mtg process. Called on panel shutdown.
 func (m *Manager) StopAll() {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, cur := range m.procs {
+	running := m.procs
+	m.procs = map[int]*managed{}
+	m.mu.Unlock()
+
+	for id, cur := range running {
 		_ = cur.proc.Stop()
 		_ = os.Remove(configPathForID(id))
-		delete(m.procs, id)
 	}
 }
 

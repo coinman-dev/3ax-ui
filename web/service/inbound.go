@@ -132,7 +132,27 @@ func (s *InboundService) checkPortExist(listen string, port int, ignoreId int) (
 	if err != nil {
 		return false, err
 	}
-	return count > 0, nil
+	if count > 0 {
+		return true, nil
+	}
+
+	// Loopback egress ports of routed mtproto inbounds live inside settings
+	// JSON, so the query above cannot see them. Xray binds them for real, so a
+	// new inbound must not claim one.
+	if _, taken := s.mtprotoReservedPorts(ignoreId)[port]; taken {
+		return true, nil
+	}
+	return false, nil
+}
+
+// clientsArray reads settings["clients"] defensively. Inbound settings are
+// free-form JSON from the database: written by older panel versions, imported
+// from other panels or hand-edited, so the key may be missing or hold another
+// shape. A bare type assertion here used to panic — a 500 from an HTTP handler,
+// and a dead panel when reached from a cron job.
+func clientsArray(settings map[string]any) []any {
+	clients, _ := settings["clients"].([]any)
+	return clients
 }
 
 func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, error) {
@@ -329,7 +349,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 
 	needRestart := false
 	if inbound.Enable {
-		s.xrayApi.Init(p.GetAPIPort())
+		s.xrayApi.Init(xrayAPIPort())
 		inboundJson, err1 := json.MarshalIndent(inbound.GenXrayInboundConfig(), "", "  ")
 		if err1 != nil {
 			logger.Debug("Unable to marshal inbound config:", err1)
@@ -447,6 +467,74 @@ func mtprotoSettingsXrayPort(parsed map[string]any) int {
 	return 0
 }
 
+// mtprotoReservedPorts collects every port the panel has already committed,
+// excluding the inbound being edited: listen ports of the other inbounds, the
+// loopback egress ports of the other routed mtproto inbounds, and the panel's
+// own web/subscription ports. The egress port is chosen by the panel and
+// validated by nothing else, so without this the allocator could hand out a
+// port something else already binds — xray would then fail to start the bridge.
+func (s *InboundService) mtprotoReservedPorts(excludeInboundId int) map[int]struct{} {
+	reserved := make(map[int]struct{})
+	db := database.GetDB()
+
+	// Listen ports of every other inbound.
+	var portRows []struct {
+		Id   int
+		Port int
+	}
+	if err := db.Model(model.Inbound{}).Select("id, port").Scan(&portRows).Error; err != nil {
+		logger.Warning("mtproto: could not read inbound ports for collision check:", err)
+	}
+	for _, r := range portRows {
+		if r.Id != excludeInboundId && r.Port > 0 {
+			reserved[r.Port] = struct{}{}
+		}
+	}
+
+	// Egress ports of the other routed mtproto inbounds (they live in settings
+	// JSON, so no query can filter on them directly).
+	var mtRows []struct {
+		Id       int
+		Settings string
+	}
+	if err := db.Model(model.Inbound{}).Select("id, settings").
+		Where("protocol = ?", model.MTProto).Scan(&mtRows).Error; err != nil {
+		logger.Warning("mtproto: could not read mtproto settings for collision check:", err)
+	}
+	for _, r := range mtRows {
+		if r.Id == excludeInboundId {
+			continue
+		}
+		if p := mtprotoParseXrayPort(r.Settings); p > 0 {
+			reserved[p] = struct{}{}
+		}
+	}
+
+	settingService := SettingService{}
+	if p, err := settingService.GetPort(); err == nil && p > 0 {
+		reserved[p] = struct{}{}
+	}
+	if p, err := settingService.GetSubPort(); err == nil && p > 0 {
+		reserved[p] = struct{}{}
+	}
+	return reserved
+}
+
+// allocateMtprotoXrayPort asks the OS for a free loopback port and retries
+// until it lands on one that is not already reserved by the panel.
+func (s *InboundService) allocateMtprotoXrayPort(reserved map[int]struct{}) (int, error) {
+	for range 20 {
+		port, err := mtproto.FreeLocalPort()
+		if err != nil {
+			return 0, err
+		}
+		if _, taken := reserved[port]; !taken {
+			return port, nil
+		}
+	}
+	return 0, common.NewError("mtproto: could not find a free Xray egress port")
+}
+
 func mtprotoParseXrayPort(settings string) int {
 	if settings == "" {
 		return 0
@@ -489,13 +577,24 @@ func (s *InboundService) normalizeMtprotoXrayPort(inbound *model.Inbound, oldSet
 	}
 
 	// Prefer the already-stored port (carried across edits), then any value the
-	// client sent, then allocate a fresh one.
+	// client sent, then allocate a fresh one. Whatever the source, the port has
+	// to survive a collision check against every other port the panel owns —
+	// including the case where the stored port was later taken by a new inbound.
+	reserved := s.mtprotoReservedPorts(inbound.Id)
 	port := mtprotoParseXrayPort(oldSettings)
 	if port <= 0 {
 		port = mtprotoSettingsXrayPort(parsed)
 	}
+	if port > 0 && port <= 65535 {
+		if _, taken := reserved[port]; taken {
+			logger.Warningf("mtproto: Xray egress port %d is already in use by another inbound or by the panel, allocating a new one", port)
+			port = 0
+		}
+	} else {
+		port = 0
+	}
 	if port <= 0 {
-		allocated, err := mtproto.FreeLocalPort()
+		allocated, err := s.allocateMtprotoXrayPort(reserved)
 		if err != nil {
 			return common.NewError("mtproto: could not allocate an Xray egress port:", err)
 		}
@@ -670,7 +769,7 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 	needRestart := false
 	result := db.Model(model.Inbound{}).Select("tag").Where("id = ? and enable = ?", id, true).First(&tag)
 	if result.Error == nil {
-		s.xrayApi.Init(p.GetAPIPort())
+		s.xrayApi.Init(xrayAPIPort())
 		err1 := s.xrayApi.DelInbound(tag)
 		if err1 == nil {
 			logger.Debug("Inbound deleted by api:", tag)
@@ -790,7 +889,7 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 	// means the live config and DB diverged, so we ask the caller to
 	// schedule a restart.
 	needRestart := false
-	s.xrayApi.Init(p.GetAPIPort())
+	s.xrayApi.Init(xrayAPIPort())
 	defer s.xrayApi.Close()
 
 	if err := s.xrayApi.DelInbound(inbound.Tag); err != nil &&
@@ -939,7 +1038,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	}
 
 	needRestart := false
-	s.xrayApi.Init(p.GetAPIPort())
+	s.xrayApi.Init(xrayAPIPort())
 	if s.xrayApi.DelInbound(tag) == nil {
 		logger.Debug("Old inbound deleted by api:", tag)
 	}
@@ -1102,7 +1201,7 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 		return false, err
 	}
 
-	interfaceClients := settings["clients"].([]any)
+	interfaceClients := clientsArray(settings)
 	// Add timestamps for new clients being appended
 	nowTs := time.Now().Unix() * 1000
 	for i := range interfaceClients {
@@ -1162,7 +1261,7 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 		return false, err
 	}
 
-	oldClients := oldSettings["clients"].([]any)
+	oldClients := clientsArray(oldSettings)
 	oldClients = append(oldClients, interfaceClients...)
 
 	oldSettings["clients"] = oldClients
@@ -1186,7 +1285,7 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 	}()
 
 	needRestart := false
-	s.xrayApi.Init(p.GetAPIPort())
+	s.xrayApi.Init(xrayAPIPort())
 	for _, client := range clients {
 		if len(client.Email) > 0 {
 			s.AddClientStat(tx, data.Id, &client)
@@ -1199,7 +1298,7 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 				}
 				cipher := ""
 				if oldInbound.Protocol == "shadowsocks" {
-					cipher = oldSettings["method"].(string)
+					cipher, _ = oldSettings["method"].(string)
 				}
 				err1 := s.xrayApi.AddUser(string(oldInbound.Protocol), oldInbound.Tag, map[string]any{
 					"email":    client.Email,
@@ -1449,13 +1548,18 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 		client_key = "auth"
 	}
 
-	interfaceClients := settings["clients"].([]any)
+	interfaceClients := clientsArray(settings)
 	var newClients []any
 	needApiDel := false
 	clientFound := false
 	for _, client := range interfaceClients {
-		c := client.(map[string]any)
-		c_id := c[client_key].(string)
+		c, ok := client.(map[string]any)
+		if !ok {
+			// Not an object: keep it untouched rather than dropping it.
+			newClients = append(newClients, client)
+			continue
+		}
+		c_id, _ := c[client_key].(string)
 		if c_id == clientId {
 			clientFound = true
 			email, _ = c["email"].(string)
@@ -1507,7 +1611,7 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 			if oldInbound.Protocol == "mixed" || oldInbound.Protocol == "http" {
 				needRestart = true
 			} else {
-				s.xrayApi.Init(p.GetAPIPort())
+				s.xrayApi.Init(xrayAPIPort())
 				err1 := s.xrayApi.RemoveUser(oldInbound.Tag, email)
 				if err1 == nil {
 					logger.Debug("Client deleted by api:", email)
@@ -1540,7 +1644,7 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 		return false, err
 	}
 
-	interfaceClients := settings["clients"].([]any)
+	interfaceClients := clientsArray(settings)
 
 	oldInbound, err := s.GetInbound(data.Id)
 	if err != nil {
@@ -1603,7 +1707,7 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 	if err != nil {
 		return false, err
 	}
-	settingsClients := oldSettings["clients"].([]any)
+	settingsClients := clientsArray(oldSettings)
 	// Preserve created_at and set updated_at for the replacing client
 	var preservedCreated any
 	if clientIndex >= 0 && clientIndex < len(settingsClients) {
@@ -1673,7 +1777,7 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 		if oldInbound.Protocol == "mixed" || oldInbound.Protocol == "http" {
 			needRestart = true
 		} else {
-			s.xrayApi.Init(p.GetAPIPort())
+			s.xrayApi.Init(xrayAPIPort())
 			if oldClients[clientIndex].Enable {
 				err1 := s.xrayApi.RemoveUser(oldInbound.Tag, oldEmail)
 				if err1 == nil {
@@ -1690,7 +1794,7 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 			if clients[0].Enable {
 				cipher := ""
 				if oldInbound.Protocol == "shadowsocks" {
-					cipher = oldSettings["method"].(string)
+					cipher, _ = oldSettings["method"].(string)
 				}
 				err1 := s.xrayApi.AddUser(string(oldInbound.Protocol), oldInbound.Tag, map[string]any{
 					"email":    clients[0].Email,
@@ -1738,25 +1842,30 @@ func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraff
 		return false, false, err
 	}
 
-	needRestart0, count, err := s.autoRenewClients(tx)
-	if err != nil {
-		logger.Warning("Error in renew clients:", err)
+	// The steps below are best-effort maintenance: their failures are logged
+	// but must not reach the deferred rollback check above. Assigning them to
+	// `err` (as this code used to) rolled back the traffic writes while still
+	// returning success — and since GetXrayTraffic reads counters with reset,
+	// that traffic was gone for good.
+	needRestart0, count, renewErr := s.autoRenewClients(tx)
+	if renewErr != nil {
+		logger.Warning("Error in renew clients:", renewErr)
 	} else if count > 0 {
 		logger.Debugf("%v clients renewed", count)
 	}
 
 	disabledClientsCount := int64(0)
-	needRestart1, count, err := s.disableInvalidClients(tx)
-	if err != nil {
-		logger.Warning("Error in disabling invalid clients:", err)
+	needRestart1, count, disableClientsErr := s.disableInvalidClients(tx)
+	if disableClientsErr != nil {
+		logger.Warning("Error in disabling invalid clients:", disableClientsErr)
 	} else if count > 0 {
 		logger.Debugf("%v clients disabled", count)
 		disabledClientsCount = count
 	}
 
-	needRestart2, count, err := s.disableInvalidInbounds(tx)
-	if err != nil {
-		logger.Warning("Error in disabling invalid inbounds:", err)
+	needRestart2, count, disableInboundsErr := s.disableInvalidInbounds(tx)
+	if disableInboundsErr != nil {
+		logger.Warning("Error in disabling invalid inbounds:", disableInboundsErr)
 	} else if count > 0 {
 		logger.Debugf("%v inbounds disabled", count)
 	}
@@ -1789,8 +1898,8 @@ func (s *InboundService) addInboundTraffic(tx *gorm.DB, traffics []*xray.Traffic
 func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic) (err error) {
 	if len(traffics) == 0 {
 		// Empty onlineUsers
-		if p != nil {
-			p.SetOnlineClients(make([]string, 0))
+		if proc := currentProcess(); proc != nil {
+			proc.SetOnlineClients(make([]string, 0))
 		}
 		return nil
 	}
@@ -1807,8 +1916,13 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 		return err
 	}
 
-	// Avoid empty slice error
+	// Nothing matched in client_traffics (renamed/removed clients, or a stale
+	// import): still publish the empty online list, otherwise the previous
+	// tick's users stay lit in the UI until a tick does match.
 	if len(dbClientTraffics) == 0 {
+		if proc := currentProcess(); proc != nil {
+			proc.SetOnlineClients(onlineClients)
+		}
 		return nil
 	}
 
@@ -1842,7 +1956,9 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 	}
 
 	// Set onlineUsers
-	p.SetOnlineClients(onlineClients)
+	if proc := currentProcess(); proc != nil {
+		proc.SetOnlineClients(onlineClients)
+	}
 
 	err = tx.Save(dbClientTraffics).Error
 	if err != nil {
@@ -1873,10 +1989,14 @@ func (s *InboundService) adjustTraffics(tx *gorm.DB, dbClientTraffics []*xray.Cl
 			if ok {
 				var newClients []any
 				for client_index := range clients {
-					c := clients[client_index].(map[string]any)
+					c, ok := clients[client_index].(map[string]any)
+					if !ok {
+						newClients = append(newClients, clients[client_index])
+						continue
+					}
 					for traffic_index := range dbClientTraffics {
 						if dbClientTraffics[traffic_index].ExpiryTime < 0 && c["email"] == dbClientTraffics[traffic_index].Email {
-							oldExpiryTime := c["expiryTime"].(float64)
+							oldExpiryTime, _ := c["expiryTime"].(float64)
 							newExpiryTime := (time.Now().Unix() * 1000) - int64(oldExpiryTime)
 							c["expiryTime"] = newExpiryTime
 							c["updated_at"] = time.Now().Unix() * 1000
@@ -1952,11 +2072,15 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB) (bool, int64, error) {
 	for inbound_index := range inbounds {
 		settings := map[string]any{}
 		json.Unmarshal([]byte(inbounds[inbound_index].Settings), &settings)
-		clients := settings["clients"].([]any)
+		clients := clientsArray(settings)
 		for client_index := range clients {
-			c := clients[client_index].(map[string]any)
+			c, ok := clients[client_index].(map[string]any)
+			if !ok {
+				continue
+			}
+			clientEmail, _ := c["email"].(string)
 			for traffic_index, traffic := range traffics {
-				if traffic.Email == c["email"].(string) {
+				if traffic.Email == clientEmail {
 					newExpiryTime := traffic.ExpiryTime
 					for newExpiryTime < now {
 						newExpiryTime += (int64(traffic.Reset) * 86400000)
@@ -1998,8 +2122,8 @@ func (s *InboundService) autoRenewClients(tx *gorm.DB) (bool, int64, error) {
 	if err != nil {
 		return false, 0, err
 	}
-	if p != nil {
-		err1 = s.xrayApi.Init(p.GetAPIPort())
+	if currentProcess() != nil {
+		err1 = s.xrayApi.Init(xrayAPIPort())
 		if err1 != nil {
 			return true, int64(len(traffics)), nil
 		}
@@ -2018,7 +2142,7 @@ func (s *InboundService) disableInvalidInbounds(tx *gorm.DB) (bool, int64, error
 	now := time.Now().Unix() * 1000
 	needRestart := false
 
-	if p != nil {
+	if currentProcess() != nil {
 		var tags []string
 		err := tx.Table("inbounds").
 			Select("inbounds.tag").
@@ -2027,7 +2151,7 @@ func (s *InboundService) disableInvalidInbounds(tx *gorm.DB) (bool, int64, error
 		if err != nil {
 			return false, 0, err
 		}
-		s.xrayApi.Init(p.GetAPIPort())
+		s.xrayApi.Init(xrayAPIPort())
 		for _, tag := range tags {
 			err1 := s.xrayApi.DelInbound(tag)
 			if err1 == nil {
@@ -2067,8 +2191,8 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB) (bool, int64, error)
 		return false, 0, err
 	}
 
-	if p != nil {
-		s.xrayApi.Init(p.GetAPIPort())
+	if currentProcess() != nil {
+		s.xrayApi.Init(xrayAPIPort())
 		for _, client := range clientsToDisable {
 			err1 := s.xrayApi.RemoveUser(client.Tag, client.Email)
 			if err1 == nil {
@@ -2168,25 +2292,35 @@ func (s *InboundService) GetInboundTags() (string, error) {
 		return "", err
 	}
 
+	// A routed MTProto inbound does have an identity inside the generated
+	// config: injectMtprotoEgress (xray.go) adds a loopback SOCKS inbound
+	// carrying the inbound's own tag. Offer that tag so its Telegram traffic can
+	// be steered by hand-written rules — the same reason the TPROXY tags below
+	// are offered. Unrouted mtproto inbounds stay hidden: nothing in the config
+	// answers to their tag.
+	var mtprotoInbounds []*model.Inbound
+	if err := db.Model(model.Inbound{}).
+		Where("protocol = ? AND enable = ?", string(model.MTProto), true).
+		Order("id").Find(&mtprotoInbounds).Error; err != nil {
+		logger.Warning("GetInboundTags: could not read mtproto inbounds:", err)
+	} else {
+		for _, in := range mtprotoInbounds {
+			if in.Tag != "" && mtprotoRoutesThroughXray(in) {
+				inboundTags = append(inboundTags, in.Tag)
+			}
+		}
+	}
+
 	// Append synthetic TPROXY-inbound tags for enabled tunnel servers that
 	// chose RouteViaXray: these are the tags the user actually targets when
 	// building Home → WG/AWG → Xray → upstream-VPN routes.
-	var awgs []model.AwgServer
-	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&awgs).Error; err == nil {
-		for _, a := range awgs {
-			tag := a.XrayInboundTag
+	var tunnels []model.TunnelServer
+	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).
+		Order("kind").Find(&tunnels).Error; err == nil {
+		for _, t := range tunnels {
+			tag := t.XrayInboundTag
 			if tag == "" {
-				tag = "awg-tproxy-in"
-			}
-			inboundTags = append(inboundTags, tag)
-		}
-	}
-	var wgs []model.WgServer
-	if err := db.Where("enable = ? AND route_via_xray = ?", true, true).Find(&wgs).Error; err == nil {
-		for _, w := range wgs {
-			tag := w.XrayInboundTag
-			if tag == "" {
-				tag = "wg-tproxy-in"
+				tag = t.Kind + "-tproxy-in"
 			}
 			inboundTags = append(inboundTags, tag)
 		}
@@ -2361,10 +2495,13 @@ func (s *InboundService) SetClientTelegramUserID(trafficId int, tgId int64) (boo
 	if err != nil {
 		return false, err
 	}
-	clients := settings["clients"].([]any)
+	clients := clientsArray(settings)
 	var newClients []any
 	for client_index := range clients {
-		c := clients[client_index].(map[string]any)
+		c, ok := clients[client_index].(map[string]any)
+		if !ok {
+			continue
+		}
 		if c["email"] == clientEmail {
 			c["tgId"] = tgId
 			c["updated_at"] = time.Now().Unix() * 1000
@@ -2448,10 +2585,13 @@ func (s *InboundService) ToggleClientEnableByEmail(clientEmail string) (bool, bo
 	if err != nil {
 		return false, false, err
 	}
-	clients := settings["clients"].([]any)
+	clients := clientsArray(settings)
 	var newClients []any
 	for client_index := range clients {
-		c := clients[client_index].(map[string]any)
+		c, ok := clients[client_index].(map[string]any)
+		if !ok {
+			continue
+		}
 		if c["email"] == clientEmail {
 			c["enable"] = !clientOldEnabled
 			c["updated_at"] = time.Now().Unix() * 1000
@@ -2528,10 +2668,13 @@ func (s *InboundService) ResetClientIpLimitByEmail(clientEmail string, count int
 	if err != nil {
 		return false, err
 	}
-	clients := settings["clients"].([]any)
+	clients := clientsArray(settings)
 	var newClients []any
 	for client_index := range clients {
-		c := clients[client_index].(map[string]any)
+		c, ok := clients[client_index].(map[string]any)
+		if !ok {
+			continue
+		}
 		if c["email"] == clientEmail {
 			c["limitIp"] = count
 			c["updated_at"] = time.Now().Unix() * 1000
@@ -2587,10 +2730,13 @@ func (s *InboundService) ResetClientExpiryTimeByEmail(clientEmail string, expiry
 	if err != nil {
 		return false, err
 	}
-	clients := settings["clients"].([]any)
+	clients := clientsArray(settings)
 	var newClients []any
 	for client_index := range clients {
-		c := clients[client_index].(map[string]any)
+		c, ok := clients[client_index].(map[string]any)
+		if !ok {
+			continue
+		}
 		if c["email"] == clientEmail {
 			c["expiryTime"] = expiry_time
 			c["updated_at"] = time.Now().Unix() * 1000
@@ -2649,10 +2795,13 @@ func (s *InboundService) ResetClientTrafficLimitByEmail(clientEmail string, tota
 	if err != nil {
 		return false, err
 	}
-	clients := settings["clients"].([]any)
+	clients := clientsArray(settings)
 	var newClients []any
 	for client_index := range clients {
-		c := clients[client_index].(map[string]any)
+		c, ok := clients[client_index].(map[string]any)
+		if !ok {
+			continue
+		}
 		if c["email"] == clientEmail {
 			c["totalGB"] = totalGB * 1024 * 1024 * 1024
 			c["updated_at"] = time.Now().Unix() * 1000
@@ -2704,7 +2853,7 @@ func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (bool, e
 		}
 		for _, client := range clients {
 			if client.Email == clientEmail && client.Enable {
-				s.xrayApi.Init(p.GetAPIPort())
+				s.xrayApi.Init(xrayAPIPort())
 				cipher := ""
 				if string(inbound.Protocol) == "shadowsocks" {
 					var oldSettings map[string]any
@@ -2712,7 +2861,7 @@ func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (bool, e
 					if err != nil {
 						return false, err
 					}
-					cipher = oldSettings["method"].(string)
+					cipher, _ = oldSettings["method"].(string)
 				}
 				err1 := s.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, map[string]any{
 					"email":    client.Email,
@@ -2891,13 +3040,18 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 			return err
 		}
 
-		oldClients := oldSettings["clients"].([]any)
+		oldClients := clientsArray(oldSettings)
 		var newClients []any
 		for _, client := range oldClients {
 			deplete := false
-			c := client.(map[string]any)
+			c, ok := client.(map[string]any)
+			if !ok {
+				newClients = append(newClients, client)
+				continue
+			}
+			clientEmail, _ := c["email"].(string)
 			for _, email := range emails {
-				if email == c["email"].(string) {
+				if email == clientEmail {
 					deplete = true
 					break
 				}
@@ -3390,7 +3544,11 @@ func (s *InboundService) MigrationRequirements() {
 			// Fix Client configuration problems
 			var newClients []any
 			for client_index := range clients {
-				c := clients[client_index].(map[string]any)
+				c, ok := clients[client_index].(map[string]any)
+				if !ok {
+					newClients = append(newClients, clients[client_index])
+					continue
+				}
 
 				// Add email='' if it is not exists
 				if _, ok := c["email"]; !ok {
@@ -3474,9 +3632,13 @@ func (s *InboundService) MigrationRequirements() {
 				if domains, ok := settings["domains"].([]any); ok {
 					for _, domain := range domains {
 						if domainMap, ok := domain.(map[string]any); ok {
+							dest, destOk := domainMap["domain"].(string)
+							if !destOk {
+								continue
+							}
 							domainMap["forceTls"] = "same"
 							domainMap["port"] = ep.Port
-							domainMap["dest"] = domainMap["domain"].(string)
+							domainMap["dest"] = dest
 							delete(domainMap, "domain")
 						}
 					}
@@ -3503,8 +3665,31 @@ func (s *InboundService) MigrateDB() {
 	s.MigrationRemoveOrphanedTraffics()
 }
 
+// onlineWindow is how long after a client's last seen activity it still counts
+// as "online". Shared by every protocol (xray here, plus AWG / WireGuard /
+// MTProto) so online status is reported uniformly — a sticky "seen recently"
+// window rather than xray's old per-traffic-tick "transferring right now".
+const onlineWindow = 1 * time.Minute
+
+// getXrayOnlineClients returns the emails of xray (vmess/vless/trojan/
+// shadowsocks) clients seen within onlineWindow, read from the persisted
+// last_online column. This replaces the in-memory per-tick list so xray
+// protocols behave like AWG/WG/MTProto (online stays lit between bursts).
+func (s *InboundService) getXrayOnlineClients() []string {
+	db := database.GetDB()
+	threshold := time.Now().Add(-onlineWindow).UnixMilli()
+	var emails []string
+	if err := db.Model(&xray.ClientTraffic{}).
+		Where("enable = ? AND last_online > ?", true, threshold).
+		Pluck("email", &emails).Error; err != nil {
+		logger.Warning("get xray online clients failed:", err)
+		return nil
+	}
+	return emails
+}
+
 func (s *InboundService) GetOnlineClients() []string {
-	online := p.GetOnlineClients()
+	online := s.getXrayOnlineClients()
 	// AWG / native WireGuard / MTProto clients track their own online state (by
 	// uuid) in dedicated tables. Merge them here so the realtime traffic
 	// broadcast and the /onlines endpoint report every protocol uniformly — the
@@ -3514,6 +3699,35 @@ func (s *InboundService) GetOnlineClients() []string {
 	online = append(online, (&WgService{}).GetOnlineClients()...)
 	online = append(online, (&MtprotoClientService{}).GetOnlineClients()...)
 	return online
+}
+
+// GetClientsLastOnlineFor returns last_online for the given emails only.
+// The realtime broadcast uses this instead of GetClientsLastOnline: only
+// clients with traffic in the current window can have a changed timestamp, and
+// the frontend merges the map into what it already has (see inbounds.html), so
+// a delta is enough. The full map stays available over REST (/lastOnline) for
+// the initial page load.
+func (s *InboundService) GetClientsLastOnlineFor(emails []string) (map[string]int64, error) {
+	uniqEmails := uniqueNonEmptyStrings(emails)
+	if len(uniqEmails) == 0 {
+		return map[string]int64{}, nil
+	}
+	db := database.GetDB()
+	result := make(map[string]int64, len(uniqEmails))
+	for _, batch := range chunkStrings(uniqEmails, sqliteMaxVars) {
+		var rows []xray.ClientTraffic
+		err := db.Model(&xray.ClientTraffic{}).
+			Select("email, last_online").
+			Where("email IN ?", batch).
+			Find(&rows).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return nil, err
+		}
+		for _, r := range rows {
+			result[r.Email] = r.LastOnline
+		}
+	}
+	return result, nil
 }
 
 func (s *InboundService) GetClientsLastOnline() (map[string]int64, error) {
@@ -3642,7 +3856,7 @@ func (s *InboundService) DelInboundClientByEmail(inboundId int, email string) (b
 		}
 
 		if needApiDel {
-			s.xrayApi.Init(p.GetAPIPort())
+			s.xrayApi.Init(xrayAPIPort())
 			if err1 := s.xrayApi.RemoveUser(oldInbound.Tag, email); err1 == nil {
 				logger.Debug("Client deleted by api:", email)
 				needRestart = false
