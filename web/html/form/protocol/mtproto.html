@@ -107,7 +107,7 @@
         <a-switch v-model="inbound.settings.proxyProtocolListener"></a-switch>
       </a-form-item>
 
-      <a-divider orientation="left" :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.doppelganger" }}</a-divider>
+      <a-divider :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.doppelganger" }}</a-divider>
       <a-form-item>
         <template slot="label">
           <a-tooltip>
@@ -138,7 +138,7 @@
         <a-switch v-model="inbound.settings.doppelganger.drs"></a-switch>
       </a-form-item>
 
-      <a-divider orientation="left" :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.network" }}</a-divider>
+      <a-divider :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.network" }}</a-divider>
       <a-form-item>
         <template slot="label">
           <a-tooltip>
@@ -200,7 +200,7 @@
         <a-input v-model.trim="inbound.settings.publicIpv6" placeholder='{{ i18n "pages.inbounds.mtproto.autoDetect" }}'></a-input>
       </a-form-item>
 
-      <a-divider orientation="left" :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.filters" }}</a-divider>
+      <a-divider :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.filters" }}</a-divider>
       <a-form-item>
         <template slot="label">
           <a-tooltip>
