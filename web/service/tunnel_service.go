@@ -128,6 +128,19 @@ func (s *TunnelService[K]) GetServer() (*model.TunnelServer, error) {
 		needSave = true
 	}
 
+	// A brand-new AmneziaWG server is born obfuscated. Until now a fresh
+	// install served the 1.x defaults — no junk packets at all — until somebody
+	// found the Generate button, which is the worst moment to discover it: the
+	// first clients are already connected and changing the set disconnects them.
+	//
+	// Only ever on creation. Upgrading a panel must not touch a live tunnel, and
+	// isInitialRecord is what separates the two: it is true exactly once, in the
+	// call that generates the server's keys.
+	if isInitialRecord && k.Obfuscation {
+		seedObfuscation(&server, tunnel.SupportsV3(k))
+		needSave = true
+	}
+
 	if needSave {
 		if err := db.Save(&server).Error; err != nil {
 			return nil, err
@@ -135,6 +148,40 @@ func (s *TunnelService[K]) GetServer() (*model.TunnelServer, error) {
 	}
 
 	return &server, nil
+}
+
+// seedObfuscation fills a new AmneziaWG record with a generated parameter set:
+// the 3.x one where the host's tools and kernel module can run it, the 2.0 one
+// otherwise. The 2.0 fallback matters on a host where amneziawg is older or was
+// installed after the panel — writing 3.0 keys there yields a config that
+// refuses to load, which is worse than weaker obfuscation.
+//
+// Clients must match the server, so both cases mean the same thing for whoever
+// connects: they import the config the panel hands them. That is free on a fresh
+// install, where there are no clients yet.
+func seedObfuscation(server *model.TunnelServer, supportsV3 bool) {
+	if !supportsV3 {
+		applyObfuscation20(server, tunnel.GenerateObfuscation20("default"))
+		return
+	}
+	o := tunnel.GenerateObfuscation30("default")
+	applyObfuscation20(server, o.Obfuscation20)
+	server.HeaderProtectionKey = o.HeaderProtectionKey
+	server.ContentPaddingAddition = o.ContentPaddingAddition
+	server.RekeyAfterTime = o.RekeyAfterTime
+	server.RekeyTimeout = o.RekeyTimeout
+	server.RejectAfterTime = o.RejectAfterTime
+	server.KeepaliveTimeout = o.KeepaliveTimeout
+	server.MaxHandshakeAttempts = o.MaxHandshakeAttempts
+	server.RandomTrailers = o.RandomTrailers
+	server.DisableCookies = o.DisableCookies
+}
+
+func applyObfuscation20(server *model.TunnelServer, o tunnel.Obfuscation20) {
+	server.Jc, server.Jmin, server.Jmax = o.Jc, o.Jmin, o.Jmax
+	server.S1, server.S2, server.S3, server.S4 = o.S1, o.S2, o.S3, o.S4
+	server.H1, server.H2, server.H3, server.H4 = o.H1, o.H2, o.H3, o.H4
+	server.I1, server.I2, server.I3, server.I4, server.I5 = o.I1, o.I2, o.I3, o.I4, o.I5
 }
 
 // SaveServer saves server settings and optionally applies them to the OS.
@@ -173,7 +220,17 @@ func (s *TunnelService[K]) SaveServer(server *model.TunnelServer) error {
 		if prev.Jc != server.Jc || prev.Jmin != server.Jmin || prev.Jmax != server.Jmax ||
 			prev.S1 != server.S1 || prev.S2 != server.S2 || prev.S3 != server.S3 || prev.S4 != server.S4 ||
 			prev.H1 != server.H1 || prev.H2 != server.H2 || prev.H3 != server.H3 || prev.H4 != server.H4 ||
-			prev.I1 != server.I1 {
+			prev.I1 != server.I1 || prev.I2 != server.I2 || prev.I3 != server.I3 ||
+			prev.I4 != server.I4 || prev.I5 != server.I5 ||
+			prev.HeaderProtectionKey != server.HeaderProtectionKey ||
+			prev.ContentPaddingAddition != server.ContentPaddingAddition ||
+			prev.RekeyAfterTime != server.RekeyAfterTime ||
+			prev.RekeyTimeout != server.RekeyTimeout ||
+			prev.RejectAfterTime != server.RejectAfterTime ||
+			prev.KeepaliveTimeout != server.KeepaliveTimeout ||
+			prev.MaxHandshakeAttempts != server.MaxHandshakeAttempts ||
+			prev.RandomTrailers != server.RandomTrailers ||
+			prev.DisableCookies != server.DisableCookies {
 			obfDirty = true
 		}
 	}
@@ -274,6 +331,19 @@ func (s *TunnelService[K]) ResetToDefaults() (*model.TunnelServer, error) {
 	server.H3 = "3"
 	server.H4 = "4"
 	server.I1 = ""
+	server.I2 = ""
+	server.I3 = ""
+	server.I4 = ""
+	server.I5 = ""
+	server.HeaderProtectionKey = ""
+	server.ContentPaddingAddition = ""
+	server.RekeyAfterTime = ""
+	server.RekeyTimeout = ""
+	server.RejectAfterTime = ""
+	server.KeepaliveTimeout = ""
+	server.MaxHandshakeAttempts = ""
+	server.RandomTrailers = false
+	server.DisableCookies = false
 	server.DnsIpv4 = "1.1.1.1"
 	server.DnsIpv6 = "2606:4700:4700::1111"
 	server.PostUp = ""
@@ -305,6 +375,19 @@ func (s *TunnelService[K]) ResetToDefaults() (*model.TunnelServer, error) {
 // clients must re-import their config to keep working).
 func (s *TunnelService[K]) GenerateObfuscation(preset string) tunnel.Obfuscation20 {
 	return tunnel.GenerateObfuscation20(preset)
+}
+
+// GenerateObfuscation30 returns the 2.0 set plus the AmneziaWG 3.0 parameters —
+// header protection and randomised timers — again WITHOUT persisting it. Only
+// offered when the host's tools and kernel module are new enough; see
+// SupportsV3.
+func (s *TunnelService[K]) GenerateObfuscation30(preset string) tunnel.Obfuscation30 {
+	return tunnel.GenerateObfuscation30(preset)
+}
+
+// SupportsV3 reports whether this host can run AmneziaWG 3.0 parameters.
+func (s *TunnelService[K]) SupportsV3() bool {
+	return tunnel.SupportsV3(s.kind())
 }
 
 // ToggleServer enables or disables the tunnel interface.
@@ -343,6 +426,10 @@ type TunnelStatus struct {
 	Running   bool   `json:"running"`
 	Installed bool   `json:"installed"`
 	Version   string `json:"version"`
+	// SupportsV3 gates the AmneziaWG 3.0 fields in the panel: writing them on a
+	// host whose tools or module predate 3.0 produces a config that refuses to
+	// load, and the operator would see only "Invalid argument".
+	SupportsV3 bool `json:"supportsV3"`
 }
 
 // GetServerStatus returns basic status info.
@@ -353,9 +440,10 @@ func (s *TunnelService[K]) GetServerStatus() *TunnelStatus {
 		running = tunnel.IsInterfaceUp(s.kind(), server.InterfaceName)
 	}
 	return &TunnelStatus{
-		Running:   running,
-		Installed: tunnel.IsInstalled(s.kind()),
-		Version:   tunnel.Version(s.kind()),
+		Running:    running,
+		Installed:  tunnel.IsInstalled(s.kind()),
+		Version:    tunnel.Version(s.kind()),
+		SupportsV3: tunnel.SupportsV3(s.kind()),
 	}
 }
 

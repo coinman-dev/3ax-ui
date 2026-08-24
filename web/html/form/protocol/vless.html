@@ -20,7 +20,7 @@
   </a-collapse-panel>
 </a-collapse>
 <template v-if=" !inbound.stream.isTLS || !inbound.stream.isReality">
-  <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+  <a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
     <a-form-item label="Authentication">
       <a-select v-model="inbound.settings.selectedAuth" @change="getNewVlessEnc"
         :dropdown-class-name="themeSwitcher.currentTheme">
@@ -48,14 +48,14 @@
   <a-divider :style="{ margin: '5px 0' }"></a-divider>
 </template>
 <template v-if="inbound.isTcp && !inbound.settings.selectedAuth">
-  <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+  <a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
     <a-form-item label="Fallbacks">
       <a-button icon="plus" type="primary" size="small" @click="inbound.settings.addFallback()"></a-button>
     </a-form-item>
   </a-form>
 
   <!-- vless fallbacks -->
-  <a-form v-for="(fallback, index) in inbound.settings.fallbacks" :colon="false" :label-col="{ md: {span:8} }"
+  <a-form v-for="(fallback, index) in inbound.settings.fallbacks" :colon="false" :label-col="{ md: {span:10} }"
     :wrapper-col="{ md: {span:14} }">
     <a-divider :style="{ margin: '0' }"> Fallback [[ index + 1 ]] <a-icon type="delete"
         @click="() => inbound.settings.delFallback(index)"
@@ -80,7 +80,7 @@
   <a-divider :style="{ margin: '5px 0' }"></a-divider>
 </template>
 <template v-if="inbound.canEnableVisionSeed()">
-  <a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+  <a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
     <a-form-item label="Vision Seed">
       <a-row :gutter="8">
         <a-col :span="6">

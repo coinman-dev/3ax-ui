@@ -39,11 +39,16 @@ func DetectDefaultInterface() string {
 	return "eth0"
 }
 
-// writeObfuscation writes the AmneziaWG obfuscation parameters, which must be
-// identical on both ends of a tunnel. S3/S4 and I1 are emitted only when set,
-// so a 1.x server (S3=S4=0, I1="") keeps classic output while a 2.0 server adds
-// the extra padding, header ranges and CPS packet. No-op for flavours without
-// obfuscation.
+// writeObfuscation writes the AmneziaWG obfuscation parameters. Everything a
+// generation adds on top of 1.x is emitted only when set, so a 1.x server
+// (S3=S4=0, no I values, no 3.0 fields) still produces classic output, a 2.0
+// server adds the extra padding, header ranges and signature packets, and a 3.0
+// server adds header protection and the randomised timers on top of that.
+//
+// The 2.0 set has to match on both ends of a tunnel and so does 3.0's
+// HeaderProtectionKey; the remaining 3.0 parameters are one-sided, but they are
+// written to both configs anyway so a client obfuscates the way the server
+// does. No-op for flavours without obfuscation.
 func writeObfuscation(b *strings.Builder, k Kind, server *Server) {
 	if !k.Obfuscation {
 		return
@@ -63,8 +68,39 @@ func writeObfuscation(b *strings.Builder, k Kind, server *Server) {
 	fmt.Fprintf(b, "H2 = %s\n", hOrDefault(server.H2, "2"))
 	fmt.Fprintf(b, "H3 = %s\n", hOrDefault(server.H3, "3"))
 	fmt.Fprintf(b, "H4 = %s\n", hOrDefault(server.H4, "4"))
-	if server.I1 != "" {
-		fmt.Fprintf(b, "I1 = %s\n", server.I1)
+	for i, v := range []string{server.I1, server.I2, server.I3, server.I4, server.I5} {
+		if v != "" {
+			fmt.Fprintf(b, "I%d = %s\n", i+1, v)
+		}
+	}
+	writeObfuscation30(b, server)
+}
+
+// writeObfuscation30 appends the AmneziaWG 3.0 parameters. Each one is skipped
+// when unset: the kernel then keeps its own default, which is what every server
+// configured before 3.0 existed relies on.
+func writeObfuscation30(b *strings.Builder, server *Server) {
+	if key := strings.TrimSpace(server.HeaderProtectionKey); key != "" {
+		fmt.Fprintf(b, "HeaderProtectionKey = %s\n", key)
+	}
+	for _, p := range []struct{ key, value string }{
+		{"ContentPaddingAddition", server.ContentPaddingAddition},
+		{"RekeyAfterTime", server.RekeyAfterTime},
+		{"RekeyTimeout", server.RekeyTimeout},
+		{"RejectAfterTime", server.RejectAfterTime},
+		{"KeepaliveTimeout", server.KeepaliveTimeout},
+		{"MaxHandshakeAttempts", server.MaxHandshakeAttempts},
+	} {
+		if v := strings.TrimSpace(p.value); v != "" {
+			fmt.Fprintf(b, "%s = %s\n", p.key, v)
+		}
+	}
+	// Both default to off in the kernel, so "off" is never worth writing.
+	if server.RandomTrailers {
+		b.WriteString("RandomTrailers = on\n")
+	}
+	if server.DisableCookies {
+		b.WriteString("DisableCookies = on\n")
 	}
 }
 

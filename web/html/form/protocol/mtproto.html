@@ -1,12 +1,14 @@
 {{define "form/mtproto"}}
-<a-form :colon="false" :label-col="{ md: {span:8} }" :wrapper-col="{ md: {span:14} }">
+<a-form :colon="false" :label-col="{ md: {span:10} }" :wrapper-col="{ md: {span:14} }">
   <a-form-item>
     <template slot="label">
       <a-tooltip>
         <template slot="title">
           <span>{{ i18n "pages.inbounds.mtproto.fakeTlsDomainRandom" }}</span>
         </template>
-        {{ i18n "pages.inbounds.mtproto.fakeTlsDomain" }} <a-icon @click="randomizeMtprotoDomain()" type="sync"></a-icon>
+        {{ i18n "pages.inbounds.mtproto.fakeTlsDomain" }}
+        <a-icon type="question-circle"></a-icon>
+        <a-icon @click="randomizeMtprotoDomain()" type="sync" style="cursor: pointer; margin-left: 8px"></a-icon>
       </a-tooltip>
     </template>
     <a-input
@@ -50,6 +52,193 @@
       @focus="loadMtprotoOutboundTags"
     ></a-auto-complete>
   </a-form-item>
+  <a-collapse>
+    <a-collapse-panel header='{{ i18n "pages.inbounds.mtproto.defense" }}'>
+      <a-alert type="info" show-icon :style="{ marginBottom: '12px' }">
+        <template slot="message">{{ i18n "pages.inbounds.mtproto.defenseHint" }}</template>
+      </a-alert>
+
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.fillRecommendedDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.recommended" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-button type="primary" @click="applyMtprotoRecommended()" :loading="mtprotoFilling">
+          {{ i18n "pages.inbounds.mtproto.fillRecommended" }}
+        </a-button>
+      </a-form-item>
+
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.frontingHostDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.frontingHost" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input v-model.trim="inbound.settings.domainFronting.host"
+          placeholder='{{ i18n "pages.inbounds.mtproto.frontingHostPlaceholder" }}'></a-input>
+      </a-form-item>
+      <a-form-item label="{{ i18n "pages.inbounds.mtproto.frontingPort" }}">
+        <a-input-number v-model="inbound.settings.domainFronting.port" :min="0" :max="65535"
+          placeholder="443"></a-input-number>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.frontingProxyProtocolDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.frontingProxyProtocol" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-switch v-model="inbound.settings.domainFronting.proxyProtocol"></a-switch>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.proxyProtocolListenerDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.proxyProtocolListener" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-switch v-model="inbound.settings.proxyProtocolListener"></a-switch>
+      </a-form-item>
+
+      <a-divider :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.doppelganger" }}</a-divider>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.doppelUrlsDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.doppelUrls" }}
+            <a-icon type="question-circle"></a-icon>
+            <a-icon @click="fillDoppelgangerPreset()" type="sync" style="cursor: pointer; margin-left: 8px"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-textarea v-model="mtprotoDoppelUrlsText" :auto-size="{ minRows: 2, maxRows: 6 }"
+          placeholder="https://cdn.example.com/app.js"></a-textarea>
+      </a-form-item>
+      <a-form-item label="{{ i18n "pages.inbounds.mtproto.doppelRepeats" }}">
+        <a-input-number v-model="inbound.settings.doppelganger.repeatsPerRaid" :min="0" :max="100"
+          placeholder="10"></a-input-number>
+      </a-form-item>
+      <a-form-item label="{{ i18n "pages.inbounds.mtproto.doppelRaidEach" }}">
+        <a-input v-model.trim="inbound.settings.doppelganger.raidEach" placeholder="6h"></a-input>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.doppelDrsDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.doppelDrs" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-switch v-model="inbound.settings.doppelganger.drs"></a-switch>
+      </a-form-item>
+
+      <a-divider :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.network" }}</a-divider>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.preferIpDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.preferIp" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-select v-model="inbound.settings.preferIp" :dropdown-class-name="themeSwitcher.currentTheme">
+          <a-select-option value="">{{ i18n "pages.inbounds.mtproto.mtgDefault" }}</a-select-option>
+          <a-select-option value="prefer-ipv6">prefer-ipv6</a-select-option>
+          <a-select-option value="prefer-ipv4">prefer-ipv4</a-select-option>
+          <a-select-option value="only-ipv6">only-ipv6</a-select-option>
+          <a-select-option value="only-ipv4">only-ipv4</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.dnsDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.dns" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input v-model.trim="inbound.settings.dns" placeholder="https://1.1.1.1"></a-input>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.timeSkewDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.timeSkew" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input v-model.trim="inbound.settings.tolerateTimeSkewness" placeholder="3s"></a-input>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.concurrencyDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.concurrency" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input-number v-model="inbound.settings.concurrency" :min="0"
+          placeholder="8192"></a-input-number>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.publicIpDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.publicIpv4" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-input v-model.trim="inbound.settings.publicIpv4" placeholder='{{ i18n "pages.inbounds.mtproto.autoDetect" }}'></a-input>
+      </a-form-item>
+      <a-form-item label="{{ i18n "pages.inbounds.mtproto.publicIpv6" }}">
+        <a-input v-model.trim="inbound.settings.publicIpv6" placeholder='{{ i18n "pages.inbounds.mtproto.autoDetect" }}'></a-input>
+      </a-form-item>
+
+      <a-divider :style="{ margin: '8px 0' }">{{ i18n "pages.inbounds.mtproto.filters" }}</a-divider>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.antiReplayDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.antiReplay" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-switch v-model="inbound.settings.antiReplay.enabled"></a-switch>
+      </a-form-item>
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.blocklistDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.blocklist" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-switch v-model="inbound.settings.blocklist.enabled"></a-switch>
+      </a-form-item>
+      <a-form-item v-if="inbound.settings.blocklist.enabled"
+        label="{{ i18n "pages.inbounds.mtproto.blocklistUrls" }}">
+        <a-textarea v-model="mtprotoBlocklistUrlsText" :auto-size="{ minRows: 1, maxRows: 4 }"
+          placeholder="https://iplists.firehol.org/files/firehol_level1.netset"></a-textarea>
+      </a-form-item>
+
+      <a-form-item>
+        <template slot="label">
+          <a-tooltip>
+            <template slot="title"><span>{{ i18n "pages.inbounds.mtproto.debugDesc" }}</span></template>
+            {{ i18n "pages.inbounds.mtproto.debug" }}
+            <a-icon type="question-circle"></a-icon>
+          </a-tooltip>
+        </template>
+        <a-switch v-model="inbound.settings.debug"></a-switch>
+      </a-form-item>
+    </a-collapse-panel>
+  </a-collapse>
 </a-form>
 <!-- First client on create; further clients are added via the client table on
      the inbounds list. The per-client FakeTLS secret is generated on save. -->

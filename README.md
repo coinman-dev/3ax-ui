@@ -13,7 +13,7 @@
 [![Downloads](https://img.shields.io/github/downloads/coinman-dev/3ax-ui/total.svg)](https://github.com/coinman-dev/3ax-ui/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
-**3AX-UI** is a fork of [3x-ui](https://github.com/MHSanaei/3x-ui) with built-in censorship-circumvention protocols the original lacks: **AmneziaWG** (including 2.0), **native WireGuard** with native IPv6, and **MTProto** (a Telegram proxy).
+**3AX-UI** is a fork of [3x-ui](https://github.com/MHSanaei/3x-ui) with built-in censorship-circumvention protocols the original lacks: **AmneziaWG** (through 3.1), **native WireGuard** with native IPv6, and **MTProto** (a Telegram proxy).
 
 > The **A** in the name stands for **Amnezia** — the protocol this fork started with and still its key difference from the original.
 
@@ -37,7 +37,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/instal
 
 The original 3x-ui is built around the **Xray** core and supports VLESS, VMess, Trojan, Shadowsocks, and WireGuard. But the most useful DPI-circumvention tools today are missing from the original:
 
-- **AmneziaWG** — a modified WireGuard with traffic obfuscation (including the 2.0 generation);
+- **AmneziaWG** — a modified WireGuard with traffic obfuscation (every generation through 3.1);
 - **native WireGuard** that hands clients a real public IPv6 address without NAT66;
 - **MTProto** — a FakeTLS proxy for Telegram.
 
@@ -47,7 +47,7 @@ The original 3x-ui is built around the **Xray** core and supports VLESS, VMess, 
 
 ## Key differences from 3x-ui
 
-### 1. Full AmneziaWG support (1.x and 2.0)
+### 1. Full AmneziaWG support (1.x, 2.0, 3.0 and 3.1)
 
 AmneziaWG is WireGuard with added packet obfuscation. Standard WireGuard is easily detected and blocked by DPI systems (Russia, Iran, China). AmneziaWG makes traffic indistinguishable from random noise.
 
@@ -66,6 +66,18 @@ AmneziaWG is WireGuard with added packet obfuscation. Standard WireGuard is easi
 - DNS is pushed to clients split by family (IPv4 / IPv6).
 
 A fresh install configures the server in 2.0 mode right away; empty S3/S4/I1 keep classic 1.x output — backward compatibility is preserved.
+
+**AmneziaWG 3.0 / 3.1.** The 3.0 generation answers the blocking wave of mid-2026, where masking individual packet traits stopped being enough: it encrypts the packet header and randomises the protocol timers, so a session keeps no stable profile to recognise. The panel supports the complete set:
+
+- **HeaderProtectionKey** — ChaCha20 encryption of the packet header. The one 3.0 parameter that must match on both ends, generated together with the rest;
+- **ContentPaddingAddition** — extra padding inside the encrypted part;
+- **RekeyAfterTime**, **RekeyTimeout**, **RejectAfterTime**, **KeepaliveTimeout**, **MaxHandshakeAttempts** — protocol timers, each taking a range (`100-130`) from which the kernel draws a fresh value per session;
+- **RandomTrailers** and **DisableCookies** — the two parameters 3.1 added;
+- **I2–I5** — the remaining 2.0 signature packets, alongside I1.
+
+The generation is picked from a dropdown next to the **Generate** button: 2.0 or 3.x. Choosing 3.x also produces the 2.0 set, because header protection needs S1–S4 wide enough to carry its nonce and the panel keeps the two halves consistent. The 3.x option is disabled, with the installed version shown next to it, when the server's `amneziawg-tools` or kernel module predate 3.0 — writing those keys there would produce a config that refuses to load. Every field is optional and an unset one is not written at all, so a 1.x or 2.0 server keeps producing exactly the config it produced before.
+
+> Clients must support 3.0 too: after switching, everyone re-imports their config, and an older AmneziaVPN app will not read it.
 
 ### 2. MTProto — Telegram proxy (FakeTLS)
 
@@ -102,7 +114,14 @@ The AWG settings page lets you configure packet obfuscation parameters:
 | `S1` / `S2` | Size of init/response headers |
 | `S3` / `S4` | (2.0) padding for cookie and transport packets |
 | `H1` – `H4` | Magic headers; in 2.0 they accept a range of values |
-| `I1` | (2.0) CPS signature packet before the handshake |
+| `I1` – `I5` | (2.0) signature packets sent before the handshake |
+| `HeaderProtectionKey` | (3.0) ChaCha20 encryption of the packet header — must match on both ends |
+| `ContentPaddingAddition` | (3.0) extra padding inside the encrypted part |
+| `RekeyAfterTime` / `RekeyTimeout` | (3.0) when a rekey starts, and the pause between handshake attempts |
+| `RejectAfterTime` / `KeepaliveTimeout` | (3.0) when a session expires, and the pause before a keepalive |
+| `MaxHandshakeAttempts` | (3.0) handshake attempts before giving up |
+| `RandomTrailers` | (3.1) random tail appended to packets |
+| `DisableCookies` | (3.1) turn off cookie replies |
 
 These parameters are automatically written into each client's config — no manual configuration needed.
 

@@ -56,6 +56,39 @@ type TunnelServer struct {
 	H3 string `json:"h3"`
 	H4 string `json:"h4"`
 	I1 string `json:"i1"`
+	// I2-I5 are the remaining 2.0 signature packets, sent before the handshake
+	// alongside I1. Empty entries are not written to the config at all.
+	I2 string `json:"i2"`
+	I3 string `json:"i3"`
+	I4 string `json:"i4"`
+	I5 string `json:"i5"`
+
+	// AmneziaWG 3.0. Every field is optional and an unset one is omitted from
+	// the generated config entirely, so the kernel keeps its own default and a
+	// server that never touches 3.0 produces byte-identical output to before.
+	//
+	// HeaderProtectionKey is a base64 32-byte ChaCha20 key that encrypts the
+	// packet header. It is the one 3.0 parameter that has to match on both ends
+	// — a client without it cannot connect — and the kernel refuses it unless
+	// S1-S4 each carry at least 12 bytes of padding (the nonce size).
+	HeaderProtectionKey string `json:"headerProtectionKey"`
+
+	// The remaining 3.0 parameters are one-sided: each end may set them
+	// independently. All take "N" or "N-M"; given a range the kernel picks a
+	// fresh value inside it per session, which is the point — a fixed timing
+	// profile is what makes a session recognisable.
+	ContentPaddingAddition string `json:"contentPaddingAddition"` // extra padding inside the encrypted part
+	RekeyAfterTime         string `json:"rekeyAfterTime"`         // seconds before a rekey starts (default 120)
+	RekeyTimeout           string `json:"rekeyTimeout"`           // seconds between handshake attempts (default 5)
+	RejectAfterTime        string `json:"rejectAfterTime"`        // seconds until a session expires (default 180)
+	KeepaliveTimeout       string `json:"keepaliveTimeout"`       // seconds before a keepalive (default 10)
+	MaxHandshakeAttempts   string `json:"maxHandshakeAttempts"`   // handshake attempts before giving up (default 18)
+
+	// RandomTrailers appends a random tail to packets; DisableCookies turns off
+	// the cookie reply mechanism. Both default to off in the kernel, so they are
+	// written only when switched on.
+	RandomTrailers bool `json:"randomTrailers"`
+	DisableCookies bool `json:"disableCookies"`
 
 	// DNS pushed to clients, split by family. Composed into one DNS line in the
 	// client config; the IPv6 entry is used only when IPv6 is enabled.

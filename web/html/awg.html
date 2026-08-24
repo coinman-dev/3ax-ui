@@ -347,15 +347,28 @@
                     <a-collapse-panel key="obfuscation"
                       header='{{ i18n "pages.awg.obfuscation" }}'>
                       <a-setting-list-item paddings="small">
-                        <template #title>AmneziaWG 2.0</template>
-                        <template #description>{{ i18n "pages.awg.awg2Hint" }}</template>
+                        <template #title>AmneziaWG 2.x / 3.x</template>
+                        <template #description>
+                          <span>{{ i18n "pages.awg.obfHint" }}</span>
+                          <span v-if="!awgStatus.supportsV3" style="color: var(--color-error, #e53e3e)">
+                            <br>{{ i18n "pages.awg.awg3Unsupported" }} [[ awgStatus.awgVersion ]]
+                          </span>
+                        </template>
                         <template #control>
-                          <div :style="{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }">
-                            <a-select v-model="obfPreset" :style="{ width: '170px' }">
-                              <a-select-option value="default">{{ i18n "pages.awg.presetDefault" }}</a-select-option>
-                              <a-select-option value="mobile">{{ i18n "pages.awg.presetMobile" }}</a-select-option>
-                            </a-select>
-                            <a-button type="primary" @click="generateObfuscation" :loading="generating">{{ i18n "pages.awg.generate2" }}</a-button>
+                          <div :style="{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }">
+                            <div :style="{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }">
+                              <a-select v-model="obfStd" :style="{ width: '150px' }"
+                                :dropdown-class-name="themeSwitcher.currentTheme">
+                                <a-select-option value="2">{{ i18n "pages.awg.std2" }}</a-select-option>
+                                <a-select-option value="3" :disabled="!awgStatus.supportsV3">{{ i18n "pages.awg.std3" }}</a-select-option>
+                              </a-select>
+                              <a-select v-model="obfPreset" :style="{ width: '170px' }"
+                                :dropdown-class-name="themeSwitcher.currentTheme">
+                                <a-select-option value="default">{{ i18n "pages.awg.presetDefault" }}</a-select-option>
+                                <a-select-option value="mobile">{{ i18n "pages.awg.presetMobile" }}</a-select-option>
+                              </a-select>
+                              <a-button type="primary" @click="generateObfuscation" :loading="generating">{{ i18n "pages.awg.generate" }}</a-button>
+                            </div>
                             <a-popconfirm @confirm="notifyClients"
                               ok-text="{{ i18n "confirm" }}" cancel-text="{{ i18n "cancel" }}">
                               <template slot="title">
@@ -470,6 +483,61 @@
                         <template #control>
                           <a-input v-model="awgServer.i1" placeholder="&lt;r 128&gt;"
                             :style="{ width: '100%' }"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <!-- One explanation for the four of them, carried by the
+                           last row so it reads as a note under the group rather
+                           than four copies of the same paragraph. -->
+                      <a-setting-list-item paddings="small" v-for="n in [2, 3, 4]" :key="'i' + n">
+                        <template #title>I[[ n ]]</template>
+                        <template #control>
+                          <a-input v-model="awgServer['i' + n]" placeholder="&lt;r 64&gt;"
+                            :style="{ width: '100%' }"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>I5</template>
+                        <template #description>{{ i18n "pages.awg.i2to5Desc" }}</template>
+                        <template #control>
+                          <a-input v-model="awgServer.i5" placeholder="&lt;r 64&gt;"
+                            :style="{ width: '100%' }"></a-input>
+                        </template>
+                      </a-setting-list-item>
+
+                      <a-setting-list-item paddings="small">
+                        <template #title>HeaderProtectionKey</template>
+                        <template #description>{{ i18n "pages.awg.headerProtectionKeyDesc" }}</template>
+                        <template #control>
+                          <a-input v-model.trim="awgServer.headerProtectionKey"
+                            :disabled="!awgStatus.supportsV3"
+                            placeholder='{{ i18n "pages.awg.off" }}'
+                            :style="{ width: '100%' }"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-for="p in awg3RangeFields" :key="p.field">
+                        <template #title>[[ p.label ]]</template>
+                        <template #description>[[ p.desc ]]</template>
+                        <template #control>
+                          <a-input v-model.trim="awgServer[p.field]"
+                            :disabled="!awgStatus.supportsV3"
+                            :placeholder="p.placeholder"
+                            :style="{ width: '100%' }"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>RandomTrailers</template>
+                        <template #description>{{ i18n "pages.awg.randomTrailersDesc" }}</template>
+                        <template #control>
+                          <a-switch v-model="awgServer.randomTrailers"
+                            :disabled="!awgStatus.supportsV3"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>DisableCookies</template>
+                        <template #description>{{ i18n "pages.awg.disableCookiesDesc" }}</template>
+                        <template #control>
+                          <a-switch v-model="awgServer.disableCookies"
+                            :disabled="!awgStatus.supportsV3"></a-switch>
                         </template>
                       </a-setting-list-item>
                     </a-collapse-panel>
@@ -812,6 +880,21 @@
 {{template "component/aSettingListItem" .}}
 
 <script>
+  // Every AmneziaWG 3.0 field on the server form, in config order. Kept in one
+  // place because three things iterate it: the generator's apply step, the
+  // "clear 3.0" button, and the rendered list of range inputs.
+  const AWG3_FIELDS = [
+    'headerProtectionKey',
+    'contentPaddingAddition',
+    'rekeyAfterTime',
+    'rekeyTimeout',
+    'rejectAfterTime',
+    'keepaliveTimeout',
+    'maxHandshakeAttempts',
+    'randomTrailers',
+    'disableCookies',
+  ];
+
   const app = new Vue({
     delimiters: ['[[', ']]'],
     el: '#app',
@@ -833,8 +916,11 @@
       awgActivePanel: ['network'],
       awgServer: new AwgServer(),
       awgNetworkInterfaces: [],
-      awgStatus: { running: false, awgInstalled: false, awgVersion: 'unknown' },
+      awgStatus: { running: false, awgInstalled: false, awgVersion: 'unknown', supportsV3: false },
       generating: false,
+      // Which generation "Generate" produces. Starts at 2 and switches itself to
+      // 3 when the loaded server already carries 3.0 parameters.
+      obfStd: '2',
       notifying: false,
       obfPreset: 'default',
 
@@ -853,6 +939,24 @@
       await this.loadAllData();
     },
     computed: {
+      // True while the form carries any 3.0 value, which is what decides whether
+      // "clear 3.0" has anything to do and which generation the selector opens on.
+      hasObfuscation3() {
+        const srv = this.awgServer;
+        return !!srv && AWG3_FIELDS.some(f => srv[f]);
+      },
+      // The 3.0 range parameters. Placeholders show the kernel's own default,
+      // which is what an empty field leaves in place.
+      awg3RangeFields() {
+        return [
+          { field: 'contentPaddingAddition', label: 'ContentPaddingAddition', placeholder: '0', desc: '{{ i18n "pages.awg.contentPaddingAdditionDesc" }}' },
+          { field: 'rekeyAfterTime', label: 'RekeyAfterTime', placeholder: '120', desc: '{{ i18n "pages.awg.rekeyAfterTimeDesc" }}' },
+          { field: 'rekeyTimeout', label: 'RekeyTimeout', placeholder: '5', desc: '{{ i18n "pages.awg.rekeyTimeoutDesc" }}' },
+          { field: 'rejectAfterTime', label: 'RejectAfterTime', placeholder: '180', desc: '{{ i18n "pages.awg.rejectAfterTimeDesc" }}' },
+          { field: 'keepaliveTimeout', label: 'KeepaliveTimeout', placeholder: '10', desc: '{{ i18n "pages.awg.keepaliveTimeoutDesc" }}' },
+          { field: 'maxHandshakeAttempts', label: 'MaxHandshakeAttempts', placeholder: '18', desc: '{{ i18n "pages.awg.maxHandshakeAttemptsDesc" }}' },
+        ];
+      },
       isAwgTab() {
         return this.activeTab === 'awg';
       },
@@ -935,7 +1039,10 @@
       },
       async loadTunnelServer(kind) {
         const msg = await HttpUtil.get(`panel/api/${kind}/server`);
-        if (msg.success) this[kind + 'Server'] = new (this.tunnelModel(kind))(msg.obj);
+        if (msg.success) {
+          this[kind + 'Server'] = new (this.tunnelModel(kind))(msg.obj);
+          if (kind === 'awg' && this.hasObfuscation3) this.obfStd = '3';
+        }
       },
       async loadTunnelStatus(kind) {
         const msg = await HttpUtil.get(`panel/api/${kind}/server/status`);
@@ -1038,28 +1145,47 @@
       },
 
       // ---- AWG methods ----
+      // Copy a generated parameter set into the form. The 2.0 keys are always
+      // present; the 3.0 ones only when the 3.0 generator produced them, so a
+      // "Generate 2.0" never silently wipes header protection.
+      applyObfuscation(o) {
+        ['jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4', 'h1', 'h2', 'h3', 'h4',
+         'i1', 'i2', 'i3', 'i4', 'i5']
+          .forEach(f => { this.awgServer[f] = o[f]; });
+        // A 2.0 set carries no 3.0 fields, and leaving the old ones in place
+        // would keep the server on 3.x while the form claims otherwise — so
+        // generating 2.0 clears them.
+        if (o.headerProtectionKey === undefined) {
+          this.clearObfuscation3();
+          return;
+        }
+        AWG3_FIELDS.forEach(f => {
+          if (o[f] !== undefined) this.awgServer[f] = o[f];
+        });
+      },
+      // One button for both generations. Asking for 3.0 regenerates the 2.0 half
+      // too: header protection needs S1-S4 wide enough to carry the nonce, so
+      // the two have to be produced together or the interface refuses to start.
       async generateObfuscation() {
         this.generating = true;
         try {
-          const msg = await HttpUtil.postJson('panel/api/awg/server/generate?preset=' + this.obfPreset, {});
-          if (msg.success && msg.obj) {
-            const o = msg.obj;
-            this.awgServer.jc = o.jc;
-            this.awgServer.jmin = o.jmin;
-            this.awgServer.jmax = o.jmax;
-            this.awgServer.s1 = o.s1;
-            this.awgServer.s2 = o.s2;
-            this.awgServer.s3 = o.s3;
-            this.awgServer.s4 = o.s4;
-            this.awgServer.h1 = o.h1;
-            this.awgServer.h2 = o.h2;
-            this.awgServer.h3 = o.h3;
-            this.awgServer.h4 = o.h4;
-            this.awgServer.i1 = o.i1;
-          }
+          const std = this.obfStd === '3' ? '&std=3' : '';
+          const msg = await HttpUtil.postJson(
+            'panel/api/awg/server/generate?preset=' + this.obfPreset + std, {});
+          if (msg.success && msg.obj) this.applyObfuscation(msg.obj);
         } finally {
           this.generating = false;
         }
+      },
+      // Back to a 2.0 server: every 3.0 key empty means none of them is written
+      // to the config, so the kernel keeps its defaults. Called when a 2.0 set
+      // is generated — there is no separate button, since the generation
+      // dropdown already says which one the server should run.
+      clearObfuscation3() {
+        AWG3_FIELDS.forEach(f => {
+          this.awgServer[f] = (f === 'randomTrailers' || f === 'disableCookies') ? false : '';
+        });
+        this.obfStd = '2';
       },
       async notifyClients() {
         this.notifying = true;

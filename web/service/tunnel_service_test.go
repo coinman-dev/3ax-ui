@@ -7,6 +7,7 @@ import (
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/tunnel"
 )
 
 // TestTunnelFlavoursStayIsolated is the regression test for the schema merge:
@@ -194,5 +195,81 @@ func TestFreshServersGetTheirOwnDefaults(t *testing.T) {
 	}
 	if awgServer.ListenPort == wgServer.ListenPort {
 		t.Errorf("both tunnels picked the same listen port %d", awgServer.ListenPort)
+	}
+}
+
+// TestFreshAwgServerIsBornObfuscated: a fresh install used to serve the 1.x
+// defaults — no junk packets at all — until someone found the Generate button,
+// by which time changing the set disconnects the clients already on it. The
+// record is now seeded at creation, and only at creation.
+func TestFreshAwgServerIsBornObfuscated(t *testing.T) {
+	if err := database.InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+
+	server, err := (&AwgService{}).GetServer()
+	if err != nil {
+		t.Fatalf("GetServer: %v", err)
+	}
+	if server.Jc == 0 || server.Jmin == 0 || server.Jmax == 0 {
+		t.Errorf("junk packets left off: Jc=%d Jmin=%d Jmax=%d", server.Jc, server.Jmin, server.Jmax)
+	}
+	if server.S1 == 0 || server.S2 == 0 {
+		t.Errorf("handshake padding left off: S1=%d S2=%d", server.S1, server.S2)
+	}
+	for i, h := range []string{server.H1, server.H2, server.H3, server.H4} {
+		if !strings.Contains(h, "-") {
+			t.Errorf("H%d = %q is not a 2.0 range", i+1, h)
+		}
+	}
+	for i, iv := range []string{server.I1, server.I2, server.I3, server.I4, server.I5} {
+		if iv == "" {
+			t.Errorf("I%d was not generated", i+1)
+		}
+	}
+	if err := tunnel.ValidateObfuscation(&model.TunnelServer{
+		Jc: server.Jc, Jmin: server.Jmin, Jmax: server.Jmax,
+		S1: server.S1, S2: server.S2, S3: server.S3, S4: server.S4,
+		H1: server.H1, H2: server.H2, H3: server.H3, H4: server.H4,
+		HeaderProtectionKey:    server.HeaderProtectionKey,
+		ContentPaddingAddition: server.ContentPaddingAddition,
+		RekeyAfterTime:         server.RekeyAfterTime,
+		RejectAfterTime:        server.RejectAfterTime,
+	}); err != nil {
+		t.Errorf("the seeded set does not validate: %v", err)
+	}
+
+	// Second call must not regenerate: the operator's own values would be
+	// overwritten on every page load.
+	again, err := (&AwgService{}).GetServer()
+	if err != nil {
+		t.Fatalf("GetServer again: %v", err)
+	}
+	if again.Jc != server.Jc || again.H1 != server.H1 || again.I2 != server.I2 {
+		t.Errorf("the set was regenerated on a later read")
+	}
+
+	// An existing record — the upgrade path — keeps whatever it had.
+	db := database.GetDB()
+	if err := db.Model(&model.TunnelServer{}).Where("id = ?", server.Id).
+		Updates(map[string]any{"jc": 0, "jmin": 0, "jmax": 0, "s1": 0, "s2": 0,
+			"h1": "1", "h2": "2", "h3": "3", "h4": "4", "i1": "", "i2": ""}).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := (&AwgService{}).GetServer()
+	if err != nil {
+		t.Fatalf("GetServer legacy: %v", err)
+	}
+	if legacy.Jc != 0 || legacy.H1 != "1" || legacy.I1 != "" {
+		t.Errorf("a 1.x server was rewritten on read: Jc=%d H1=%q I1=%q", legacy.Jc, legacy.H1, legacy.I1)
+	}
+
+	// Native WireGuard has no obfuscation to seed.
+	wg, err := (&WgService{}).GetServer()
+	if err != nil {
+		t.Fatalf("wg GetServer: %v", err)
+	}
+	if wg.Jc != 0 || wg.H1 != "" || wg.HeaderProtectionKey != "" {
+		t.Errorf("obfuscation leaked into a WireGuard server: %+v", wg)
 	}
 }

@@ -54,6 +54,16 @@ const (
 // client).
 type MtprotoStatus struct {
 	MultiUser bool `json:"multiUser"`
+	// Installed / Version describe the mtg sidecar binary; Running counts the
+	// live processes, so the dashboard can report MTProto the way it reports
+	// the tunnel flavours.
+	Installed bool   `json:"installed"`
+	Version   string `json:"version"`
+	Running   int    `json:"running"`
+	// Binary is the file the panel would run — mtg-multi where a build exists
+	// for this architecture, plain mtg otherwise. Two different programs with
+	// two different version schemes, so the dashboard names the one in use.
+	Binary string `json:"binary"`
 }
 
 // Status represents comprehensive system and application status information.
@@ -65,6 +75,9 @@ type AwgStatus struct {
 	Running      bool   `json:"running"`
 	AwgInstalled bool   `json:"awgInstalled"`
 	AwgVersion   string `json:"awgVersion"`
+	// SupportsV3 tells the panel whether this host's AmneziaWG can run the 3.0
+	// parameters; the fields are disabled when it cannot.
+	SupportsV3 bool `json:"supportsV3"`
 }
 
 type WgStatus struct {
@@ -485,6 +498,10 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 
 	// MTProto: many-users-per-port is available only when mtg-multi is installed.
 	status.Mtproto.MultiUser = mtproto.MultiUserSupported()
+	status.Mtproto.Version = mtproto.GetVersion()
+	status.Mtproto.Installed = status.Mtproto.Version != "unknown"
+	status.Mtproto.Running = mtproto.GetManager().RunningCount()
+	status.Mtproto.Binary = mtproto.GetBinaryName()
 
 	// Application stats
 	var rtm runtime.MemStats

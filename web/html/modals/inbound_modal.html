@@ -3,6 +3,7 @@
     id="inbound-modal"
     v-model="inModal.visible"
     :title="inModal.title"
+    :width="isMobile ? '100%' : 760"
     :dialog-style="{ top: '20px' }"
     @ok="inModal.ok"
     :confirm-loading="inModal.confirmLoading"
@@ -155,16 +156,40 @@
         },
     });
 
+    // mtgUrlList reaches one of the MTProto URL lists without assuming the modal
+    // currently holds an mtproto inbound — the computed properties below are
+    // defined on the shared instance, and a protocol switch must not throw.
+    function mtgUrlList(inbound, key, forWrite) {
+        const owner = inbound && inbound.settings ? inbound.settings[key] : null;
+        if (!owner) {
+            return forWrite ? null : [];
+        }
+        if (forWrite) {
+            return { owner };
+        }
+        return owner.urls || [];
+    }
+
+    // splitLines turns a textarea's contents into a list, dropping blank lines.
+    function splitLines(value) {
+        return String(value || "")
+            .split("\n")
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+    }
+
     // Store Vue instance globally to ensure methods are always accessible
     let inboundModalVueInstance = null;
 
     inboundModalVueInstance = new Vue({
         delimiters: ["[[", "]]"],
         el: "#inbound-modal",
+        mixins: [MediaQueryMixin],
         data: {
             inModal: inModal,
             delayedStart: false,
             mtprotoOutboundTags: [],
+            mtprotoFilling: false,
             get inbound() {
                 return inModal.inbound;
             },
@@ -253,7 +278,98 @@
                 deep: true,
             },
         },
+        computed: {
+            // The two URL lists are edited as text, one per line, and stored as
+            // arrays. Blank lines are normal while typing and are dropped on the
+            // way in, not while the operator is still editing.
+            mtprotoDoppelUrlsText: {
+                get() {
+                    return mtgUrlList(this.inbound, "doppelganger").join("\n");
+                },
+                set(value) {
+                    const list = mtgUrlList(this.inbound, "doppelganger", true);
+                    if (list) list.owner.urls = splitLines(value);
+                },
+            },
+            mtprotoBlocklistUrlsText: {
+                get() {
+                    return mtgUrlList(this.inbound, "blocklist").join("\n");
+                },
+                set(value) {
+                    const list = mtgUrlList(this.inbound, "blocklist", true);
+                    if (list) list.owner.urls = splitLines(value);
+                },
+            },
+        },
         methods: {
+            // Fill everything that has a defensible default, and leave alone
+            // what depends on how this server is deployed. The values are mtg's
+            // own documented ones; the addresses come from the panel, so mtg
+            // does not have to ask an external service for them at startup.
+            //
+            // Deliberately untouched: the fronting host and port (only needed
+            // when the cover domain's DNS is blocked or points back here — empty
+            // already sends probes to the real site), both PROXY protocol
+            // switches (only behind nginx or a load balancer), the IP preference
+            // (only when IPv6 is broken), dynamic TLS record sizing (only if the
+            // mimicked site does it) and the blocklist URLs (mtg ships a list).
+            async applyMtprotoRecommended() {
+                const s = this.inbound.settings;
+                this.mtprotoFilling = true;
+                try {
+                    this.fillDoppelgangerPreset();
+                    s.dns = "https://1.1.1.1";
+                    s.tolerateTimeSkewness = "5s";
+                    s.concurrency = 8192;
+                    s.antiReplay.enabled = true;
+                    s.blocklist.enabled = true;
+                    const msg = await HttpUtil.get("/panel/api/server/status");
+                    if (msg.success && msg.obj && msg.obj.publicIP) {
+                        MtprotoLinkHost.set(msg.obj);
+                        const ip = msg.obj.publicIP;
+                        if (ip.ipv4 && ip.ipv4 !== "N/A") s.publicIpv4 = ip.ipv4;
+                        if (ip.ipv6 && ip.ipv6 !== "N/A") s.publicIpv6 = ip.ipv6;
+                    }
+                    this.$message.success('{{ i18n "pages.inbounds.mtproto.fillRecommendedDone" }}');
+                } finally {
+                    this.mtprotoFilling = false;
+                }
+            },
+            // Seed the doppelganger with the site this proxy already claims to
+            // be — mtg mimics the timing of what it crawls, so the cover domain
+            // is the one target guaranteed to match the SNI clients present —
+            // plus a couple of other large sites, because a single page gives a
+            // thin sample. Every press picks different companions, so pressing
+            // it twice visibly does something instead of rewriting the same
+            // line, and two servers do not end up with identical statistics.
+            fillDoppelgangerPreset() {
+                const dg = this.inbound.settings.doppelganger;
+                let domain = (this.inbound.settings.fakeTlsDomain || "").trim();
+                if (!domain && typeof getRandomRealityTarget !== "undefined") {
+                    // No cover domain yet: take one from the same curated list
+                    // the FakeTLS field uses, so the button still does its job.
+                    domain = getRandomRealityTarget().sni;
+                    this.inbound.settings.fakeTlsDomain = domain;
+                }
+                const urls = domain ? ["https://" + domain + "/"] : [];
+                if (typeof REALITY_TARGETS !== "undefined") {
+                    const others = REALITY_TARGETS
+                        .map(t => t.sni)
+                        .filter(sni => sni !== domain)
+                        .sort(() => Math.random() - 0.5)
+                        .slice(0, 2)
+                        .map(sni => "https://" + sni + "/");
+                    urls.push(...others);
+                }
+                dg.urls = urls;
+                if (!dg.repeatsPerRaid) {
+                    dg.repeatsPerRaid = 10;
+                }
+                if (!dg.raidEach) {
+                    dg.raidEach = "6h";
+                }
+                this.$message.success('{{ i18n "pages.inbounds.mtproto.doppelUrlsFilled" }}');
+            },
             streamNetworkChange() {
                 if (!inModal.inbound.canEnableTls()) {
                     this.inModal.inbound.stream.security = "none";

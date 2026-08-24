@@ -15,7 +15,14 @@
     overflow: hidden;
   }
   .index-page .protocol-switcher-item {
-    flex: 1 1 0;
+    flex: 0 0 33.3333%;
+    max-width: 33.3333%;
+    /* A flex item will not shrink below its content width without this, and one
+       long state label is enough to push the divider off the one above. */
+    min-width: 0;
+    /* Clip rather than spill across the divider if a translated state label
+       ever outgrows its third. */
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -29,6 +36,40 @@
   }
   .index-page .protocol-switcher-item.active {
     background: rgba(0, 135, 113, 0.08);
+  }
+  /* The 3AX-UI card mirrors the protocol card: the panel takes two thirds and
+     MTProto the last one, split by the same hairline, in both rows. */
+  .index-page .protocol-switcher-item.is-wide,
+  .index-page .panel-split-item.is-wide {
+    flex: 0 0 66.6667%;
+    max-width: 66.6667%;
+  }
+  .index-page .panel-split {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid rgba(0, 0, 0, 0.09);
+  }
+  .index-page .panel-split-item {
+    flex: 0 0 33.3333%;
+    max-width: 33.3333%;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 14px 20px;
+    min-width: 0;
+  }
+  .index-page .panel-split-item + .panel-split-item {
+    border-left: 1px solid rgba(0, 0, 0, 0.09);
+  }
+  .index-page .panel-split-item.is-centered {
+    justify-content: center;
+  }
+  .index-page.dark .panel-split {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+  .index-page.dark .panel-split-item + .panel-split-item {
+    border-left-color: rgba(255, 255, 255, 0.1);
   }
   .index-page .protocol-switcher-item.active:first-child {
     border-top-left-radius: var(--protocol-card-radius);
@@ -105,6 +146,24 @@
   @media (max-width: 768px) {
     .index-page .protocol-switcher {
       flex-direction: column;
+    }
+    /* Stacked: the fixed thirds would become fixed heights. */
+    .index-page .protocol-switcher-item,
+    .index-page .protocol-switcher-item.is-wide,
+    .index-page .panel-split-item,
+    .index-page .panel-split-item.is-wide {
+      flex: 1 1 auto;
+      max-width: none;
+    }
+    .index-page .panel-split {
+      flex-direction: column;
+    }
+    .index-page .panel-split-item + .panel-split-item {
+      border-left: 0;
+      border-top: 1px solid rgba(0, 0, 0, 0.09);
+    }
+    .index-page.dark .panel-split-item + .panel-split-item {
+      border-top-color: rgba(255, 255, 255, 0.1);
     }
     .index-page .protocol-switcher-item + .protocol-switcher-item {
       border-left: 0;
@@ -259,29 +318,62 @@
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
-                <a-card title='3AX-UI' hoverable>
-                  <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/releases" target="_blank">
-                    <a-tag color="green">
-                      <span>v{{ .cur_ver }}</span>
-                    </a-tag>
-                  </a>
-                  <a v-if="panelUpdate.updateAvailable" rel="noopener"
-                    href="https://github.com/coinman-dev/3ax-ui/releases/latest" target="_blank">
-                    <a-tag color="orange">
-                      <a-icon type="arrow-up"></a-icon>
-                      <span>{{ i18n "pages.index.panelUpdateAvailable" }} [[ panelUpdate.latestVersion ]]</span>
-                    </a-tag>
-                  </a>
-                  <a rel="noopener" href="https://t.me/XrayUI" target="_blank">
-                    <a-tag color="green">
-                      <span>@XrayUI</span>
-                    </a-tag>
-                  </a>
-                  <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/wiki" target="_blank">
-                    <a-tag color="purple">
-                      <span>{{ i18n "pages.index.documentation" }}</span>
-                    </a-tag>
-                  </a>
+                <a-card hoverable class="protocol-card">
+                  <!-- Same two rows as the protocol card above, split two
+                       thirds / one third: MTProto has no place in that
+                       switcher because it runs as an mtg sidecar rather than a
+                       service the panel starts, so it lives here instead. -->
+                  <div class="protocol-switcher">
+                    <div class="protocol-switcher-item is-wide" :style="{ cursor: 'default' }">
+                      <span class="protocol-switcher-name">3AX-UI</span>
+                    </div>
+                    <div class="protocol-switcher-item" :style="{ cursor: 'default' }">
+                      <span class="protocol-switcher-name">MTProto</span>
+                      <span class="protocol-switcher-state" :class="mtprotoCard.stateClass">
+                        <a-badge :status="mtprotoCard.badgeStatus"
+                          :text="mtprotoCard.stateText"
+                          :color="mtprotoCard.badgeColor"
+                          :class="mtprotoCard.animationClass" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="panel-split">
+                    <div class="panel-split-item is-wide">
+                      <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/releases" target="_blank">
+                        <a-tag color="green">
+                          <span>v{{ .cur_ver }}</span>
+                        </a-tag>
+                      </a>
+                      <a v-if="panelUpdate.updateAvailable" rel="noopener"
+                        href="https://github.com/coinman-dev/3ax-ui/releases/latest" target="_blank">
+                        <a-tag color="orange">
+                          <a-icon type="arrow-up"></a-icon>
+                          <span>{{ i18n "pages.index.panelUpdateAvailable" }} [[ panelUpdate.latestVersion ]]</span>
+                        </a-tag>
+                      </a>
+                      <a rel="noopener" href="https://t.me/XrayUI" target="_blank">
+                        <a-tag color="green">
+                          <span>@XrayUI</span>
+                        </a-tag>
+                      </a>
+                      <a rel="noopener" href="https://github.com/coinman-dev/3ax-ui/wiki" target="_blank">
+                        <a-tag color="purple">
+                          <span>{{ i18n "pages.index.documentation" }}</span>
+                        </a-tag>
+                      </a>
+                    </div>
+                    <div class="panel-split-item is-centered">
+                      <!-- Which sidecar is installed matters: mtg-multi serves
+                           many clients on one port, plain mtg only one. -->
+                      <a-tooltip :title="mtprotoCard.binaryTitle">
+                        <a-icon type="info-circle"></a-icon>
+                      </a-tooltip>
+                      <span class="protocol-version-text">[[ mtprotoCard.versionText ]]</span>
+                      <a-tag :color="mtprotoCard.multiUser ? 'green' : 'blue'">
+                        [[ mtprotoCard.binaryLabel ]]
+                      </a-tag>
+                    </div>
+                  </div>
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
@@ -880,6 +972,7 @@
       this.xray = { state: 'stop', stateMsg: "", errorMsg: "", version: "", color: "" };
       this.awg = { running: false, awgInstalled: false, awgVersion: "unknown" };
       this.wg = { running: false, wgInstalled: false, wgVersion: "unknown" };
+      this.mtproto = { multiUser: false, installed: false, version: "unknown", running: 0, binary: "" };
 
       if (data == null) {
         return;
@@ -904,6 +997,7 @@
       this.xray = data.xray;
       this.awg = data.awg || this.awg;
       this.wg = data.wg || this.wg;
+      this.mtproto = data.mtproto || this.mtproto;
       switch (this.xray.state) {
         case 'running':
           this.xray.color = "green";
@@ -1234,6 +1328,47 @@
             ...wgState,
           },
         ];
+      },
+      // MTProto's state for the 3AX-UI card, built the same way as the three
+      // protocols in the switcher: not installed, running (at least one mtg
+      // sidecar alive) or stopped.
+      mtprotoCard() {
+        const mt = this.status.mtproto || {};
+        const state = !mt.installed
+          ? {
+              stateClass: 'is-missing',
+              stateText: '{{ i18n "pages.index.protocolStatusNotInstalled" }}',
+              badgeStatus: 'default',
+              badgeColor: 'gray',
+              animationClass: '',
+            }
+          : mt.running > 0
+            ? {
+                stateClass: 'is-running',
+                stateText: '{{ i18n "pages.index.protocolStatusRunning" }}',
+                badgeStatus: 'processing',
+                badgeColor: 'green',
+                animationClass: 'xray-running-animation',
+              }
+            : {
+                stateClass: 'is-stopped',
+                stateText: '{{ i18n "pages.index.protocolStatusStopped" }}',
+                badgeStatus: 'processing',
+                badgeColor: 'orange',
+                animationClass: 'xray-stop-animation',
+              };
+        return {
+          versionText: getCompactProtocolVersion(mt.version),
+          multiUser: !!mt.multiUser,
+          // mtg-multi serves many clients on one port; plain mtg serves one.
+          binaryLabel: mt.multiUser ? 'mtg-multi' : 'mtg',
+          binaryTitle: mt.binary
+            ? mt.binary + ' — ' + (mt.multiUser
+                ? '{{ i18n "pages.index.mtprotoMultiUser" }}'
+                : '{{ i18n "pages.index.mtprotoSingleUser" }}')
+            : '{{ i18n "pages.index.protocolStatusNotInstalled" }}',
+          ...state,
+        };
       },
       activeProtocolCard() {
         return this.protocolCards.find(item => item.key === this.activeProtocol) || this.protocolCards[0];
