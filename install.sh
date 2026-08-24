@@ -2439,10 +2439,13 @@ check_existing_install() {
                 ;;
             *)
                 echo -e "${green}Switching to the update script...${plain}"
+                # Hand the arguments over. Without this --beta is dropped here
+                # and the update quietly installs the latest stable release
+                # instead of the pre-release that was asked for.
                 if is_local_source_install && [[ -f ./update.sh ]]; then
-                    bash ./update.sh
+                    bash ./update.sh "$@"
                 else
-                    bash <(curl -Ls "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH:-main}/update.sh")
+                    bash <(curl -Ls "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH:-main}/update.sh") "$@"
                 fi
                 exit $?
                 ;;
@@ -2451,7 +2454,7 @@ check_existing_install() {
 }
 
 echo -e "${green}Running...${plain}"
-check_existing_install
+check_existing_install "$@"
 prompt_debug_mode
 install_base
 install_amneziawg
