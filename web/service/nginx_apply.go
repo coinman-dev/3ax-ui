@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
 	"github.com/coinman-dev/3ax-ui/v2/nginx"
+	"github.com/coinman-dev/3ax-ui/v2/shared/portfwd"
 )
 
 // inboundSnapshot is what an inbound looked like before the front-end took it
@@ -493,7 +495,8 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 		if !nginx.FirewallAvailable() {
 			plan.Blockers = append(plan.Blockers, warn("noFirewall"))
 		}
-		_, cut := s.firewallPlan(in)
+		fw, cut := s.firewallPlan(in)
+		plan.Changes = append(plan.Changes, NginxChange{Kind: "kept", From: keptPorts(fw)})
 		plan.Changes = append(plan.Changes, cut...)
 	}
 	if _, err := s.buildConfig(in); err != nil {
@@ -535,24 +538,39 @@ func (s *NginxService) subAddressChange(in NginxSettings) (from string, to strin
 // switch itself: mode 3 without it moves the panel behind 443 and leaves every
 // port open.
 //
-// UDP is left alone. Consolidating TCP behind one port gains nothing by cutting
-// off a tunnel that never spoke TCP, so every inbound that stays put keeps its
-// UDP port — including the transports that ride on QUIC or KCP, which is why
-// the port is allowed for all of them and not only for the WireGuard family.
+// A UDP tunnel keeps its port. Consolidating TCP behind one port gains nothing
+// by cutting off something that never spoke TCP, and WireGuard and Hysteria
+// cannot hide behind an SNI multiplexer in any case. Anything else loses its
+// port outright — leaving the UDP half of a TCP inbound open would be a port a
+// scanner can find, in exchange for an inbound that is broken anyway.
 func (s *NginxService) firewallPlan(set NginxSettings) (nginx.Firewall, []NginxChange) {
-	fw := nginx.Firewall{TCP: []int{PublicPort}}
+	fw := nginx.Firewall{
+		TCP:    nginx.Ports(PublicPort),
+		Ifaces: tunnelInterfaces(),
+	}
 
 	// Whatever is not published behind the public port has to stay reachable
 	// where it is, or applying the mode is the last thing this panel ever does.
 	if !set.PanelBehind443 {
 		if port, err := s.settingService.GetPort(); err == nil {
-			fw.TCP = append(fw.TCP, port)
+			fw.TCP = append(fw.TCP, nginx.Port(port))
 		}
 	}
 	if on, _ := s.settingService.GetSubEnable(); on && !set.SubsBehind443 {
 		if port, err := s.settingService.GetSubPort(); err == nil {
-			fw.TCP = append(fw.TCP, port)
+			fw.TCP = append(fw.TCP, nginx.Port(port))
 		}
+	}
+
+	// Whatever else this particular server needs to answer for. The panel
+	// cannot know about a mail relay, a monitoring agent or a resolver serving
+	// something other than the tunnels, so the operator says so here. Both
+	// protocols, because "53" almost always means both and a UDP port with
+	// nothing behind it costs nothing.
+	for _, spec := range portfwd.Parse(set.FirewallExtra) {
+		port := nginx.PortRange{From: spec.Start, To: spec.End}
+		fw.TCP = append(fw.TCP, port)
+		fw.UDP = append(fw.UDP, port)
 	}
 
 	routes, _ := s.collectRoutes(set)
@@ -571,8 +589,8 @@ func (s *NginxService) firewallPlan(set NginxSettings) (nginx.Firewall, []NginxC
 		if !ib.Enable || behind[ib.Id] {
 			continue
 		}
-		fw.UDP = append(fw.UDP, ib.Port)
 		if udpOnly(ib.Protocol) {
+			fw.UDP = append(fw.UDP, nginx.Port(ib.Port))
 			continue
 		}
 		cut = append(cut, NginxChange{
@@ -580,6 +598,52 @@ func (s *NginxService) firewallPlan(set NginxSettings) (nginx.Firewall, []NginxC
 		})
 	}
 	return fw, cut
+}
+
+// keptPorts is the list the operator most wants to read before they confirm:
+// what will still answer afterwards. SSH is in it even though firewallPlan does
+// not put it there — ApplyFirewall adds it on its own, and leaving it out of the
+// list would make the plan look like it takes away the way back in.
+//
+// Written as "443/tcp", which is notation rather than English and so needs no
+// translating.
+func keptPorts(fw nginx.Firewall) string {
+	var parts []string
+	for _, port := range append(nginx.Ports(nginx.SSHPorts()...), fw.TCP...) {
+		parts = append(parts, portLabel(port, "tcp"))
+	}
+	for _, port := range fw.UDP {
+		parts = append(parts, portLabel(port, "udp"))
+	}
+	slices.Sort(parts)
+	return strings.Join(slices.Compact(parts), ", ")
+}
+
+func portLabel(p nginx.PortRange, proto string) string {
+	if p.From == p.To {
+		return fmt.Sprintf("%d/%s", p.From, proto)
+	}
+	return fmt.Sprintf("%d-%d/%s", p.From, p.To, proto)
+}
+
+// tunnelInterfaces names the WireGuard-family interfaces this panel runs.
+//
+// Traffic arriving on one of them is not judged by the firewall at all: the
+// person on the other end authenticated to get there, and the resolver they
+// were handed is this very machine. A chain that drops it closes the VPN from
+// the inside while the outside looks exactly as intended — the kind of fault
+// that gets blamed on anything but a firewall.
+func tunnelInterfaces() []string {
+	var out []string
+	var awg AwgService
+	if server, err := awg.GetServer(); err == nil && server.Enable && server.InterfaceName != "" {
+		out = append(out, server.InterfaceName)
+	}
+	var wg WgService
+	if server, err := wg.GetServer(); err == nil && server.Enable && server.InterfaceName != "" {
+		out = append(out, server.InterfaceName)
+	}
+	return out
 }
 
 // udpOnly is true for the protocols that never listen on TCP at all, so closing

@@ -55,7 +55,10 @@ type NginxSettings struct {
 	SubsBehind443  bool   `json:"subsBehind443"`
 	PanelBehind443 bool   `json:"panelBehind443"`
 	ManageFirewall bool   `json:"manageFirewall"`
-	RealityPort    int    `json:"realityPort"`
+	// FirewallExtra is the operator's own list of ports to keep open, in the
+	// same free-form syntax the port-forwarding field uses ("53, 8000-8100").
+	FirewallExtra string `json:"firewallExtra"`
+	RealityPort   int    `json:"realityPort"`
 	// HTTPPort is the loopback port nginx terminates TLS for our own domain on.
 	// Zero means the panel has not picked one yet.
 	HTTPPort int `json:"httpPort"`
@@ -187,6 +190,7 @@ func (s *NginxService) GetSettings() NginxSettings {
 		SubsBehind443:  get("nginxSubsBehind443") == "true",
 		PanelBehind443: get("nginxPanelBehind443") == "true",
 		ManageFirewall: get("nginxManageFirewall") == "true",
+		FirewallExtra:  get("nginxFirewallExtra"),
 		RealityPort:    realityPort,
 		HTTPPort:       httpPort,
 	}
@@ -210,6 +214,7 @@ func (s *NginxService) SaveSettings(in NginxSettings) error {
 		"nginxSubsBehind443":  strconv.FormatBool(in.SubsBehind443),
 		"nginxPanelBehind443": strconv.FormatBool(in.PanelBehind443),
 		"nginxManageFirewall": strconv.FormatBool(in.ManageFirewall),
+		"nginxFirewallExtra":  strings.TrimSpace(in.FirewallExtra),
 		"nginxRealityPort":    strconv.Itoa(in.RealityPort),
 	}
 	if in.HTTPPort > 0 {

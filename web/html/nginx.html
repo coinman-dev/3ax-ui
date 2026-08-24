@@ -155,6 +155,14 @@
                           :disabled="settings.mode !== 'only443'"></a-switch>
                       </template>
                     </a-setting-list-item>
+                    <a-setting-list-item paddings="small" v-if="settings.manageFirewall">
+                      <template #title>{{ i18n "pages.nginx.firewallExtra" }}</template>
+                      <template #description>{{ i18n "pages.nginx.firewallExtraDesc" }}</template>
+                      <template #control>
+                        <a-input type="text" v-model="settings.firewallExtra"
+                          placeholder="53, 8080, 9000-9100"></a-input>
+                      </template>
+                    </a-setting-list-item>
                   </a-collapse-panel>
 
                   <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}'>
@@ -330,6 +338,7 @@
         subsBehind443: false,
         panelBehind443: false,
         manageFirewall: false,
+        firewallExtra: '',
       },
       status: {
         installed: false,
@@ -611,6 +620,7 @@
           case 'links': return 'link';
           case 'subs': return 'profile';
           case 'closed': return 'stop';
+          case 'kept': return 'safety';
           case 'dual': return 'fork';
           case 'move': return 'swap';
           default: return 'global';
@@ -626,6 +636,7 @@
           dual: '{{ i18n "pages.nginx.planDual" }}',
           subs: '{{ i18n "pages.nginx.planSubs" }}',
           closed: '{{ i18n "pages.nginx.planClosed" }}',
+          kept: '{{ i18n "pages.nginx.planKept" }}',
         };
         const template = templates[change.kind] || '%subject%: %from% → %to%';
         return template

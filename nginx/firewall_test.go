@@ -84,7 +84,7 @@ func TestSSHIsNeverClosed(t *testing.T) {
 	f := &fakeTables{}
 	f.install(t)
 
-	if err := ApplyFirewall(Firewall{TCP: []int{443}}); err != nil {
+	if err := ApplyFirewall(Firewall{TCP: Ports(443)}); err != nil {
 		t.Fatalf("ApplyFirewall: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestChainLetsTheMachineKeepWorking(t *testing.T) {
 	f := &fakeTables{}
 	f.install(t)
 
-	if err := ApplyFirewall(Firewall{TCP: []int{443}, UDP: []int{55200}}); err != nil {
+	if err := ApplyFirewall(Firewall{TCP: Ports(443), UDP: Ports(55200)}); err != nil {
 		t.Fatalf("ApplyFirewall: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestHookGoesInFirstAndOnlyOnce(t *testing.T) {
 	f := &fakeTables{}
 	f.install(t)
 
-	if err := ApplyFirewall(Firewall{TCP: []int{443}}); err != nil {
+	if err := ApplyFirewall(Firewall{TCP: Ports(443)}); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	joined := strings.Join(f.ran, "\n")
@@ -216,7 +216,7 @@ func TestHookGoesInFirstAndOnlyOnce(t *testing.T) {
 	f.has["iptables -C INPUT -j "+Chain] = true
 	f.has["ip6tables -C INPUT -j "+Chain] = true
 	f.ran = nil
-	if err := ApplyFirewall(Firewall{TCP: []int{443}}); err != nil {
+	if err := ApplyFirewall(Firewall{TCP: Ports(443)}); err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
 	if strings.Contains(strings.Join(f.ran, "\n"), "-I INPUT") {
@@ -236,7 +236,7 @@ func TestRebuildFailsBeforeItCloses(t *testing.T) {
 	f := &fakeTables{fail: "conntrack"}
 	f.install(t)
 
-	if err := ApplyFirewall(Firewall{TCP: []int{443}}); err == nil {
+	if err := ApplyFirewall(Firewall{TCP: Ports(443)}); err == nil {
 		t.Fatal("a failed rule was reported as success")
 	}
 	if strings.Contains(strings.Join(f.ran, "\n"), "-I INPUT") {
@@ -286,11 +286,97 @@ func TestRulesAreAcceptedByIptables(t *testing.T) {
 				_, _ = run("-F", chain)
 				_, _ = run("-X", chain)
 			})
-			for _, rule := range fam.rules([]int{22, 443}, []int{55200}) {
+			for _, rule := range fam.rules(Ports(22, 443), Ports(55200), []string{"awg0"}) {
 				if out, err := run(append([]string{"-A", chain}, rule...)...); err != nil {
 					t.Errorf("%s: %v: %s", strings.Join(rule, " "), err, strings.TrimSpace(string(out)))
 				}
 			}
 		})
+	}
+}
+
+// TestTunnelTrafficIsNotJudged is a bug this file had before anyone ran it on a
+// real server. WireGuard clients are usually handed this machine as their
+// resolver, and their DNS queries arrive on the tunnel interface — which is
+// INPUT, like everything else. Dropping them closes the VPN from the inside
+// while the outside looks exactly as intended, and gets blamed on anything but
+// a firewall.
+func TestTunnelTrafficIsNotJudged(t *testing.T) {
+	sshConfig(t, map[string]string{"sshd_config": "Port 22\n"})
+	f := &fakeTables{}
+	f.install(t)
+
+	if err := ApplyFirewall(Firewall{TCP: Ports(443), Ifaces: []string{"awg0", "wg0"}}); err != nil {
+		t.Fatalf("ApplyFirewall: %v", err)
+	}
+
+	rules := f.added("iptables")
+	drop := slices.IndexFunc(rules, func(r string) bool { return strings.HasSuffix(r, "-j DROP") })
+	for _, iface := range []string{"lo", "awg0", "wg0"} {
+		want := "-i " + iface + " -j RETURN"
+		i := slices.Index(rules, want)
+		if i < 0 {
+			t.Errorf("%s traffic is judged by the chain; rules are:\n  %s", iface, strings.Join(rules, "\n  "))
+			continue
+		}
+		if i > drop {
+			t.Errorf("%s is let through only after the DROP, which never happens", iface)
+		}
+	}
+}
+
+// TestTheMachineKeepsItsAddress: most providers hand out addresses over DHCP,
+// and a renewal that never lands costs the server its address once the lease
+// runs out — a slow lockout that looks like nothing to do with this page.
+func TestTheMachineKeepsItsAddress(t *testing.T) {
+	sshConfig(t, map[string]string{"sshd_config": "Port 22\n"})
+	f := &fakeTables{}
+	f.install(t)
+
+	if err := ApplyFirewall(Firewall{TCP: Ports(443)}); err != nil {
+		t.Fatalf("ApplyFirewall: %v", err)
+	}
+	if v4 := f.added("iptables"); !slices.Contains(v4, "-p udp --dport 68 -j RETURN") {
+		t.Error("the DHCP client is cut off, so the server loses its address when the lease expires")
+	}
+	if v6 := f.added("ip6tables"); len(v6) > 0 && !slices.Contains(v6, "-p udp --dport 546 -j RETURN") {
+		t.Error("DHCPv6 is cut off")
+	}
+}
+
+// TestPortRangesReachIptablesIntact: the operator's own list of ports may hold
+// ranges, and a range written as a single port would quietly open one port out
+// of a hundred.
+func TestPortRangesReachIptablesIntact(t *testing.T) {
+	sshConfig(t, map[string]string{"sshd_config": "Port 22\n"})
+	f := &fakeTables{}
+	f.install(t)
+
+	err := ApplyFirewall(Firewall{
+		TCP: []PortRange{Port(443), {From: 9000, To: 9100}},
+		UDP: []PortRange{{From: 5060, To: 5061}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyFirewall: %v", err)
+	}
+	rules := f.added("iptables")
+	for _, want := range []string{
+		"-p tcp --dport 9000:9100 -j RETURN",
+		"-p udp --dport 5060:5061 -j RETURN",
+	} {
+		if !slices.Contains(rules, want) {
+			t.Errorf("missing: %s", want)
+		}
+	}
+	// A range that reads backwards, or one out of bounds, is dropped rather
+	// than handed to iptables to argue about.
+	f.ran = nil
+	if err := ApplyFirewall(Firewall{TCP: []PortRange{{From: 900, To: 8}, {From: 0, To: 0}, Port(443)}}); err != nil {
+		t.Fatalf("ApplyFirewall: %v", err)
+	}
+	for _, rule := range f.added("iptables") {
+		if strings.Contains(rule, "900:8") || strings.Contains(rule, "--dport 0") {
+			t.Errorf("a nonsense range reached iptables: %s", rule)
+		}
 	}
 }

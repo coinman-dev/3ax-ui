@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,15 +35,50 @@ var runFirewall = func(name string, args ...string) ([]byte, error) {
 // point it at a directory of its own.
 var sshConfigDir = "/etc/ssh"
 
-// Firewall is the set of ports that stay reachable from outside. Everything
-// else arriving on a real interface is dropped.
+// PortRange is one port, or an inclusive range of them.
+type PortRange struct{ From, To int }
+
+// Port is the common case: a range of one.
+func Port(n int) PortRange { return PortRange{n, n} }
+
+// Ports wraps a list of single ports.
+func Ports(ns ...int) []PortRange {
+	out := make([]PortRange, 0, len(ns))
+	for _, n := range ns {
+		out = append(out, Port(n))
+	}
+	return out
+}
+
+func (p PortRange) valid() bool {
+	return validPort(p.From) && validPort(p.To) && p.From <= p.To
+}
+
+// dport is the range as iptables wants to read it.
+func (p PortRange) dport() string {
+	if p.From == p.To {
+		return strconv.Itoa(p.From)
+	}
+	return fmt.Sprintf("%d:%d", p.From, p.To)
+}
+
+// Firewall is what stays reachable from outside. Everything else arriving on a
+// public interface is dropped.
 //
 // SSH is not in here and cannot be left out of it: ApplyFirewall adds whatever
 // sshd is listening on itself. A panel that can lock the operator out of their
 // own server over a UI toggle is not a feature.
 type Firewall struct {
-	TCP []int
-	UDP []int
+	TCP []PortRange
+	UDP []PortRange
+
+	// Ifaces are the interfaces whose traffic is not judged at all — the
+	// tunnels. Somebody arriving over WireGuard is already inside: they
+	// authenticated to get there, and the resolver, the router and whatever
+	// else the tunnel exists to reach all live on this machine and answer on
+	// INPUT. Dropping that would close the VPN from within while the outside
+	// looked exactly as intended.
+	Ifaces []string
 }
 
 // FirewallAvailable reports whether this machine has the tools to do any of it.
@@ -79,7 +115,7 @@ func FirewallActive() bool {
 func ApplyFirewall(fw Firewall) error {
 	// SSHPorts never comes back empty, so there is always a way back in even
 	// if the caller passed nothing at all.
-	tcp := merge(fw.TCP, SSHPorts())
+	tcp := merge(fw.TCP, Ports(SSHPorts()...))
 	udp := merge(fw.UDP)
 
 	var applied int
@@ -87,7 +123,7 @@ func ApplyFirewall(fw Firewall) error {
 		if !fam.usable {
 			continue
 		}
-		if err := fam.rebuild(tcp, udp); err != nil {
+		if err := fam.rebuild(tcp, udp, fw.Ifaces); err != nil {
 			return err
 		}
 		applied++
@@ -164,7 +200,8 @@ func SSHPorts() []int {
 	if len(ports) == 0 {
 		return []int{22}
 	}
-	return merge(ports)
+	sort.Ints(ports)
+	return slices.Compact(ports)
 }
 
 // family is one of the two netfilter tables, IPv4 and IPv6.
@@ -185,7 +222,7 @@ func families() []family {
 }
 
 // rebuild writes the chain from nothing and makes sure INPUT jumps into it.
-func (f family) rebuild(tcp, udp []int) error {
+func (f family) rebuild(tcp, udp []PortRange, ifaces []string) error {
 	// -N fails when the chain is already there, which is the normal case and
 	// not something to report.
 	_, _ = runFirewall(f.bin, "-N", Chain)
@@ -193,7 +230,7 @@ func (f family) rebuild(tcp, udp []int) error {
 		return fmt.Errorf("%s: clear %s: %v: %s", f.bin, Chain, err, strings.TrimSpace(string(out)))
 	}
 
-	for _, rule := range f.rules(tcp, udp) {
+	for _, rule := range f.rules(tcp, udp, ifaces) {
 		if out, err := runFirewall(f.bin, append([]string{"-A", Chain}, rule...)...); err != nil {
 			return fmt.Errorf("%s: %s: %v: %s", f.bin, strings.Join(rule, " "), err, strings.TrimSpace(string(out)))
 		}
@@ -218,31 +255,49 @@ func (f family) rebuild(tcp, udp []int) error {
 
 // rules is the chain in order. Read top to bottom: everything that must keep
 // working is let out of the chain first, and only what is left over is dropped.
-func (f family) rules(tcp, udp []int) [][]string {
-	rules := [][]string{
-		// Loopback: the panel talks to Xray, nginx and mtg over it constantly.
-		{"-i", "lo", "-j", "RETURN"},
-		// Answers to connections this machine opened itself — updates, DNS,
-		// the Telegram bot. Dropping these would cut the server off outwards
-		// while looking like it only closed inbound ports.
-		{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "RETURN"},
+func (f family) rules(tcp, udp []PortRange, ifaces []string) [][]string {
+	var rules [][]string
+
+	// The interfaces this chain has no business judging. Loopback first — the
+	// panel talks to Xray, nginx and mtg over it constantly — then the
+	// tunnels, whose traffic came from someone who already authenticated.
+	for _, iface := range append([]string{"lo"}, ifaces...) {
+		rules = append(rules, []string{"-i", iface, "-j", "RETURN"})
 	}
+
+	// Answers to connections this machine opened itself: DNS lookups, the
+	// package manager, NTP, the Telegram bot. This is why closing every port
+	// does not cost the server its own name resolution — the reply comes back
+	// on a connection it started, and conntrack knows it.
+	rules = append(rules, []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "RETURN"})
 
 	if f.v6 {
 		// ICMPv6 is not optional. Neighbour discovery and packet-too-big live
 		// here; drop it and IPv6 stops working in ways that look like anything
 		// but a firewall.
-		rules = append(rules, []string{"-p", "ipv6-icmp", "-j", "RETURN"})
+		rules = append(rules,
+			[]string{"-p", "ipv6-icmp", "-j", "RETURN"},
+			// DHCPv6 replies arrive on 546. A renewal that never lands costs
+			// the server its address once the lease runs out — a slow lockout
+			// that looks like nothing to do with this page.
+			[]string{"-p", "udp", "--dport", "546", "-j", "RETURN"},
+		)
 	} else {
 		// Echo and the unreachable messages that carry path MTU.
-		rules = append(rules, []string{"-p", "icmp", "-j", "RETURN"})
+		rules = append(rules,
+			[]string{"-p", "icmp", "-j", "RETURN"},
+			// The DHCP client, for the same reason. Most providers hand out
+			// addresses this way and the renewal is not always something
+			// conntrack recognises as a reply.
+			[]string{"-p", "udp", "--dport", "68", "-j", "RETURN"},
+		)
 	}
 
 	for _, port := range tcp {
-		rules = append(rules, []string{"-p", "tcp", "--dport", strconv.Itoa(port), "-j", "RETURN"})
+		rules = append(rules, []string{"-p", "tcp", "--dport", port.dport(), "-j", "RETURN"})
 	}
 	for _, port := range udp {
-		rules = append(rules, []string{"-p", "udp", "--dport", strconv.Itoa(port), "-j", "RETURN"})
+		rules = append(rules, []string{"-p", "udp", "--dport", port.dport(), "-j", "RETURN"})
 	}
 
 	// DROP rather than REJECT: the point of the whole feature is that a
@@ -251,19 +306,24 @@ func (f family) rules(tcp, udp []int) [][]string {
 }
 
 // merge sorts and de-duplicates port lists, dropping anything out of range.
-func merge(lists ...[]int) []int {
-	seen := map[int]bool{}
-	var out []int
+func merge(lists ...[]PortRange) []PortRange {
+	seen := map[PortRange]bool{}
+	var out []PortRange
 	for _, list := range lists {
 		for _, port := range list {
-			if !validPort(port) || seen[port] {
+			if !port.valid() || seen[port] {
 				continue
 			}
 			seen[port] = true
 			out = append(out, port)
 		}
 	}
-	sort.Ints(out)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].From != out[j].From {
+			return out[i].From < out[j].From
+		}
+		return out[i].To < out[j].To
+	})
 	return out
 }
 

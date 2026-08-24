@@ -119,6 +119,7 @@ var defaultValueMap = map[string]string{
 	"nginxSubsBehind443":   "false",
 	"nginxPanelBehind443":  "false",
 	"nginxManageFirewall":  "false",
+	"nginxFirewallExtra":   "",
 	"nginxConfirmDeadline": "0",
 	"nginxConfirmFallback": "",
 	"nginxRealityPort":     "8443",

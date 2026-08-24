@@ -2,6 +2,8 @@ package service
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
@@ -60,7 +62,7 @@ func TestFirewallKeepsThePanelReachable(t *testing.T) {
 
 	fw, _ := svc.firewallPlan(only443(true))
 	for _, port := range []int{PublicPort, 2053, 2096} {
-		if !slices.Contains(fw.TCP, port) {
+		if !slices.Contains(fw.TCP, nginx.Port(port)) {
 			t.Errorf("port %d was closed; open TCP ports are %v", port, fw.TCP)
 		}
 	}
@@ -70,11 +72,11 @@ func TestFirewallKeepsThePanelReachable(t *testing.T) {
 	behind.PanelBehind443, behind.SubsBehind443 = true, true
 	fw, _ = svc.firewallPlan(behind)
 	for _, port := range []int{2053, 2096} {
-		if slices.Contains(fw.TCP, port) {
+		if slices.Contains(fw.TCP, nginx.Port(port)) {
 			t.Errorf("port %d stayed open although it is published behind %d", port, PublicPort)
 		}
 	}
-	if !slices.Contains(fw.TCP, PublicPort) {
+	if !slices.Contains(fw.TCP, nginx.Port(PublicPort)) {
 		t.Errorf("the public port itself was closed; open TCP ports are %v", fw.TCP)
 	}
 }
@@ -112,10 +114,66 @@ func TestFirewallNamesWhatItCutsOff(t *testing.T) {
 	if slices.Contains(closed, "awg") {
 		t.Error("a UDP tunnel was reported as losing its port, which it does not")
 	}
-	if !slices.Contains(fw.UDP, 55200) {
+	if !slices.Contains(fw.UDP, nginx.Port(55200)) {
 		t.Errorf("the tunnel's UDP port was closed; open UDP ports are %v", fw.UDP)
 	}
-	if slices.Contains(fw.TCP, 8388) {
+	if slices.Contains(fw.TCP, nginx.Port(8388)) {
 		t.Errorf("the port the plan promised to close stayed open: %v", fw.TCP)
+	}
+	// Nor the UDP half of it: that would be a port a scanner can find, in
+	// exchange for an inbound that is broken anyway.
+	if slices.Contains(fw.UDP, nginx.Port(8388)) {
+		t.Errorf("the UDP half of a closed TCP inbound stayed open: %v", fw.UDP)
+	}
+}
+
+// TestOperatorsOwnPortsStayOpen: the panel cannot know about a mail relay, a
+// monitoring agent or a resolver serving something other than the tunnels, so
+// the operator says so and the firewall believes them.
+func TestOperatorsOwnPortsStayOpen(t *testing.T) {
+	svc := newNginxTestServer(t)
+	seedInbounds(t)
+
+	set := only443(true)
+	set.FirewallExtra = "53, 9000-9100, nonsense"
+	fw, _ := svc.firewallPlan(set)
+
+	for _, want := range []nginx.PortRange{nginx.Port(53), {From: 9000, To: 9100}} {
+		// Both protocols: «53» almost always means both, and a UDP port with
+		// nothing behind it costs nothing.
+		if !slices.Contains(fw.TCP, want) {
+			t.Errorf("%v is closed over TCP; open are %v", want, fw.TCP)
+		}
+		if !slices.Contains(fw.UDP, want) {
+			t.Errorf("%v is closed over UDP; open are %v", want, fw.UDP)
+		}
+	}
+}
+
+// TestPlanSaysWhatStaysOpen is the line the operator most wants to read before
+// confirming. SSH belongs in it even though firewallPlan does not add it —
+// leaving it out would make the plan look like it takes away the way back in.
+func TestPlanSaysWhatStaysOpen(t *testing.T) {
+	svc := newNginxTestServer(t)
+	seedInbounds(t)
+
+	var kept string
+	for _, c := range svc.Plan(only443(true)).Changes {
+		if c.Kind == "kept" {
+			kept = c.From
+		}
+	}
+	if kept == "" {
+		t.Fatal("the plan never says which ports stay open")
+	}
+	for _, want := range []string{"443/tcp", "55200/udp"} {
+		if !strings.Contains(kept, want) {
+			t.Errorf("%q is not in %q", want, kept)
+		}
+	}
+	// Whatever sshd is on, it has to be in there.
+	ssh := nginx.SSHPorts()
+	if !strings.Contains(kept, strconv.Itoa(ssh[0])+"/tcp") {
+		t.Errorf("SSH (port %d) is not named in %q", ssh[0], kept)
 	}
 }
