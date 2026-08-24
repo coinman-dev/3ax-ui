@@ -40,6 +40,10 @@
                               text='{{ i18n "pages.nginx.streamOk" }}'></a-badge>
                             <a-badge v-else-if="status.installed" status="error"
                               text='{{ i18n "pages.nginx.streamMissing" }}'></a-badge>
+                            <a-badge v-if="status.firewallOn" status="success"
+                              text='{{ i18n "pages.nginx.firewallStateOn" }}'></a-badge>
+                            <a-badge v-else-if="status.mode === 'only443'" status="warning"
+                              text='{{ i18n "pages.nginx.firewallStateOff" }}'></a-badge>
                           </a-space>
                         </template>
                       </a-alert>
@@ -90,8 +94,10 @@
                             <a-radio-button value="shared" :disabled="!canEnable">
                               {{ i18n "pages.nginx.modeShared" }}</a-radio-button>
                           </a-tooltip>
-                          <a-radio-button value="only443" disabled>
-                            {{ i18n "pages.nginx.modeOnly443" }}</a-radio-button>
+                          <a-tooltip title='{{ i18n "pages.nginx.modeOnly443Hint" }}'>
+                            <a-radio-button value="only443" :disabled="!canEnable">
+                              {{ i18n "pages.nginx.modeOnly443" }}</a-radio-button>
+                          </a-tooltip>
                         </a-radio-group>
                       </template>
                     </a-setting-list-item>
@@ -126,6 +132,27 @@
                       <template #description>[[ publishHint ]]</template>
                       <template #control>
                         <a-switch v-model="settings.subsBehind443" :disabled="!canPublish"></a-switch>
+                      </template>
+                    </a-setting-list-item>
+                    <a-setting-list-item paddings="small">
+                      <template #title>{{ i18n "pages.nginx.panelPublish" }}</template>
+                      <!-- Only in mode 3. With the other ports still open the
+                           panel is already reachable, and putting it behind 443
+                           as well would add a second address for nothing. -->
+                      <template #description>[[ panelPublishHint ]]</template>
+                      <template #control>
+                        <a-switch v-model="settings.panelBehind443" :disabled="!canPublishPanel"></a-switch>
+                      </template>
+                    </a-setting-list-item>
+                  </a-collapse-panel>
+
+                  <a-collapse-panel key="6" header='{{ i18n "pages.nginx.firewall" }}'>
+                    <a-setting-list-item paddings="small">
+                      <template #title>{{ i18n "pages.nginx.firewallSwitch" }}</template>
+                      <template #description>[[ firewallHint ]]</template>
+                      <template #control>
+                        <a-switch v-model="settings.manageFirewall"
+                          :disabled="settings.mode !== 'only443'"></a-switch>
                       </template>
                     </a-setting-list-item>
                   </a-collapse-panel>
@@ -314,6 +341,8 @@
         certOk: false,
         certFile: '',
         certExpiry: 0,
+        firewallOn: false,
+        confirmDeadline: 0,
       },
       plan: { changes: [], blockers: [] },
       // The certificate is checked for the domain on screen, not the one that
@@ -348,7 +377,7 @@
       modeDesc() {
         switch (this.settings.mode) {
           case 'shared': return '{{ i18n "pages.nginx.modeSharedDesc" }}';
-          case 'only443': return '{{ i18n "pages.nginx.modeOnly443Soon" }}';
+          case 'only443': return '{{ i18n "pages.nginx.modeOnly443Desc" }}';
           default: return '{{ i18n "pages.nginx.modeOffDesc" }}';
         }
       },
@@ -391,6 +420,19 @@
         return this.canPublish
           ? '{{ i18n "pages.nginx.subsPublishDesc" }}'
           : '{{ i18n "pages.nginx.subsPublishNeedsDomain" }}';
+      },
+      canPublishPanel() {
+        return this.canPublish && this.settings.mode === 'only443';
+      },
+      panelPublishHint() {
+        return this.canPublishPanel
+          ? '{{ i18n "pages.nginx.panelPublishDesc" }}'
+          : '{{ i18n "pages.nginx.panelPublishNeedsOnly443" }}';
+      },
+      firewallHint() {
+        return this.settings.mode === 'only443'
+          ? '{{ i18n "pages.nginx.firewallDesc" }}'
+          : '{{ i18n "pages.nginx.firewallNeedsOnly443" }}';
       },
       certLabel() {
         if (!this.cert.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
@@ -553,6 +595,8 @@
           sniIsOwnDomain: '{{ i18n "pages.nginx.warnSniIsOwnDomain" }}',
           nothingToRoute: '{{ i18n "pages.nginx.warnNothingToRoute" }}',
           noFirewall: '{{ i18n "pages.nginx.warnNoFirewall" }}',
+          certMissingFor: '{{ i18n "pages.nginx.warnCertMissingFor" }}',
+          certProblem: '{{ i18n "pages.nginx.warnCertProblem" }}',
           inboundsUnreadable: '{{ i18n "pages.nginx.warnInboundsUnreadable" }}',
         };
         let text = wording[warning.code];

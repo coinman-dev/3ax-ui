@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -115,6 +116,17 @@ type NginxWarning struct {
 
 func warn(code string, params ...string) NginxWarning {
 	return NginxWarning{Code: code, Params: params}
+}
+
+// certWarning says which of the two certificate problems this is. «There is no
+// certificate for that domain» is a sentence the panel can say in the
+// operator's own language; a certificate that exists and is broken carries a
+// message from below that only makes sense as it came.
+func certWarning(domain string, err error) NginxWarning {
+	if errors.Is(err, errNoCertificate) {
+		return warn("certMissingFor", domain)
+	}
+	return NginxWarning{Code: "certProblem", Params: []string{domain}, Text: err.Error()}
 }
 
 // NginxChange is one line of the "what is about to happen" list the panel shows
@@ -260,7 +272,7 @@ func (s *NginxService) GetStatus() NginxStatus {
 				st.Warnings = append(st.Warnings, warn("certExpiring", set.Domain, expiry.Format("2006-01-02")))
 			}
 		} else {
-			st.Warnings = append(st.Warnings, NginxWarning{Code: "certProblem", Text: err.Error()})
+			st.Warnings = append(st.Warnings, certWarning(set.Domain, err))
 		}
 	}
 
@@ -508,7 +520,7 @@ func (s *NginxService) CheckCertificate(domain string) NginxStatus {
 	}
 	cert, _, expiry, err := findCertificate(st.Domain)
 	if err != nil {
-		st.Warnings = append(st.Warnings, NginxWarning{Code: "certProblem", Text: err.Error()})
+		st.Warnings = append(st.Warnings, certWarning(st.Domain, err))
 		return st
 	}
 	st.CertFile, st.CertOk = cert, true
@@ -711,8 +723,13 @@ func findCertificate(domain string) (certFile, keyFile string, expiry time.Time,
 		}
 		return c.cert, c.key, exp, nil
 	}
-	return "", "", time.Time{}, fmt.Errorf("no certificate found for %s — issue one first", domain)
+	return "", "", time.Time{}, fmt.Errorf("%s: %w", domain, errNoCertificate)
 }
+
+// errNoCertificate is the ordinary answer — nobody has issued one yet — as
+// opposed to a certificate that exists and is wrong. The two read very
+// differently to an operator, so they are not the same warning.
+var errNoCertificate = errors.New("no certificate")
 
 // certificateExpiry parses the leaf certificate and verifies it covers domain.
 func certificateExpiry(path, domain string) (time.Time, error) {

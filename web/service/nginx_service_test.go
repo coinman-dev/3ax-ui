@@ -660,10 +660,15 @@ func TestCheckCertificateAnswersForTheTypedDomain(t *testing.T) {
 		t.Error("an empty domain cannot have a certificate")
 	}
 
-	// Not where the panel looks: reported, with a reason.
+	// Not where the panel looks: reported, naming the domain, and as the
+	// ordinary «nobody has issued one» rather than «this one is broken» — the
+	// two read very differently to an operator.
 	got := s.CheckCertificate("typed.example.net")
-	if got.CertOk || len(got.Warnings) == 0 || got.Warnings[0].Text == "" {
-		t.Errorf("a missing certificate was not reported: %+v", got)
+	if got.CertOk || len(got.Warnings) == 0 {
+		t.Fatalf("a missing certificate was not reported: %+v", got)
+	}
+	if w := got.Warnings[0]; w.Code != "certMissingFor" || len(w.Params) != 1 || w.Params[0] != "typed.example.net" {
+		t.Errorf("warning = %+v, want certMissingFor for the typed domain", w)
 	}
 
 	// Now put it where the panel does look.
