@@ -77,16 +77,19 @@ type NginxRoute struct {
 
 // NginxStatus is what the settings page shows.
 type NginxStatus struct {
-	Installed  bool           `json:"installed"`
-	Version    string         `json:"version"`
-	HasStream  bool           `json:"hasStream"`
-	Running    bool           `json:"running"`
-	Mode       string         `json:"mode"`
-	Domain     string         `json:"domain"`
-	CertFile   string         `json:"certFile"`
-	CertOk     bool           `json:"certOk"`
-	CertExpiry int64          `json:"certExpiry"` // unix ms, 0 when unknown
-	PublicPort int            `json:"publicPort"`
+	Installed  bool   `json:"installed"`
+	Version    string `json:"version"`
+	HasStream  bool   `json:"hasStream"`
+	Running    bool   `json:"running"`
+	Mode       string `json:"mode"`
+	Domain     string `json:"domain"`
+	CertFile   string `json:"certFile"`
+	CertOk     bool   `json:"certOk"`
+	CertExpiry int64  `json:"certExpiry"` // unix ms, 0 when unknown
+	PublicPort int    `json:"publicPort"`
+	// FirewallOn reports whether our chain is in the INPUT path right now —
+	// what the machine is actually doing, not what the settings ask for.
+	FirewallOn bool           `json:"firewallOn"`
 	Routes     []NginxRoute   `json:"routes"`
 	Warnings   []NginxWarning `json:"warnings"`
 }
@@ -212,6 +215,7 @@ func (s *NginxService) GetStatus() NginxStatus {
 		Mode:       set.Mode,
 		Domain:     set.Domain,
 		PublicPort: PublicPort,
+		FirewallOn: nginx.FirewallActive(),
 	}
 	if st.Installed {
 		st.Version = nginx.Version()
@@ -315,8 +319,20 @@ func (s *NginxService) collectRoutes(set NginxSettings) ([]NginxRoute, []NginxWa
 		// refused.
 		gaveUpPublicPort := ib.Port == PublicPort || ib.PublicPort == PublicPort
 		dual := !gaveUpPublicPort
-		if gaveUpPublicPort {
+		if nginx.Mode(set.Mode) == nginx.ModeOnly443 {
+			// Nothing is dual once the other ports are closed: an inbound left
+			// on its own port would keep advertising a link to a port the
+			// firewall no longer lets through. It moves to the loopback like
+			// the rest and is published on the public port instead.
+			dual = false
+		}
+		switch {
+		case gaveUpPublicPort:
 			port, listen = set.RealityPort, "127.0.0.1"
+		case !dual:
+			// It keeps its port number — nothing else wants it — but only on
+			// the loopback, where nginx is the only thing that can reach it.
+			listen = "127.0.0.1"
 		}
 
 		for _, sni := range snis {

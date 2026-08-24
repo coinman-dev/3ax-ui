@@ -90,13 +90,44 @@ func (s *NginxService) Apply(in NginxSettings) error {
 		return err
 	}
 
-	return s.SaveSettings(in)
+	if err := s.SaveSettings(in); err != nil {
+		return err
+	}
+
+	// 5. The firewall goes last, once everything it has to leave reachable is
+	//    already answering. It is also the one step that does not undo the
+	//    rest when it fails: the front-end is up and working, the ports are
+	//    merely still open, and tearing a working server down over that would
+	//    be the worse outcome. The settings are saved first on purpose, so the
+	//    reconcile job picks the retry up on its next tick.
+	return s.applyFirewall(in)
+}
+
+// applyFirewall closes the ports the mode asks to close, or opens them all
+// again if it does not.
+func (s *NginxService) applyFirewall(in NginxSettings) error {
+	if in.Mode != string(nginx.ModeOnly443) || !in.ManageFirewall {
+		return nginx.RemoveFirewall()
+	}
+	fw, _ := s.firewallPlan(in)
+	if err := nginx.ApplyFirewall(fw); err != nil {
+		logger.Warning("nginx: the ports could not be closed:", err)
+		return fmt.Errorf("the front-end is up, but the ports could not be closed: %w", err)
+	}
+	logger.Infof("nginx: only %v/tcp and %v/udp are open now, plus ssh on %v", fw.TCP, fw.UDP, nginx.SSHPorts())
+	return nil
 }
 
 // disable puts the inbounds back on their own ports and removes the generated
 // config. It runs in the opposite order to Apply for the same reason: nginx has
 // to let go of 443 before Xray asks for it.
 func (s *NginxService) disable(in NginxSettings) error {
+	// The ports come back first. Everything below can fail; the operator
+	// asking for the front-end to go away must not be left with a closed
+	// server because it did.
+	if err := nginx.RemoveFirewall(); err != nil {
+		return err
+	}
 	if err := nginx.Remove(); err != nil {
 		return err
 	}
@@ -431,6 +462,13 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 	if from, to, moved := s.subAddressChange(in); moved {
 		plan.Changes = append(plan.Changes, NginxChange{Kind: "subs", From: from, To: to})
 	}
+	if in.Mode == string(nginx.ModeOnly443) && in.ManageFirewall {
+		if !nginx.FirewallAvailable() {
+			plan.Blockers = append(plan.Blockers, warn("noFirewall"))
+		}
+		_, cut := s.firewallPlan(in)
+		plan.Changes = append(plan.Changes, cut...)
+	}
 	if _, err := s.buildConfig(in); err != nil {
 		plan.Blockers = append(plan.Blockers, NginxWarning{Code: "configInvalid", Text: err.Error()})
 	}
@@ -458,6 +496,73 @@ func (s *NginxService) subAddressChange(in NginxSettings) (from string, to strin
 	from = label(s.GetSettings())
 	to = label(in)
 	return from, to, from != to
+}
+
+// firewallPlan is what «only 443» leaves reachable, and what it cuts off to get
+// there.
+//
+// The mode says what it says: afterwards a scanner finds one open TCP port. An
+// inbound that cannot be told apart by server name — Shadowsocks, a plain VMess
+// — therefore loses its way in, and the operator has to read that list before
+// they confirm, not discover it afterwards. The escape hatch is the firewall
+// switch itself: mode 3 without it moves the panel behind 443 and leaves every
+// port open.
+//
+// UDP is left alone. Consolidating TCP behind one port gains nothing by cutting
+// off a tunnel that never spoke TCP, so every inbound that stays put keeps its
+// UDP port — including the transports that ride on QUIC or KCP, which is why
+// the port is allowed for all of them and not only for the WireGuard family.
+func (s *NginxService) firewallPlan(set NginxSettings) (nginx.Firewall, []NginxChange) {
+	fw := nginx.Firewall{TCP: []int{PublicPort}}
+
+	// Whatever is not published behind the public port has to stay reachable
+	// where it is, or applying the mode is the last thing this panel ever does.
+	if !set.PanelBehind443 {
+		if port, err := s.settingService.GetPort(); err == nil {
+			fw.TCP = append(fw.TCP, port)
+		}
+	}
+	if on, _ := s.settingService.GetSubEnable(); on && !set.SubsBehind443 {
+		if port, err := s.settingService.GetSubPort(); err == nil {
+			fw.TCP = append(fw.TCP, port)
+		}
+	}
+
+	routes, _ := s.collectRoutes(set)
+	behind := map[int]bool{}
+	for _, r := range routes {
+		behind[r.InboundId] = true
+	}
+
+	inbounds, err := s.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("nginx: cannot read the inbounds to work out the firewall:", err)
+		return fw, nil
+	}
+	var cut []NginxChange
+	for _, ib := range inbounds {
+		if !ib.Enable || behind[ib.Id] {
+			continue
+		}
+		fw.UDP = append(fw.UDP, ib.Port)
+		if udpOnly(ib.Protocol) {
+			continue
+		}
+		cut = append(cut, NginxChange{
+			Kind: "closed", Subject: ib.Remark, From: strconv.Itoa(ib.LinkPort()),
+		})
+	}
+	return fw, cut
+}
+
+// udpOnly is true for the protocols that never listen on TCP at all, so closing
+// their TCP port takes nothing away from them.
+func udpOnly(p model.Protocol) bool {
+	switch p {
+	case model.WireGuard, model.AmneziaWG, model.NativeWG:
+		return true
+	}
+	return model.IsHysteria(p)
 }
 
 // ownSubAddress is where the subscription server answers for itself.

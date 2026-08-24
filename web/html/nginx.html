@@ -251,6 +251,8 @@
         message='{{ i18n "pages.nginx.linksWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
       <a-alert v-if="hasSubsChanges" type="warning" show-icon
         message='{{ i18n "pages.nginx.subsWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
+      <a-alert v-if="hasClosedChanges" type="error" show-icon
+        message='{{ i18n "pages.nginx.closedWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
     </template>
   </a-modal>
 </a-layout>
@@ -345,6 +347,9 @@
       },
       hasSubsChanges() {
         return (this.plan.changes || []).some(change => change.kind === 'subs');
+      },
+      hasClosedChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'closed');
       },
       canPublish() {
         return !!this.settings.domain && !!this.cert.certOk;
@@ -485,6 +490,7 @@
           sniConflict: '{{ i18n "pages.nginx.warnSniConflict" }}',
           sniIsOwnDomain: '{{ i18n "pages.nginx.warnSniIsOwnDomain" }}',
           nothingToRoute: '{{ i18n "pages.nginx.warnNothingToRoute" }}',
+          noFirewall: '{{ i18n "pages.nginx.warnNoFirewall" }}',
           inboundsUnreadable: '{{ i18n "pages.nginx.warnInboundsUnreadable" }}',
         };
         let text = wording[warning.code];
@@ -498,6 +504,7 @@
         switch (change.kind) {
           case 'links': return 'link';
           case 'subs': return 'profile';
+          case 'closed': return 'stop';
           case 'dual': return 'fork';
           case 'move': return 'swap';
           default: return 'global';
@@ -512,6 +519,7 @@
           serve: '{{ i18n "pages.nginx.planServe" }}',
           dual: '{{ i18n "pages.nginx.planDual" }}',
           subs: '{{ i18n "pages.nginx.planSubs" }}',
+          closed: '{{ i18n "pages.nginx.planClosed" }}',
         };
         const template = templates[change.kind] || '%subject%: %from% → %to%';
         return template
