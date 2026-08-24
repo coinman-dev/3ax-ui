@@ -88,14 +88,16 @@
                       <template #title>{{ i18n "pages.nginx.domain" }}</template>
                       <template #description>{{ i18n "pages.nginx.domainDesc" }}</template>
                       <template #control>
-                        <a-input type="text" v-model="settings.domain" placeholder="panel.example.com"></a-input>
+                        <a-input type="text" v-model="settings.domain" placeholder="panel.example.com"
+                          @change="checkCertificate" @blur="checkCertificate"></a-input>
                       </template>
                     </a-setting-list-item>
                     <a-setting-list-item paddings="small" v-if="settings.domain">
                       <template #title>{{ i18n "pages.nginx.certificate" }}</template>
-                      <template #description>[[ status.certFile || '—' ]]</template>
+                      <template #description>[[ cert.certFile || '—' ]]</template>
                       <template #control>
-                        <a-badge v-if="status.certOk" status="success" :text="certLabel"></a-badge>
+                        <a-badge v-if="checkingCert" status="processing" text='{{ i18n "loading"}}'></a-badge>
+                        <a-badge v-else-if="cert.certOk" status="success" :text="certLabel"></a-badge>
                         <a-badge v-else status="warning" text='{{ i18n "pages.nginx.certMissing" }}'></a-badge>
                       </template>
                     </a-setting-list-item>
@@ -278,6 +280,10 @@
         certExpiry: 0,
       },
       plan: { changes: [], blockers: [] },
+      // The certificate is checked for the domain on screen, not the one that
+      // happens to be saved.
+      cert: { certOk: false, certFile: '', certExpiry: 0 },
+      checkingCert: false,
       SizeFormatter,
       stubs: [],
       stubTemplates: [],
@@ -323,8 +329,8 @@
         return (this.plan.changes || []).some(change => change.kind === 'dual');
       },
       certLabel() {
-        if (!this.status.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
-        const date = new Date(this.status.certExpiry).toISOString().slice(0, 10);
+        if (!this.cert.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
+        const date = new Date(this.cert.certExpiry).toISOString().slice(0, 10);
         return '{{ i18n "pages.nginx.certExpires" }}'.replace('%s', date);
       },
     },
@@ -341,6 +347,20 @@
           this.loadingStates.fetched = true;
         } finally {
           this.loadingStates.spinning = false;
+        }
+      },
+      async checkCertificate() {
+        const domain = (this.settings.domain || '').trim();
+        if (!domain) {
+          this.cert = { certOk: false, certFile: '', certExpiry: 0 };
+          return;
+        }
+        this.checkingCert = true;
+        try {
+          const msg = await HttpUtil.get('panel/api/nginx/certificate', { domain });
+          if (msg.success && msg.obj) this.cert = msg.obj;
+        } finally {
+          this.checkingCert = false;
         }
       },
       async openPlan() {
@@ -451,6 +471,7 @@
     },
     async mounted() {
       await this.load();
+      await this.checkCertificate();
       await this.loadStubs();
     },
   });

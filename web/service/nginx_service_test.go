@@ -1,10 +1,19 @@
 package service
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
@@ -592,4 +601,110 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 	if got := s.GetStatus().Warnings; mentions(got, "built-in one, unchanged") {
 		t.Errorf("a page the operator wrote was still called stock: %v", got)
 	}
+}
+
+// TestDefaultDomainComesFromTheCertificate: the panel already serves its own
+// interface over TLS for a particular name, so asking the operator to type that
+// name again is asking them to repeat themselves — and to get it wrong. The
+// certificate is the authority, not the webDomain setting, because the install
+// script leaves that empty while issuing a perfectly good certificate.
+func TestDefaultDomainComesFromTheCertificate(t *testing.T) {
+	s := newNginxTestServer(t)
+	dir := t.TempDir()
+	certFile, _ := writeTestCert(t, dir, "net-ru.modulator.net")
+
+	var setting SettingService
+	if err := setting.setString("webCertFile", certFile); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetSettings().Domain; got != "net-ru.modulator.net" {
+		t.Errorf("domain = %q, want it taken from the panel's own certificate", got)
+	}
+
+	// An explicitly configured panel domain wins: it is the operator's choice.
+	if err := setting.setString("webDomain", "chosen.example.net"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetSettings().Domain; got != "chosen.example.net" {
+		t.Errorf("domain = %q, want the configured panel domain", got)
+	}
+
+	// And once the front-end has a domain of its own, nothing overrides it.
+	if err := s.SaveSettings(NginxSettings{Mode: "off", Domain: "cover.example.net", RealityPort: 8443}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetSettings().Domain; got != "cover.example.net" {
+		t.Errorf("domain = %q, want the one saved for the front-end", got)
+	}
+}
+
+// TestCheckCertificateAnswersForTheTypedDomain: the row under the domain field
+// used to report on whatever was saved, so typing a domain produced "no
+// certificate" — a verdict on the empty saved value that reads as a verdict on
+// what was just typed.
+func TestCheckCertificateAnswersForTheTypedDomain(t *testing.T) {
+	s := newNginxTestServer(t)
+	dir := t.TempDir()
+	certFile, _ := writeTestCert(t, dir, "typed.example.net")
+
+	certDirs = []string{dir + "-missing"}
+	t.Cleanup(func() { certDirs = []string{"/root/cert", "/etc/letsencrypt/live", "/root/cert.crt"} })
+
+	if got := s.CheckCertificate(""); got.CertOk {
+		t.Error("an empty domain cannot have a certificate")
+	}
+
+	// Not where the panel looks: reported, with a reason.
+	got := s.CheckCertificate("typed.example.net")
+	if got.CertOk || len(got.Warnings) == 0 {
+		t.Errorf("a missing certificate was not reported: %+v", got)
+	}
+
+	// Now put it where the panel does look.
+	certDirs = []string{filepath.Dir(filepath.Dir(certFile))}
+	got = s.CheckCertificate("typed.example.net")
+	if !got.CertOk {
+		t.Errorf("the certificate was not found: %v", got.Warnings)
+	}
+	if got.CertExpiry == 0 {
+		t.Error("no expiry was reported")
+	}
+}
+
+// writeTestCert writes a self-signed certificate for domain into
+// <dir>/<domain>/ the way the install script lays them out.
+func writeTestCert(t *testing.T, dir, domain string) (certFile, keyFile string) {
+	t.Helper()
+	base := filepath.Join(dir, domain)
+	if err := os.MkdirAll(base, 0755); err != nil {
+		t.Fatal(err)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: domain},
+		DNSNames:     []string{domain},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(30 * 24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certFile = filepath.Join(base, "fullchain.pem")
+	keyFile = filepath.Join(base, "privkey.pem")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0644); err != nil {
+		t.Fatal(err)
+	}
+	der2, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der2}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return certFile, keyFile
 }

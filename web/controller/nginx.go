@@ -26,6 +26,7 @@ func NewNginxController(g *gin.RouterGroup) *NginxController {
 func (a *NginxController) initRouter(g *gin.RouterGroup) {
 	g.GET("/status", a.status)
 	g.GET("/settings", a.settings)
+	g.GET("/certificate", a.certificate)
 	g.POST("/plan", a.plan)
 	g.POST("/apply", a.apply)
 
@@ -101,6 +102,12 @@ func (a *NginxController) activateStub(c *gin.Context) {
 
 func (a *NginxController) status(c *gin.Context) {
 	jsonObj(c, a.nginxService.GetStatus(), nil)
+}
+
+// certificate answers for the domain currently typed into the field, which is
+// not necessarily the one saved.
+func (a *NginxController) certificate(c *gin.Context) {
+	jsonObj(c, a.nginxService.CheckCertificate(c.Query("domain")), nil)
 }
 
 func (a *NginxController) settings(c *gin.Context) {

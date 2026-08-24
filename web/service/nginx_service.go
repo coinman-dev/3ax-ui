@@ -109,6 +109,10 @@ func (s *NginxService) GetSettings() NginxSettings {
 		}
 		return v
 	}
+	domain := strings.TrimSpace(get("nginxDomain"))
+	if domain == "" {
+		domain = s.defaultDomain()
+	}
 	realityPort, _ := strconv.Atoi(get("nginxRealityPort"))
 	if realityPort <= 0 {
 		realityPort = 8443
@@ -117,7 +121,7 @@ func (s *NginxService) GetSettings() NginxSettings {
 	httpPort, _ := strconv.Atoi(get("nginxHttpPort"))
 	return NginxSettings{
 		Mode:           get("nginxMode"),
-		Domain:         strings.TrimSpace(get("nginxDomain")),
+		Domain:         domain,
 		StubSiteId:     stubId,
 		SubsBehind443:  get("nginxSubsBehind443") == "true",
 		PanelBehind443: get("nginxPanelBehind443") == "true",
@@ -374,6 +378,85 @@ func (s *NginxService) buildConfig(set NginxSettings) (nginx.Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// defaultDomain is what the domain field starts out as when nothing has been
+// chosen yet.
+//
+// The panel already knows which domain this server answers to — it is serving
+// its own interface over TLS for that name — so asking the operator to type it
+// again is asking them to repeat themselves, and to get it wrong. The
+// certificate is the authority here rather than the setting: an operator may
+// leave webDomain empty and still have a perfectly good certificate, which is
+// exactly the case on a panel set up by the install script.
+func (s *NginxService) defaultDomain() string {
+	if domain, err := s.settingService.GetWebDomain(); err == nil {
+		if domain = strings.TrimSpace(domain); domain != "" {
+			return domain
+		}
+	}
+	certFile, err := s.settingService.GetCertFile()
+	if err != nil || strings.TrimSpace(certFile) == "" {
+		return ""
+	}
+	for _, name := range certificateDomains(certFile) {
+		// A wildcard is a certificate for a family of names, not a name to
+		// put in a config.
+		if !strings.HasPrefix(name, "*") {
+			return name
+		}
+	}
+	return ""
+}
+
+// certificateDomains lists the names a certificate is valid for.
+func certificateDomains(path string) []string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	for len(raw) > 0 {
+		var block *pem.Block
+		block, raw = pem.Decode(raw)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		// The leaf comes first in a chain, and it is the one that carries the
+		// names this server answers to.
+		if len(cert.DNSNames) > 0 {
+			return cert.DNSNames
+		}
+		if cert.Subject.CommonName != "" {
+			return []string{cert.Subject.CommonName}
+		}
+	}
+	return nil
+}
+
+// CheckCertificate reports whether a certificate can be found for a domain the
+// operator has typed but not yet applied. Without it the certificate row would
+// answer for the domain that is saved, not the one on screen — and read as a
+// verdict on what was just typed.
+func (s *NginxService) CheckCertificate(domain string) NginxStatus {
+	st := NginxStatus{Domain: strings.TrimSpace(domain), PublicPort: PublicPort}
+	if st.Domain == "" {
+		return st
+	}
+	cert, _, expiry, err := findCertificate(st.Domain)
+	if err != nil {
+		st.Warnings = append(st.Warnings, err.Error())
+		return st
+	}
+	st.CertFile, st.CertOk = cert, true
+	st.CertExpiry = expiry.UnixMilli()
+	return st
 }
 
 // httpBackendPort returns the loopback port nginx terminates TLS on for our own
