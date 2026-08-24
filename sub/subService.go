@@ -1443,6 +1443,13 @@ func (s *SubService) BuildURLs(scheme, hostWithPort, subPath, subJsonPath, subCl
 
 // getBaseSchemeAndHost determines the base scheme and host from settings or falls back to request values
 func (s *SubService) getBaseSchemeAndHost(requestScheme, requestHostWithPort string) (string, string) {
+	// The front-end comes first: when nginx publishes the subscriptions under
+	// the site's domain, that is the only address a client outside can be sure
+	// of reaching, whatever port the subscription server itself is on.
+	if scheme, host, ok := service.PublicSubBase(); ok {
+		return scheme, host
+	}
+
 	subDomain, err := s.settingService.GetSubDomain()
 	if err != nil || subDomain == "" {
 		return requestScheme, requestHostWithPort

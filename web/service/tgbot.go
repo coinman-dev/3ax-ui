@@ -2376,7 +2376,12 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 	}
 
 	host := subDomain
-	if (subPort == 443 && tls) || (subPort == 80 && !tls) {
+	// The front-end comes first: with nginx publishing the subscriptions under
+	// the site's domain, that is the address to hand out, port and all — which
+	// is to say no port.
+	if frontScheme, frontHost, ok := PublicSubBase(); ok {
+		scheme, host = frontScheme, frontHost
+	} else if (subPort == 443 && tls) || (subPort == 80 && !tls) {
 		// standard ports: no port in host
 	} else {
 		host = fmt.Sprintf("%s:%d", subDomain, subPort)

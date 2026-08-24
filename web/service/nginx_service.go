@@ -23,6 +23,29 @@ import (
 // ordinary website, and a website lives on 443.
 const PublicPort = 443
 
+// PublicSubBase reports the scheme and host a subscription link has to be built
+// from, and whether the front-end is the one answering for them.
+//
+// Once nginx publishes the subscription server under the site's domain, that
+// server's own port stops being the address clients use: nginx terminates TLS
+// for the domain on the public port and passes the subscription paths through.
+// A link built from subDomain:subPort would then point at a second way in that
+// the operator did not mean to advertise, and in "only 443" mode at a port the
+// firewall has closed. The port is left off the returned host on purpose — the
+// public port is 443, and a URL says that by saying nothing.
+//
+// It reads the stored settings rather than the ones on screen, and that is the
+// point: Apply saves them last, after nginx is actually serving the config, so
+// what is stored is what is running. A link never moves ahead of the server.
+func PublicSubBase() (scheme string, host string, ok bool) {
+	var svc NginxService
+	set := svc.GetSettings()
+	if nginx.Mode(set.Mode) == nginx.ModeOff || !set.SubsBehind443 || set.Domain == "" {
+		return "", "", false
+	}
+	return "https", set.Domain, true
+}
+
 // NginxSettings is the stored front-end configuration.
 type NginxSettings struct {
 	Mode           string `json:"mode"`

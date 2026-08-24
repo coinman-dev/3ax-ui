@@ -889,20 +889,26 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 		if len(subDomain) > 1 && subDomain[0] == '[' && subDomain[len(subDomain)-1] == ']' {
 			subDomain = subDomain[1 : len(subDomain)-1]
 		}
-		if subTLS {
-			subURI = "https://"
+		if scheme, host, ok := PublicSubBase(); ok {
+			// nginx answers for the subscriptions on the public port, so the
+			// address is the site's domain and no port at all.
+			subURI = scheme + "://" + host
 		} else {
-			subURI = "http://"
-		}
-		if (subPort == 443 && subTLS) || (subPort == 80 && !subTLS) {
-			// For bare host in URL: IPv6 needs brackets, hostname/IPv4 does not.
-			if ip := net.ParseIP(subDomain); ip != nil && ip.To4() == nil {
-				subURI += "[" + subDomain + "]"
+			if subTLS {
+				subURI = "https://"
 			} else {
-				subURI += subDomain
+				subURI = "http://"
 			}
-		} else {
-			subURI += net.JoinHostPort(subDomain, strconv.Itoa(subPort))
+			if (subPort == 443 && subTLS) || (subPort == 80 && !subTLS) {
+				// For bare host in URL: IPv6 needs brackets, hostname/IPv4 does not.
+				if ip := net.ParseIP(subDomain); ip != nil && ip.To4() == nil {
+					subURI += "[" + subDomain + "]"
+				} else {
+					subURI += subDomain
+				}
+			} else {
+				subURI += net.JoinHostPort(subDomain, strconv.Itoa(subPort))
+			}
 		}
 		if subEnable && result["subURI"].(string) == "" {
 			result["subURI"] = subURI + subPath

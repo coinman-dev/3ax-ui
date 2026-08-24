@@ -103,6 +103,19 @@
                     </a-setting-list-item>
                   </a-collapse-panel>
 
+                  <a-collapse-panel key="5" header='{{ i18n "pages.nginx.publish" }}'>
+                    <a-setting-list-item paddings="small">
+                      <template #title>{{ i18n "pages.nginx.subsPublish" }}</template>
+                      <!-- The switch is dead without a certificate: the site
+                           that would carry the subscriptions is the same one
+                           the domain's certificate is for. -->
+                      <template #description>[[ publishHint ]]</template>
+                      <template #control>
+                        <a-switch v-model="settings.subsBehind443" :disabled="!canPublish"></a-switch>
+                      </template>
+                    </a-setting-list-item>
+                  </a-collapse-panel>
+
                   <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}'>
                     <a-alert type="info" show-icon message='{{ i18n "pages.nginx.stubsDesc" }}'
                       :style="{ marginBottom: '12px' }"></a-alert>
@@ -236,6 +249,8 @@
         message='{{ i18n "pages.nginx.dualNote" }}' :style="{ marginTop: '12px' }"></a-alert>
       <a-alert v-if="hasLinkChanges" type="warning" show-icon
         message='{{ i18n "pages.nginx.linksWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
+      <a-alert v-if="hasSubsChanges" type="warning" show-icon
+        message='{{ i18n "pages.nginx.subsWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
     </template>
   </a-modal>
 </a-layout>
@@ -327,6 +342,17 @@
       },
       hasDualChanges() {
         return (this.plan.changes || []).some(change => change.kind === 'dual');
+      },
+      hasSubsChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'subs');
+      },
+      canPublish() {
+        return !!this.settings.domain && !!this.cert.certOk;
+      },
+      publishHint() {
+        return this.canPublish
+          ? '{{ i18n "pages.nginx.subsPublishDesc" }}'
+          : '{{ i18n "pages.nginx.subsPublishNeedsDomain" }}';
       },
       certLabel() {
         if (!this.cert.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
@@ -471,6 +497,7 @@
       planIcon(change) {
         switch (change.kind) {
           case 'links': return 'link';
+          case 'subs': return 'profile';
           case 'dual': return 'fork';
           case 'move': return 'swap';
           default: return 'global';
@@ -484,6 +511,7 @@
           links: '{{ i18n "pages.nginx.planLinks" }}',
           serve: '{{ i18n "pages.nginx.planServe" }}',
           dual: '{{ i18n "pages.nginx.planDual" }}',
+          subs: '{{ i18n "pages.nginx.planSubs" }}',
         };
         const template = templates[change.kind] || '%subject%: %from% → %to%';
         return template

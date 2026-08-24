@@ -374,6 +374,9 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 				From: strconv.Itoa(PublicPort), To: strconv.Itoa(snap.Port),
 			})
 		}
+		if from, to, moved := s.subAddressChange(in); moved {
+			plan.Changes = append(plan.Changes, NginxChange{Kind: "subs", From: from, To: to})
+		}
 		return plan
 	}
 
@@ -425,10 +428,54 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 			plan.Changes = append(plan.Changes, NginxChange{Kind: "serve", Subject: in.Domain})
 		}
 	}
+	if from, to, moved := s.subAddressChange(in); moved {
+		plan.Changes = append(plan.Changes, NginxChange{Kind: "subs", From: from, To: to})
+	}
 	if _, err := s.buildConfig(in); err != nil {
 		plan.Blockers = append(plan.Blockers, NginxWarning{Code: "configInvalid", Text: err.Error()})
 	}
 	return plan
+}
+
+// subAddressChange reports where the subscription address moves under the given
+// settings, and whether it moves at all.
+//
+// A subscription URL is a link like any other: once handed out it sits on a
+// client's phone until it is handed out again. Publishing the subscriptions
+// behind the public port changes it, so the plan says so before anything is
+// applied — the same courtesy the inbounds already get.
+func (s *NginxService) subAddressChange(in NginxSettings) (from string, to string, moved bool) {
+	if on, err := s.settingService.GetSubEnable(); err != nil || !on {
+		return "", "", false
+	}
+	label := func(set NginxSettings) string {
+		if nginx.Mode(set.Mode) != nginx.ModeOff && set.SubsBehind443 && set.Domain != "" {
+			// The public port is 443, and a URL says that by saying nothing.
+			return "https://" + set.Domain
+		}
+		return s.ownSubAddress()
+	}
+	from = label(s.GetSettings())
+	to = label(in)
+	return from, to, from != to
+}
+
+// ownSubAddress is where the subscription server answers for itself.
+func (s *NginxService) ownSubAddress() string {
+	scheme := "http"
+	key, _ := s.settingService.GetSubKeyFile()
+	cert, _ := s.settingService.GetSubCertFile()
+	if key != "" && cert != "" {
+		scheme = "https"
+	}
+	port, _ := s.settingService.GetSubPort()
+	domain, _ := s.settingService.GetSubDomain()
+	if domain == "" {
+		// The subscription server has no name of its own — the address follows
+		// whichever host the visitor typed, so only the port is worth showing.
+		domain = "<host>"
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, domain, port)
 }
 
 func listenLabel(listen string, port int) string {
