@@ -175,6 +175,23 @@ func accepting(port int) bool {
 	return true
 }
 
+// WaitPortReleased waits for a port to stop accepting connections.
+//
+// A graceful reload does not free a listening socket the moment it returns:
+// the old workers keep it until they have finished their connections. Handing
+// the port to another process before that produces "address already in use"
+// from a process that had every right to expect it free.
+func WaitPortReleased(port int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !accepting(port) {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return !accepting(port)
+}
+
 // IsRunning reports whether nginx is up.
 func IsRunning() bool {
 	if hasSystemd() {

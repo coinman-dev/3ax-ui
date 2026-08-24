@@ -49,7 +49,7 @@
               </a-col>
 
               <a-col :span="24" v-for="(warning, i) in status.warnings" :key="'w' + i">
-                <a-alert type="warning" show-icon :message="warning"></a-alert>
+                <a-alert type="warning" show-icon :message="warningText(warning)"></a-alert>
               </a-col>
 
               <!-- :span="24" is not decoration. This row already has two columns
@@ -216,8 +216,8 @@
     ok-text='{{ i18n "pages.nginx.confirm" }}' cancel-text='{{ i18n "cancel" }}'
     :confirm-loading="applying" :ok-button-props="{ props: { disabled: hasBlockers } }"
     :class="themeSwitcher.currentTheme" @ok="apply">
-    <a-alert v-for="(blocker, i) in plan.blockers" :key="'b' + i" type="error" show-icon :message="blocker"
-      :style="{ marginBottom: '8px' }"></a-alert>
+    <a-alert v-for="(blocker, i) in plan.blockers" :key="'b' + i" type="error" show-icon
+      :message="warningText(blocker)" :style="{ marginBottom: '8px' }"></a-alert>
 
     <template v-if="!hasBlockers">
       <a-empty v-if="!plan.changes || !plan.changes.length"
@@ -444,6 +444,29 @@
       async deleteStub(site) {
         const msg = await HttpUtil.postJson('panel/api/nginx/stub/del/' + site.id, {});
         if (msg.success) await this.loadStubs();
+      },
+      // The service sends a code and its parameters rather than a sentence: it
+      // runs with no request and no locale, so anything it worded would arrive
+      // in English whatever the panel is set to.
+      warningText(warning) {
+        if (!warning) return '';
+        const wording = {
+          noStreamModule: '{{ i18n "pages.nginx.warnNoStreamModule" }}',
+          notInstalled: '{{ i18n "pages.nginx.notInstalled" }}',
+          noDomain: '{{ i18n "pages.nginx.warnNoDomain" }}',
+          stockCoverPage: '{{ i18n "pages.nginx.warnStockCoverPage" }}',
+          certExpiring: '{{ i18n "pages.nginx.warnCertExpiring" }}',
+          sniConflict: '{{ i18n "pages.nginx.warnSniConflict" }}',
+          sniIsOwnDomain: '{{ i18n "pages.nginx.warnSniIsOwnDomain" }}',
+          nothingToRoute: '{{ i18n "pages.nginx.warnNothingToRoute" }}',
+          inboundsUnreadable: '{{ i18n "pages.nginx.warnInboundsUnreadable" }}',
+        };
+        let text = wording[warning.code];
+        // Codes with no wording of their own carry the message from below.
+        if (!text) return warning.text || warning.code || '';
+        (warning.params || []).forEach(p => { text = text.replace('%s', p); });
+        if (warning.text) text += ' (' + warning.text + ')';
+        return text;
       },
       planIcon(change) {
         switch (change.kind) {

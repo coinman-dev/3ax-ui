@@ -54,18 +54,37 @@ type NginxRoute struct {
 
 // NginxStatus is what the settings page shows.
 type NginxStatus struct {
-	Installed  bool         `json:"installed"`
-	Version    string       `json:"version"`
-	HasStream  bool         `json:"hasStream"`
-	Running    bool         `json:"running"`
-	Mode       string       `json:"mode"`
-	Domain     string       `json:"domain"`
-	CertFile   string       `json:"certFile"`
-	CertOk     bool         `json:"certOk"`
-	CertExpiry int64        `json:"certExpiry"` // unix ms, 0 when unknown
-	PublicPort int          `json:"publicPort"`
-	Routes     []NginxRoute `json:"routes"`
-	Warnings   []string     `json:"warnings"`
+	Installed  bool           `json:"installed"`
+	Version    string         `json:"version"`
+	HasStream  bool           `json:"hasStream"`
+	Running    bool           `json:"running"`
+	Mode       string         `json:"mode"`
+	Domain     string         `json:"domain"`
+	CertFile   string         `json:"certFile"`
+	CertOk     bool           `json:"certOk"`
+	CertExpiry int64          `json:"certExpiry"` // unix ms, 0 when unknown
+	PublicPort int            `json:"publicPort"`
+	Routes     []NginxRoute   `json:"routes"`
+	Warnings   []NginxWarning `json:"warnings"`
+}
+
+// NginxWarning is something worth telling the operator, in a form the panel can
+// say in their own language.
+//
+// The sentence cannot be built here: this runs with no request and no locale,
+// so anything assembled in Go would reach the page in English whatever the
+// panel is set to. The code and its parameters travel instead, and the wording
+// lives with the rest of the translations.
+type NginxWarning struct {
+	Code   string   `json:"code"`
+	Params []string `json:"params,omitempty"`
+	// Text carries a message with no wording of its own — an error from below,
+	// which the panel shows as it came.
+	Text string `json:"text,omitempty"`
+}
+
+func warn(code string, params ...string) NginxWarning {
+	return NginxWarning{Code: code, Params: params}
 }
 
 // NginxChange is one line of the "what is about to happen" list the panel shows
@@ -80,9 +99,9 @@ type NginxChange struct {
 
 // NginxPlan is the change list plus the reasons it cannot be applied yet.
 type NginxPlan struct {
-	Mode     string        `json:"mode"`
-	Changes  []NginxChange `json:"changes"`
-	Blockers []string      `json:"blockers"`
+	Mode     string         `json:"mode"`
+	Changes  []NginxChange  `json:"changes"`
+	Blockers []NginxWarning `json:"blockers"`
 }
 
 // NginxService owns the front-end: the settings, the generated config, and the
@@ -176,8 +195,7 @@ func (s *NginxService) GetStatus() NginxStatus {
 		st.HasStream = nginx.HasStream()
 		st.Running = nginx.IsRunning()
 		if !st.HasStream {
-			st.Warnings = append(st.Warnings,
-				"this nginx was built without the stream module, so it cannot split port 443 by SNI")
+			st.Warnings = append(st.Warnings, warn("noStreamModule"))
 		}
 	}
 	// Two settings that are easy to leave empty and produce a result nobody
@@ -187,16 +205,14 @@ func (s *NginxService) GetStatus() NginxStatus {
 	// a broken certificate rather than a missing setting.
 	if set.Mode != string(nginx.ModeOff) {
 		if set.Domain == "" {
-			st.Warnings = append(st.Warnings,
-				"no domain is set, so opening this server in a browser lands on the Reality cover site and shows its certificate — fill the domain in to serve your own page here")
+			st.Warnings = append(st.Warnings, warn("noDomain"))
 		} else if active := s.stubService.ActiveSite(); active != nil {
 			// The panel installs its built-in page rather than leave the
 			// domain empty, but serving it unchanged is a fingerprint: the
 			// same bytes on every 3AX-UI server anywhere.
 			for _, tpl := range s.stubService.Templates() {
 				if strings.TrimSpace(active.Html) == strings.TrimSpace(tpl.Html) {
-					st.Warnings = append(st.Warnings,
-						"the cover page is the built-in one, unchanged — the same page on every server is a give-away of its own, so edit the text under «Cover page»")
+					st.Warnings = append(st.Warnings, warn("stockCoverPage"))
 					break
 				}
 			}
@@ -208,11 +224,10 @@ func (s *NginxService) GetStatus() NginxStatus {
 			st.CertFile, st.CertOk = cert, true
 			st.CertExpiry = expiry.UnixMilli()
 			if time.Until(expiry) < 14*24*time.Hour {
-				st.Warnings = append(st.Warnings,
-					fmt.Sprintf("the certificate for %s expires on %s", set.Domain, expiry.Format("2006-01-02")))
+				st.Warnings = append(st.Warnings, warn("certExpiring", set.Domain, expiry.Format("2006-01-02")))
 			}
 		} else {
-			st.Warnings = append(st.Warnings, err.Error())
+			st.Warnings = append(st.Warnings, NginxWarning{Code: "certProblem", Text: err.Error()})
 		}
 	}
 
@@ -229,14 +244,14 @@ func (s *NginxService) GetStatus() NginxStatus {
 // the connection, which is the only thing nginx can route on without decrypting
 // anything. UDP protocols — AmneziaWG, native WireGuard — cannot share a TCP
 // port at all and are left alone.
-func (s *NginxService) collectRoutes(set NginxSettings) ([]NginxRoute, []string) {
+func (s *NginxService) collectRoutes(set NginxSettings) ([]NginxRoute, []NginxWarning) {
 	inbounds, err := s.inboundService.GetAllInbounds()
 	if err != nil {
-		return nil, []string{"could not read the inbounds: " + err.Error()}
+		return nil, []NginxWarning{{Code: "inboundsUnreadable", Text: err.Error()}}
 	}
 
 	var routes []NginxRoute
-	var warnings []string
+	var warnings []NginxWarning
 	seen := map[string]string{}
 
 	for _, ib := range inbounds {
@@ -284,15 +299,12 @@ func (s *NginxService) collectRoutes(set NginxSettings) ([]NginxRoute, []string)
 		for _, sni := range snis {
 			key := strings.ToLower(sni)
 			if owner, dup := seen[key]; dup {
-				warnings = append(warnings, fmt.Sprintf(
-					"«%s» and «%s» both use the cover domain %s — nginx can only send it to one of them",
-					owner, ib.Remark, sni))
+				warnings = append(warnings, warn("sniConflict", owner, ib.Remark, sni))
 			}
 			seen[key] = ib.Remark
 		}
 		if strings.EqualFold(set.Domain, strings.Join(snis, "")) || contains(snis, set.Domain) {
-			warnings = append(warnings, fmt.Sprintf(
-				"«%s» uses the panel's own domain %s as its cover domain", ib.Remark, set.Domain))
+			warnings = append(warnings, warn("sniIsOwnDomain", ib.Remark, set.Domain))
 		}
 
 		routes = append(routes, NginxRoute{
@@ -451,7 +463,7 @@ func (s *NginxService) CheckCertificate(domain string) NginxStatus {
 	}
 	cert, _, expiry, err := findCertificate(st.Domain)
 	if err != nil {
-		st.Warnings = append(st.Warnings, err.Error())
+		st.Warnings = append(st.Warnings, NginxWarning{Code: "certProblem", Text: err.Error()})
 		return st
 	}
 	st.CertFile, st.CertOk = cert, true

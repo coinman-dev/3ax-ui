@@ -114,8 +114,11 @@ func TestCollectRoutesReportsSharedCoverDomain(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Fatal("two inbounds share a cover domain and nothing was reported")
 	}
-	if !strings.Contains(warnings[0], "apple.com") && !strings.Contains(warnings[0], "APPLE.com") {
-		t.Errorf("the warning does not name the domain: %q", warnings[0])
+	if warnings[0].Code != "sniConflict" {
+		t.Errorf("unexpected warning %q", warnings[0].Code)
+	}
+	if !strings.Contains(strings.ToLower(strings.Join(warnings[0].Params, " ")), "apple.com") {
+		t.Errorf("the warning does not name the domain: %v", warnings[0].Params)
 	}
 }
 
@@ -549,9 +552,12 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 	s := newNginxTestServer(t)
 	seedInbounds(t)
 
-	mentions := func(warnings []string, needle string) bool {
+	// Warnings travel as codes now, so the panel can say them in the operator's
+	// own language rather than in whatever English the service happened to
+	// assemble.
+	mentions := func(warnings []NginxWarning, code string) bool {
 		for _, w := range warnings {
-			if strings.Contains(w, needle) {
+			if w.Code == code {
 				return true
 			}
 		}
@@ -561,7 +567,7 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 	if err := s.SaveSettings(NginxSettings{Mode: "shared", RealityPort: 8443}); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetStatus().Warnings; !mentions(got, "no domain is set") {
+	if got := s.GetStatus().Warnings; !mentions(got, "noDomain") {
 		t.Errorf("an empty domain was not reported: %v", got)
 	}
 
@@ -570,7 +576,7 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 	if err := s.SaveSettings(NginxSettings{Mode: "off", RealityPort: 8443}); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetStatus().Warnings; mentions(got, "no domain is set") {
+	if got := s.GetStatus().Warnings; mentions(got, "noDomain") {
 		t.Errorf("the front-end is off, yet it complained about the domain: %v", got)
 	}
 
@@ -586,7 +592,7 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 	if err := stubs.SyncToDisk(); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetStatus().Warnings; !mentions(got, "built-in one, unchanged") {
+	if got := s.GetStatus().Warnings; !mentions(got, "stockCoverPage") {
 		t.Errorf("an unedited built-in page was not reported: %v", got)
 	}
 
@@ -598,7 +604,7 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 	if err := stubs.ActivateSite(own.Id); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetStatus().Warnings; mentions(got, "built-in one, unchanged") {
+	if got := s.GetStatus().Warnings; mentions(got, "stockCoverPage") {
 		t.Errorf("a page the operator wrote was still called stock: %v", got)
 	}
 }
@@ -656,7 +662,7 @@ func TestCheckCertificateAnswersForTheTypedDomain(t *testing.T) {
 
 	// Not where the panel looks: reported, with a reason.
 	got := s.CheckCertificate("typed.example.net")
-	if got.CertOk || len(got.Warnings) == 0 {
+	if got.CertOk || len(got.Warnings) == 0 || got.Warnings[0].Text == "" {
 		t.Errorf("a missing certificate was not reported: %+v", got)
 	}
 

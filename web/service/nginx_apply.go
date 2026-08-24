@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
@@ -101,6 +102,13 @@ func (s *NginxService) disable(in NginxSettings) error {
 	}
 	if err := s.restoreInbounds(); err != nil {
 		return err
+	}
+	// nginx reloads gracefully, so its old workers hold the public port for a
+	// moment after the config is gone. Xray moving back onto that port meets
+	// "address already in use", dies, and only comes back because its own
+	// supervisor tries again a couple of seconds later.
+	if !nginx.WaitPortReleased(PublicPort, 10*time.Second) {
+		logger.Warningf("nginx: port %d is still held after the config was removed, restarting xray anyway", PublicPort)
 	}
 	if err := s.xrayService.RestartXray(true); err != nil {
 		return fmt.Errorf("restart xray: %w", err)
@@ -370,16 +378,15 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 	}
 
 	if !nginx.IsInstalled() {
-		plan.Blockers = append(plan.Blockers, "nginx is not installed on this server")
+		plan.Blockers = append(plan.Blockers, warn("notInstalled"))
 	} else if !nginx.HasStream() {
-		plan.Blockers = append(plan.Blockers, "this nginx was built without the stream module")
+		plan.Blockers = append(plan.Blockers, warn("noStreamModule"))
 	}
 
 	routes, warnings := s.collectRoutes(in)
 	plan.Blockers = append(plan.Blockers, warnings...)
 	if len(routes) == 0 {
-		plan.Blockers = append(plan.Blockers,
-			"no inbound can be routed by server name — a VLESS Reality or MTProto inbound is needed")
+		plan.Blockers = append(plan.Blockers, warn("nothingToRoute"))
 	}
 
 	for _, r := range routes {
@@ -413,13 +420,13 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 
 	if in.Domain != "" {
 		if _, _, _, err := findCertificate(in.Domain); err != nil {
-			plan.Blockers = append(plan.Blockers, err.Error())
+			plan.Blockers = append(plan.Blockers, NginxWarning{Code: "certProblem", Text: err.Error()})
 		} else {
 			plan.Changes = append(plan.Changes, NginxChange{Kind: "serve", Subject: in.Domain})
 		}
 	}
 	if _, err := s.buildConfig(in); err != nil {
-		plan.Blockers = append(plan.Blockers, err.Error())
+		plan.Blockers = append(plan.Blockers, NginxWarning{Code: "configInvalid", Text: err.Error()})
 	}
 	return plan
 }
