@@ -3,8 +3,10 @@ package web
 import (
 	"html/template"
 	"io/fs"
+	"maps"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -173,4 +175,115 @@ func flattenKeys(doc map[string]any, prefix string) map[string]bool {
 		out[key] = true
 	}
 	return out
+}
+
+// placeholder matches every substitution the panel puts into a translated
+// string: the Go-side %s and %d, and the named ones the nginx page fills in.
+var placeholder = regexp.MustCompile(`%(?:s|d|subject%|from%|to%)`)
+
+// readBundle returns one language file flattened to key → text.
+func readBundle(t *testing.T, name string) map[string]string {
+	t.Helper()
+	raw, err := i18nFS.ReadFile("translation/" + name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	var doc map[string]any
+	if err := toml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse %s: %v", name, err)
+	}
+	return flattenValues(doc, "")
+}
+
+func flattenValues(doc map[string]any, prefix string) map[string]string {
+	out := map[string]string{}
+	for k, v := range doc {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		switch typed := v.(type) {
+		case map[string]any:
+			for nk, nv := range flattenValues(typed, key) {
+				out[nk] = nv
+			}
+		case string:
+			out[key] = typed
+		}
+	}
+	return out
+}
+
+// bundles lists every language file apart from the English one they are all
+// measured against.
+func bundles(t *testing.T) []string {
+	t.Helper()
+	entries, err := fs.ReadDir(i18nFS, "translation")
+	if err != nil {
+		t.Fatalf("read the translation directory: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() != "translate.en_US.toml" {
+			out = append(out, e.Name())
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no language files to check")
+	}
+	return out
+}
+
+// TestTranslationsAreComplete is the other half of TestTranslationsHaveNoStrayKeys.
+//
+// A key missing from a bundle is not a compile error and not a runtime error
+// either — the panel simply shows the key itself, or the English, to whoever
+// picked that language. Every bundle was complete when this was written, so a
+// gap here means a key was added and eleven files were forgotten.
+func TestTranslationsAreComplete(t *testing.T) {
+	english := readBundle(t, "translate.en_US.toml")
+	for _, name := range bundles(t) {
+		other := readBundle(t, name)
+		var missing []string
+		for key := range english {
+			if _, ok := other[key]; !ok {
+				missing = append(missing, key)
+			}
+		}
+		if len(missing) > 0 {
+			sort.Strings(missing)
+			if len(missing) > 10 {
+				t.Errorf("%s is missing %d keys, starting with %v", name, len(missing), missing[:10])
+				continue
+			}
+			t.Errorf("%s is missing %v", name, missing)
+		}
+	}
+}
+
+// TestTranslationsKeepTheirPlaceholders catches the translation that dropped a
+// %s, or grew one. Either way the panel prints a stray "%!s(MISSING)" or eats
+// the value it was supposed to show, and only a speaker of that language ever
+// sees it.
+func TestTranslationsKeepTheirPlaceholders(t *testing.T) {
+	english := readBundle(t, "translate.en_US.toml")
+	count := func(text string) map[string]int {
+		out := map[string]int{}
+		for _, m := range placeholder.FindAllString(text, -1) {
+			out[m]++
+		}
+		return out
+	}
+	for _, name := range bundles(t) {
+		for key, translated := range readBundle(t, name) {
+			source, ok := english[key]
+			if !ok {
+				continue // TestTranslationsHaveNoStrayKeys reports these
+			}
+			want, got := count(source), count(translated)
+			if !maps.Equal(want, got) {
+				t.Errorf("%s %q: placeholders %v, but en_US has %v", name, key, got, want)
+			}
+		}
+	}
 }
