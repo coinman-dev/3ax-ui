@@ -185,9 +185,17 @@ func (s *NginxService) GetStatus() NginxStatus {
 		if set.Domain == "" {
 			st.Warnings = append(st.Warnings,
 				"no domain is set, so opening this server in a browser lands on the Reality cover site and shows its certificate — fill the domain in to serve your own page here")
-		} else if s.stubService.ActiveSite() == nil {
-			st.Warnings = append(st.Warnings,
-				"no cover page is active, so the domain answers with an empty site — add one under «Cover page»")
+		} else if active := s.stubService.ActiveSite(); active != nil {
+			// The panel installs its built-in page rather than leave the
+			// domain empty, but serving it unchanged is a fingerprint: the
+			// same bytes on every 3AX-UI server anywhere.
+			for _, tpl := range s.stubService.Templates() {
+				if strings.TrimSpace(active.Html) == strings.TrimSpace(tpl.Html) {
+					st.Warnings = append(st.Warnings,
+						"the cover page is the built-in one, unchanged — the same page on every server is a give-away of its own, so edit the text under «Cover page»")
+					break
+				}
+			}
 		}
 	}
 

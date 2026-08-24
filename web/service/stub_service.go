@@ -166,14 +166,55 @@ func (s *StubService) ActiveSite() *model.StubSite {
 	return site
 }
 
-// SyncToDisk writes the active page where nginx serves it from, or clears the
-// file when no page is active. Called after every change and from the reconcile
-// job, so a database restored from a backup brings its cover page back with it.
+// SyncToDisk writes the active page where nginx serves it from. Called after
+// every change and from the reconcile job, so a database restored from a backup
+// brings its cover page back with it.
+//
+// If there is no page at all it installs the built-in one first. A server with
+// the front-end on and an empty web root answers its own domain with nothing —
+// which is worse than any placeholder, because the whole point is to look like
+// an ordinary site. The page is created as a normal row, so it shows up in the
+// list and can be edited or replaced like any other.
 func (s *StubService) SyncToDisk() error {
-	if site := s.ActiveSite(); site != nil {
-		return nginx.WriteStub(site.Html)
+	site := s.ActiveSite()
+	if site == nil {
+		var err error
+		if site, err = s.installDefaultSite(); err != nil {
+			return err
+		}
 	}
-	return nginx.RemoveStub()
+	return nginx.WriteStub(site.Html)
+}
+
+// DefaultTemplateKey is the page a server falls back on when nothing else has
+// been set up.
+const DefaultTemplateKey = "construction"
+
+// installDefaultSite puts the built-in page in the database and makes it
+// active. It is a no-op once any page exists.
+func (s *StubService) installDefaultSite() (*model.StubSite, error) {
+	var templates []StubTemplate
+	for _, t := range s.Templates() {
+		if t.Key == DefaultTemplateKey {
+			templates = append([]StubTemplate{t}, templates...)
+			continue
+		}
+		templates = append(templates, t)
+	}
+	if len(templates) == 0 {
+		return nil, fmt.Errorf("no built-in cover page to fall back on")
+	}
+	tpl := templates[0]
+
+	site := &model.StubSite{
+		Name: tpl.Name, Html: tpl.Html, Size: len(tpl.Html), Active: true,
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	if err := database.GetDB().Create(site).Error; err != nil {
+		return nil, fmt.Errorf("install the default cover page: %w", err)
+	}
+	logger.Info("stub: no cover page was set up, installed the built-in one")
+	return site, nil
 }
 
 // Templates returns the starter pages shipped with the panel.

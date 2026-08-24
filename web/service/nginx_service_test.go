@@ -8,6 +8,7 @@ import (
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
+	"github.com/coinman-dev/3ax-ui/v2/nginx"
 )
 
 const (
@@ -564,20 +565,31 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 		t.Errorf("the front-end is off, yet it complained about the domain: %v", got)
 	}
 
-	// With a domain but no page, the domain answers with an empty site.
+	// With a domain set, the built-in page is installed rather than leaving
+	// the domain empty — but serving it unchanged is a fingerprint of its own,
+	// so the panel says so.
 	if err := s.SaveSettings(NginxSettings{Mode: "shared", Domain: "example.net", RealityPort: 8443}); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetStatus().Warnings; !mentions(got, "no cover page is active") {
-		t.Errorf("a missing cover page was not reported: %v", got)
-	}
-
-	// Once a page exists, that particular complaint stops.
+	nginx.WebRoot = t.TempDir()
+	t.Cleanup(func() { nginx.WebRoot = "/usr/local/x-ui/www" })
 	stubs := &StubService{}
-	if _, err := stubs.SaveSite(&model.StubSite{Name: "site", Html: "<p>hello"}); err != nil {
+	if err := stubs.SyncToDisk(); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.GetStatus().Warnings; mentions(got, "no cover page is active") {
-		t.Errorf("a page is active, yet it still complained: %v", got)
+	if got := s.GetStatus().Warnings; !mentions(got, "built-in one, unchanged") {
+		t.Errorf("an unedited built-in page was not reported: %v", got)
+	}
+
+	// Once the operator has written their own, the nagging stops.
+	own := &model.StubSite{Name: "mine", Html: "<!doctype html><title>mine</title><p>ours"}
+	if _, err := stubs.SaveSite(own); err != nil {
+		t.Fatal(err)
+	}
+	if err := stubs.ActivateSite(own.Id); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStatus().Warnings; mentions(got, "built-in one, unchanged") {
+		t.Errorf("a page the operator wrote was still called stock: %v", got)
 	}
 }

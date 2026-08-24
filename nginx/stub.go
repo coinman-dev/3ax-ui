@@ -38,13 +38,3 @@ func StubOnDisk() string {
 	}
 	return string(body)
 }
-
-// RemoveStub deletes the page. Used when no site is active any more; nginx
-// then has nothing to serve for the root, which is the honest outcome — better
-// than leaving a page the panel no longer knows about.
-func RemoveStub() error {
-	if err := os.Remove(StubPath()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %s: %w", StubPath(), err)
-	}
-	return nil
-}

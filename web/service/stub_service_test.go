@@ -212,27 +212,70 @@ func TestBuiltInTemplatesAreSelfContained(t *testing.T) {
 	}
 }
 
-// TestSyncRemovesThePageWhenNoneIsActive stops nginx serving a page the panel
-// has forgotten about.
-func TestSyncRemovesThePageWhenNoneIsActive(t *testing.T) {
+// TestSyncInstallsTheBuiltInPageWhenThereIsNone: a server with the front-end
+// on and an empty web root answers its own domain with nothing, which is worse
+// than any placeholder — the whole point is to look like an ordinary site.
+func TestSyncInstallsTheBuiltInPageWhenThereIsNone(t *testing.T) {
 	s := newStubTestService(t)
-	site := &model.StubSite{Name: "one", Html: "<p>x"}
-	if _, err := s.SaveSite(site); err != nil {
+
+	if sites, err := s.GetSites(); err != nil {
 		t.Fatal(err)
-	}
-	if nginx.StubOnDisk() == "" {
-		t.Fatal("nothing was written in the first place")
+	} else if len(sites) != 0 {
+		t.Fatalf("expected an empty database, found %d pages", len(sites))
 	}
 
-	if err := database.GetDB().Model(model.StubSite{}).Where("id = ?", site.Id).
-		Update("active", false).Error; err != nil {
-		t.Fatal(err)
-	}
 	if err := s.SyncToDisk(); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if got := nginx.StubOnDisk(); got != "" {
-		t.Errorf("the page is still on disk with none active: %q", got)
+
+	on := nginx.StubOnDisk()
+	if on == "" {
+		t.Fatal("nothing was written; the domain would answer with an empty site")
+	}
+	active := s.ActiveSite()
+	if active == nil {
+		t.Fatal("the page was written but not recorded, so the panel cannot show or edit it")
+	}
+	if active.Html != on {
+		t.Error("what is on disk is not what the database says is active")
+	}
+
+	// It has to be the "under construction" page, and it has to be a normal
+	// row: visible in the list, editable, replaceable.
+	var construction string
+	for _, tpl := range s.Templates() {
+		if tpl.Key == DefaultTemplateKey {
+			construction = tpl.Html
+		}
+	}
+	if active.Html != construction {
+		t.Error("the page installed is not the built-in default")
+	}
+	if sites, err := s.GetSites(); err != nil || len(sites) != 1 {
+		t.Errorf("the default page did not turn up in the list: %v (%d)", err, len(sites))
+	}
+
+	// Running again must not pile up copies.
+	if err := s.SyncToDisk(); err != nil {
+		t.Fatal(err)
+	}
+	if sites, _ := s.GetSites(); len(sites) != 1 {
+		t.Errorf("a second sync created %d pages, want 1", len(sites))
+	}
+
+	// And a page the operator made stays the active one.
+	mine := &model.StubSite{Name: "mine", Html: "<!doctype html><title>mine</title><p>mine"}
+	if _, err := s.SaveSite(mine); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ActivateSite(mine.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncToDisk(); err != nil {
+		t.Fatal(err)
+	}
+	if got := nginx.StubOnDisk(); got != mine.Html {
+		t.Errorf("the sync replaced the operator's page with the default: %q", got)
 	}
 }
 
