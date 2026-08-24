@@ -309,6 +309,10 @@
 "warnSniIsOwnDomain" = "«%s» использует собственный домен панели %s как домен прикрытия."
 "warnNothingToRoute" = "Пока нечего различать по имени сервера — нужен инбаунд VLESS Reality или MTProto."
 "warnInboundsUnreadable" = "Не удалось прочитать инбаунды."
+"confirmPendingTitle" = "Подтвердите, что панель доступна"
+"confirmPendingBody" = "Остальные порты закрыты. Если в течение %s никто не подтвердит, панель откроет их снова и вернёт прежние настройки. Вы это читаете — нажмите кнопку."
+"confirmPendingButton" = "Да, панель доступна"
+"confirmPendingExpired" = "открываем порты обратно…"
 
 [pages.nginx.toasts]
 "applied" = "Настройки Nginx применены"
@@ -317,6 +321,7 @@
 "stubSaveFailed" = "Не удалось сохранить страницу"
 "stubDeleted" = "Страница удалена"
 "stubActivated" = "Страница сделана активной"
+"confirmed" = "Подтверждено — настройки остаются"
 
 [pages.inbounds]
 "allTimeTraffic" = "Общий трафик"

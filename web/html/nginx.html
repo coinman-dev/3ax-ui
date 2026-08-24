@@ -48,6 +48,20 @@
                 </a-card>
               </a-col>
 
+              <!-- Above the warnings on purpose: everything else on this page
+                   can wait two minutes, and this cannot. -->
+              <a-col :span="24" v-if="confirmLeft">
+                <a-alert type="error" show-icon
+                  message='{{ i18n "pages.nginx.confirmPendingTitle" }}'>
+                  <template #description>
+                    <p>[[ confirmBody ]]</p>
+                    <a-button type="primary" :loading="confirming" @click="confirm">
+                      {{ i18n "pages.nginx.confirmPendingButton" }}
+                    </a-button>
+                  </template>
+                </a-alert>
+              </a-col>
+
               <a-col :span="24" v-for="(warning, i) in status.warnings" :key="'w' + i">
                 <a-alert type="warning" show-icon :message="warningText(warning)"></a-alert>
               </a-col>
@@ -275,6 +289,11 @@
       },
       planning: false,
       applying: false,
+      confirming: false,
+      // Ticks once a second so the countdown in the banner moves. Set only
+      // while something is actually pending.
+      now: 0,
+      confirmTimer: null,
       planVisible: false,
       settings: {
         mode: 'off',
@@ -351,6 +370,20 @@
       hasClosedChanges() {
         return (this.plan.changes || []).some(change => change.kind === 'closed');
       },
+      // Seconds left before the panel opens the ports again, or 0 when there
+      // is nothing waiting to be confirmed.
+      confirmLeft() {
+        const deadline = this.status.confirmDeadline || 0;
+        if (!deadline || !this.now) return 0;
+        return Math.max(0, Math.round((deadline - this.now) / 1000));
+      },
+      confirmBody() {
+        const left = this.confirmLeft;
+        const clock = left > 0
+          ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')
+          : '{{ i18n "pages.nginx.confirmPendingExpired" }}';
+        return '{{ i18n "pages.nginx.confirmPendingBody" }}'.replace('%s', clock);
+      },
       canPublish() {
         return !!this.settings.domain && !!this.cert.certOk;
       },
@@ -376,6 +409,7 @@
           if (settings.success) this.settings = settings.obj;
           if (status.success) this.status = status.obj;
           this.loadingStates.fetched = true;
+          this.watchConfirmation();
         } finally {
           this.loadingStates.spinning = false;
         }
@@ -414,6 +448,34 @@
           await this.load();
         } finally {
           this.applying = false;
+        }
+      },
+      async confirm() {
+        this.confirming = true;
+        try {
+          const msg = await HttpUtil.post('panel/api/nginx/confirm');
+          if (msg.success) await this.load();
+        } finally {
+          this.confirming = false;
+        }
+      },
+      // The countdown only runs while there is something to count down, so a
+      // page left open on an ordinary day does no work at all.
+      watchConfirmation() {
+        const pending = !!(this.status.confirmDeadline || 0);
+        if (pending && !this.confirmTimer) {
+          this.now = Date.now();
+          this.confirmTimer = setInterval(() => {
+            this.now = Date.now();
+            // Past the deadline the server has already put things back; ask it
+            // what the truth is rather than guessing.
+            if (this.status.confirmDeadline && this.now > this.status.confirmDeadline + 30000) {
+              this.load();
+            }
+          }, 1000);
+        } else if (!pending && this.confirmTimer) {
+          clearInterval(this.confirmTimer);
+          this.confirmTimer = null;
         }
       },
       async loadStubs() {

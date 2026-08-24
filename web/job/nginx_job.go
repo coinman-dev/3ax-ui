@@ -17,5 +17,9 @@ func NewNginxJob() *NginxJob {
 }
 
 func (j *NginxJob) Run() {
+	// First, because it can undo everything below: a mode that closed the
+	// ports and was never confirmed has to be rolled back before the reconcile
+	// dutifully puts it back in place.
+	j.nginxService.CheckConfirmation()
 	j.nginxService.Reconcile()
 }

@@ -113,13 +113,15 @@ var defaultValueMap = map[string]string{
 	// Nginx front-end defaults. An upgrade must land on "off": the panel has
 	// no way to know whether the operator already has something on 443, and
 	// turning it on unasked would take every protocol down at once.
-	"nginxMode":           "off",
-	"nginxDomain":         "",
-	"nginxStubSiteId":     "0",
-	"nginxSubsBehind443":  "false",
-	"nginxPanelBehind443": "false",
-	"nginxManageFirewall": "false",
-	"nginxRealityPort":    "8443",
+	"nginxMode":            "off",
+	"nginxDomain":          "",
+	"nginxStubSiteId":      "0",
+	"nginxSubsBehind443":   "false",
+	"nginxPanelBehind443":  "false",
+	"nginxManageFirewall":  "false",
+	"nginxConfirmDeadline": "0",
+	"nginxConfirmFallback": "",
+	"nginxRealityPort":     "8443",
 	// 0 means "pick one". The port is chosen once, from a range above the
 	// well-known ports, and then kept: a fixed default would sooner or later
 	// land on a port something else already has.

@@ -89,9 +89,13 @@ type NginxStatus struct {
 	PublicPort int    `json:"publicPort"`
 	// FirewallOn reports whether our chain is in the INPUT path right now —
 	// what the machine is actually doing, not what the settings ask for.
-	FirewallOn bool           `json:"firewallOn"`
-	Routes     []NginxRoute   `json:"routes"`
-	Warnings   []NginxWarning `json:"warnings"`
+	FirewallOn bool `json:"firewallOn"`
+	// ConfirmDeadline is when the panel gives up waiting to be told it is
+	// still reachable and opens the ports again. Unix ms, zero when nothing
+	// is pending.
+	ConfirmDeadline int64          `json:"confirmDeadline"`
+	Routes          []NginxRoute   `json:"routes"`
+	Warnings        []NginxWarning `json:"warnings"`
 }
 
 // NginxWarning is something worth telling the operator, in a form the panel can
@@ -216,6 +220,8 @@ func (s *NginxService) GetStatus() NginxStatus {
 		Domain:     set.Domain,
 		PublicPort: PublicPort,
 		FirewallOn: nginx.FirewallActive(),
+
+		ConfirmDeadline: s.PendingConfirmation(),
 	}
 	if st.Installed {
 		st.Version = nginx.Version()

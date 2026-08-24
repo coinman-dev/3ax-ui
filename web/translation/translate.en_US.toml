@@ -309,6 +309,10 @@
 "warnSniIsOwnDomain" = "«%s» uses the panel's own domain %s as its cover domain."
 "warnNothingToRoute" = "No inbound can be told apart by server name — a VLESS Reality or an MTProto inbound is needed."
 "warnInboundsUnreadable" = "Could not read the inbounds."
+"confirmPendingTitle" = "Confirm the panel is still reachable"
+"confirmPendingBody" = "The other ports are closed. If nobody confirms within %s, the panel opens them again and puts the previous settings back. You are reading this, so press the button."
+"confirmPendingButton" = "Yes, I can reach the panel"
+"confirmPendingExpired" = "opening the ports again…"
 
 [pages.nginx.toasts]
 "applied" = "Nginx settings applied"
@@ -317,6 +321,7 @@
 "stubSaveFailed" = "Could not save the page"
 "stubDeleted" = "Page deleted"
 "stubActivated" = "Page is now active"
+"confirmed" = "Confirmed — the settings stay"
 
 [pages.inbounds]
 "allTimeTraffic" = "All-time Traffic"

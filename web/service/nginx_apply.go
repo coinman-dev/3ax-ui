@@ -43,6 +43,7 @@ func (s *NginxService) Apply(in NginxSettings) error {
 	if !nginx.Mode(in.Mode).Valid() {
 		return fmt.Errorf("unknown mode %q", in.Mode)
 	}
+	previous := s.GetSettings()
 	if in.Mode == string(nginx.ModeOff) {
 		return s.disable(in)
 	}
@@ -94,7 +95,17 @@ func (s *NginxService) Apply(in NginxSettings) error {
 		return err
 	}
 
-	// 5. The firewall goes last, once everything it has to leave reachable is
+	// 5. Arm the rollback before anything closes. Written down rather than
+	//    held in memory: the panel may be restarted between here and the
+	//    deadline, and a timer that died with the process would leave the
+	//    server shut for good.
+	if armsConfirmation(previous, in) {
+		if err := s.armConfirmation(previous); err != nil {
+			return err
+		}
+	}
+
+	// 6. The firewall goes last, once everything it has to leave reachable is
 	//    already answering. It is also the one step that does not undo the
 	//    rest when it fails: the front-end is up and working, the ports are
 	//    merely still open, and tearing a working server down over that would
@@ -145,6 +156,10 @@ func (s *NginxService) disable(in NginxSettings) error {
 		return fmt.Errorf("restart xray: %w", err)
 	}
 	in.Mode = string(nginx.ModeOff)
+	// Nothing is closed any more, so there is nothing left to confirm.
+	if err := s.clearConfirmation(); err != nil {
+		logger.Warning("nginx: could not clear the pending confirmation:", err)
+	}
 	return s.SaveSettings(in)
 }
 
@@ -327,6 +342,18 @@ func (s *NginxService) Reconcile() {
 	// the file nginx serves has to be recreated from it.
 	if err := s.stubService.SyncToDisk(); err != nil {
 		logger.Warning("nginx reconcile: could not write the cover page:", err)
+	}
+
+	// Netfilter rules do not survive a reboot, so the chain can simply be gone
+	// while the settings still say the ports are closed — the panel would
+	// report a camouflaged server that is in fact wide open. Putting it back
+	// touches nothing else, so it does not go through Apply and does not
+	// restart Xray to do it.
+	if closesPorts(set) && !nginx.FirewallActive() {
+		logger.Info("nginx: the firewall chain is gone, putting it back")
+		if err := s.applyFirewall(set); err != nil {
+			logger.Warning("nginx reconcile:", err)
+		}
 	}
 
 	// A fresh install switches the front-end on before there is anything to put

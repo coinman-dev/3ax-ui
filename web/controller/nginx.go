@@ -29,6 +29,7 @@ func (a *NginxController) initRouter(g *gin.RouterGroup) {
 	g.GET("/certificate", a.certificate)
 	g.POST("/plan", a.plan)
 	g.POST("/apply", a.apply)
+	g.POST("/confirm", a.confirm)
 
 	// Cover pages
 	g.GET("/stubs", a.stubs)
@@ -123,6 +124,13 @@ func (a *NginxController) plan(c *gin.Context) {
 		return
 	}
 	jsonObj(c, a.nginxService.Plan(in), nil)
+}
+
+// confirm is the panel reporting that it was reached after the ports closed.
+// Nothing is passed in and nothing needs to be: this request arriving at all is
+// the proof, since it came through an authenticated session on the new address.
+func (a *NginxController) confirm(c *gin.Context) {
+	jsonMsg(c, I18nWeb(c, "pages.nginx.toasts.confirmed"), a.nginxService.Confirm())
 }
 
 func (a *NginxController) apply(c *gin.Context) {
