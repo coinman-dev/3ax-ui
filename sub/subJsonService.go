@@ -173,7 +173,7 @@ func (s *SubJsonService) getConfig(inbound *model.Inbound, client model.Client, 
 			map[string]any{
 				"forceTls": "same",
 				"dest":     host,
-				"port":     float64(inbound.Port),
+				"port":     float64(inbound.LinkPort()),
 				"remark":   "",
 			},
 		}

@@ -196,7 +196,7 @@ func (s *SubService) getFallbackMaster(dest string, streamSettings string) (stri
 	stream["externalProxy"] = masterStream["externalProxy"]
 	modifiedStream, _ := json.MarshalIndent(stream, "", "  ")
 
-	return inbound.Listen, inbound.Port, string(modifiedStream), nil
+	return inbound.Listen, inbound.LinkPort(), string(modifiedStream), nil
 }
 
 func (s *SubService) getLink(inbound *model.Inbound, email string) string {
@@ -225,7 +225,7 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 	obj := map[string]any{
 		"v":    "2",
 		"add":  address,
-		"port": inbound.Port,
+		"port": inbound.LinkPort(),
 		"type": "none",
 	}
 	stream := unmarshalStreamSettings(inbound.StreamSettings)
@@ -264,7 +264,7 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
 	uuid := clients[clientIndex].ID
-	port := inbound.Port
+	port := inbound.LinkPort()
 	streamNetwork := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
@@ -325,7 +325,7 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
 	password := clients[clientIndex].Password
-	port := inbound.Port
+	port := inbound.LinkPort()
 	streamNetwork := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
@@ -417,7 +417,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 		)
 	}
 
-	link := fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), wrapIPv6(address), inbound.Port)
+	link := fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), wrapIPv6(address), inbound.LinkPort())
 	return buildLinkWithParams(link, params, s.genRemark(inbound, email, ""))
 }
 
@@ -527,7 +527,7 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	}
 
 	// No external proxy configured — fall back to the request host.
-	link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, wrapIPv6(s.address), inbound.Port)
+	link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, wrapIPv6(s.address), inbound.LinkPort())
 	url, _ := url.Parse(link)
 	q := url.Query()
 	for k, v := range params {

@@ -1,0 +1,458 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' settings-page'">
+  <a-sidebar></a-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}' size="large">
+        <transition name="list" appear>
+          <template>
+            <a-row v-if="!loadingStates.fetched">
+              <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
+            </a-row>
+            <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
+
+              <a-col :span="24">
+                <a-card hoverable>
+                  <a-row type="flex" justify="space-between" align="middle" :gutter="[16, 16]">
+                    <a-col>
+                      <a-button type="primary" :loading="planning" :disabled="!canApply" @click="openPlan">
+                        {{ i18n "pages.nginx.apply" }}
+                      </a-button>
+                    </a-col>
+                    <a-col>
+                      <!-- The state of the server in its own tinted box, using
+                           the panel's warning palette rather than a colour
+                           invented here. -->
+                      <a-alert type="warning">
+                        <template #message>
+                          <a-space direction="horizontal" :style="{ flexWrap: 'wrap' }">
+                            <a-badge v-if="status.installed" status="success"
+                              :text="'nginx ' + status.version"></a-badge>
+                            <a-badge v-else status="error" text='{{ i18n "pages.nginx.notInstalled" }}'></a-badge>
+                            <a-badge v-if="status.installed && status.running" status="processing"
+                              text='{{ i18n "pages.nginx.running" }}'></a-badge>
+                            <a-badge v-else-if="status.installed" status="default"
+                              text='{{ i18n "pages.nginx.stopped" }}'></a-badge>
+                            <a-badge v-if="status.installed && status.hasStream" status="success"
+                              text='{{ i18n "pages.nginx.streamOk" }}'></a-badge>
+                            <a-badge v-else-if="status.installed" status="error"
+                              text='{{ i18n "pages.nginx.streamMissing" }}'></a-badge>
+                          </a-space>
+                        </template>
+                      </a-alert>
+                    </a-col>
+                  </a-row>
+                </a-card>
+              </a-col>
+
+              <a-col :span="24" v-for="(warning, i) in status.warnings" :key="'w' + i">
+                <a-alert type="warning" show-icon :message="warning"></a-alert>
+              </a-col>
+
+              <!-- :span="24" is not decoration. This row already has two columns
+                   with a declared width, and the grid floats those; a column
+                   without one is not floated and would be laid out from the top
+                   of the row, straight over the cards above it. -->
+              <a-col :span="24">
+                <a-collapse default-active-key="1">
+                  <a-collapse-panel key="1" header='{{ i18n "pages.nginx.mode" }}'>
+                    <a-alert type="info" show-icon message='{{ i18n "pages.nginx.udpNote" }}'
+                      :style="{ marginBottom: '12px' }"></a-alert>
+
+                    <a-setting-list-item paddings="small">
+                      <template #title>{{ i18n "pages.nginx.mode" }}</template>
+                      <!-- One explanation, for the mode actually chosen. Three
+                           paragraphs at once is noise; what matters is what the
+                           selected one will do. -->
+                      <template #description>[[ modeDesc ]]</template>
+                      <template #control>
+                        <a-radio-group v-model="settings.mode" button-style="solid"
+                          :size="isMobile ? 'small' : ''">
+                          <a-radio-button value="off">{{ i18n "pages.nginx.modeOff" }}</a-radio-button>
+                          <a-tooltip title='{{ i18n "pages.nginx.modeSharedHint" }}'>
+                            <a-radio-button value="shared" :disabled="!canEnable">
+                              {{ i18n "pages.nginx.modeShared" }}</a-radio-button>
+                          </a-tooltip>
+                          <a-radio-button value="only443" disabled>
+                            {{ i18n "pages.nginx.modeOnly443" }}</a-radio-button>
+                        </a-radio-group>
+                      </template>
+                    </a-setting-list-item>
+                  </a-collapse-panel>
+
+                  <a-collapse-panel key="2" header='{{ i18n "pages.nginx.domain" }}'>
+                    <a-setting-list-item paddings="small">
+                      <template #title>{{ i18n "pages.nginx.domain" }}</template>
+                      <template #description>{{ i18n "pages.nginx.domainDesc" }}</template>
+                      <template #control>
+                        <a-input type="text" v-model="settings.domain" placeholder="panel.example.com"></a-input>
+                      </template>
+                    </a-setting-list-item>
+                    <a-setting-list-item paddings="small" v-if="settings.domain">
+                      <template #title>{{ i18n "pages.nginx.certificate" }}</template>
+                      <template #description>[[ status.certFile || '—' ]]</template>
+                      <template #control>
+                        <a-badge v-if="status.certOk" status="success" :text="certLabel"></a-badge>
+                        <a-badge v-else status="warning" text='{{ i18n "pages.nginx.certMissing" }}'></a-badge>
+                      </template>
+                    </a-setting-list-item>
+                  </a-collapse-panel>
+
+                  <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}'>
+                    <a-alert type="info" show-icon message='{{ i18n "pages.nginx.stubsDesc" }}'
+                      :style="{ marginBottom: '12px' }"></a-alert>
+                    <a-space direction="horizontal" :style="{ marginBottom: '12px' }">
+                      <a-button type="primary" icon="plus" @click="newStub">
+                        {{ i18n "pages.nginx.stubAdd" }}
+                      </a-button>
+                    </a-space>
+                    <a-table v-if="stubs && stubs.length" :columns="stubColumns" :data-source="stubs"
+                      :row-key="site => site.id" :pagination="false"
+                      :scroll="isMobile ? { x: 560 } : {}" size="small">
+                      <template slot="state" slot-scope="text, site">
+                        <a-tag v-if="site.active" color="green">{{ i18n "pages.nginx.stubActive" }}</a-tag>
+                        <a-button v-else size="small" @click="activateStub(site)">
+                          {{ i18n "pages.nginx.stubMakeActive" }}</a-button>
+                      </template>
+                      <template slot="size" slot-scope="text, site">
+                        [[ SizeFormatter.sizeFormat(site.size) ]]
+                      </template>
+                      <template slot="actions" slot-scope="text, site">
+                        <a-space direction="horizontal">
+                          <a-button size="small" icon="edit" @click="editStub(site)"></a-button>
+                          <a-popconfirm title='{{ i18n "pages.nginx.stubDeleteAsk" }}'
+                            ok-text='{{ i18n "sure" }}' cancel-text='{{ i18n "cancel" }}'
+                            @confirm="deleteStub(site)">
+                            <a-button size="small" type="danger" icon="delete"
+                              :disabled="site.active"></a-button>
+                          </a-popconfirm>
+                        </a-space>
+                      </template>
+                    </a-table>
+                    <a-empty v-else description='{{ i18n "pages.nginx.stubsEmpty" }}'></a-empty>
+                  </a-collapse-panel>
+
+                  <a-collapse-panel key="3" header='{{ i18n "pages.nginx.routes" }}'>
+                    <a-alert type="info" show-icon message='{{ i18n "pages.nginx.routesDesc" }}'
+                      :style="{ marginBottom: '12px' }"></a-alert>
+                    <a-table v-if="status.routes && status.routes.length" :columns="routeColumns"
+                      :data-source="status.routes" :row-key="route => route.inboundId" :pagination="false"
+                      :scroll="isMobile ? { x: 600 } : {}" size="small">
+                      <template slot="sni" slot-scope="text, route">
+                        <a-tag v-for="sni in route.snis" :key="sni">[[ sni ]]</a-tag>
+                        <a-tag v-if="route.fallback" color="blue">{{ i18n "pages.nginx.routeFallback" }}</a-tag>
+                      </template>
+                      <template slot="internal" slot-scope="text, route">
+                        <a-tag color="purple">[[ route.listen || '0.0.0.0' ]]:[[ route.port ]]</a-tag>
+                      </template>
+                    </a-table>
+                    <a-empty v-else description='{{ i18n "pages.nginx.noRoutes" }}'></a-empty>
+                  </a-collapse-panel>
+                </a-collapse>
+              </a-col>
+            </a-row>
+          </template>
+        </transition>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+
+  <a-modal v-model="stubModal.visible" :title="stubModal.id ? stubTitleEdit : stubTitleNew"
+    :width="isMobile ? '100%' : 900" ok-text='{{ i18n "save" }}' cancel-text='{{ i18n "cancel" }}'
+    :confirm-loading="stubModal.saving" :class="themeSwitcher.currentTheme" @ok="saveStub">
+    <a-list item-layout="horizontal" :split="false">
+      <a-setting-list-item paddings="small">
+        <template #title>{{ i18n "pages.nginx.stubName" }}</template>
+        <template #description>{{ i18n "pages.nginx.stubNameDesc" }}</template>
+        <template #control>
+          <a-input v-model="stubModal.name" placeholder="example.com"></a-input>
+        </template>
+      </a-setting-list-item>
+      <a-setting-list-item paddings="small">
+        <template #title>{{ i18n "pages.nginx.stubStartFrom" }}</template>
+        <template #description>{{ i18n "pages.nginx.stubStartFromDesc" }}</template>
+        <template #control>
+          <a-space direction="horizontal" :style="{ flexWrap: 'wrap' }">
+            <a-select :style="{ minWidth: '190px' }" v-model="stubModal.template"
+              :dropdown-class-name="themeSwitcher.currentTheme"
+              placeholder='{{ i18n "pages.nginx.stubTemplate" }}' @change="applyStubTemplate">
+              <a-select-option v-for="tpl in stubTemplates" :key="tpl.key" :value="tpl.key">
+                [[ tpl.name ]]</a-select-option>
+            </a-select>
+            <a-upload :before-upload="readStubFile" :show-upload-list="false" accept=".html,.htm">
+              <a-button icon="upload">{{ i18n "pages.nginx.stubUpload" }}</a-button>
+            </a-upload>
+          </a-space>
+        </template>
+      </a-setting-list-item>
+    </a-list>
+
+    <a-tabs default-active-key="code" :style="{ marginTop: '8px' }">
+      <a-tab-pane key="code" tab='{{ i18n "pages.nginx.stubCode" }}'>
+        <a-textarea v-model="stubModal.html" :auto-size="{ minRows: 12, maxRows: 20 }"
+          :style="{ fontFamily: 'monospace', fontSize: '13px' }"></a-textarea>
+      </a-tab-pane>
+      <a-tab-pane key="preview" tab='{{ i18n "pages.nginx.stubPreview" }}'>
+        <!-- A bare sandbox: no scripts, no forms, no access to the panel. The
+             page belongs to the operator, but it is still markup being rendered
+             inside an authenticated session. -->
+        <iframe :srcdoc="stubModal.html" sandbox
+          :style="{ width: '100%', height: '420px', border: '1px solid rgba(128,128,128,.35)', borderRadius: '6px', background: '#fff' }"></iframe>
+      </a-tab-pane>
+    </a-tabs>
+
+    <a-alert v-for="(warning, i) in stubModal.warnings" :key="'sw' + i" type="warning" show-icon
+      :message="warning" :style="{ marginTop: '12px' }"></a-alert>
+  </a-modal>
+
+  <!-- Nothing moves until this has been read and confirmed: a link that changes
+       cannot be un-changed for the clients already holding it. -->
+  <a-modal v-model="planVisible" title='{{ i18n "pages.nginx.planTitle" }}'
+    ok-text='{{ i18n "pages.nginx.confirm" }}' cancel-text='{{ i18n "cancel" }}'
+    :confirm-loading="applying" :ok-button-props="{ props: { disabled: hasBlockers } }"
+    :class="themeSwitcher.currentTheme" @ok="apply">
+    <a-alert v-for="(blocker, i) in plan.blockers" :key="'b' + i" type="error" show-icon :message="blocker"
+      :style="{ marginBottom: '8px' }"></a-alert>
+
+    <template v-if="!hasBlockers">
+      <a-empty v-if="!plan.changes || !plan.changes.length"
+        description='{{ i18n "pages.nginx.planEmpty" }}'></a-empty>
+      <!-- Plain rows on purpose: .ant-list resets the text colour to a
+           near-black that the dark theme never overrides, so a list here would
+           render black on black. -->
+      <div v-else>
+        <div v-for="(change, i) in plan.changes" :key="'c' + i"
+          :style="{ marginBottom: '8px', display: 'flex', alignItems: 'flex-start' }">
+          <a-icon :type="planIcon(change)" :style="{ marginInlineEnd: '8px', marginTop: '4px' }"></a-icon>
+          <span>[[ planText(change) ]]</span>
+        </div>
+      </div>
+      <a-alert v-if="hasDualChanges" type="info" show-icon
+        message='{{ i18n "pages.nginx.dualNote" }}' :style="{ marginTop: '12px' }"></a-alert>
+      <a-alert v-if="hasLinkChanges" type="warning" show-icon
+        message='{{ i18n "pages.nginx.linksWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
+    </template>
+  </a-modal>
+</a-layout>
+
+{{template "page/body_scripts" .}}
+{{template "component/aSidebar" .}}
+{{template "component/aThemeSwitch" .}}
+{{template "component/aSettingListItem" .}}
+
+<script>
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    mixins: [MediaQueryMixin],
+    data: {
+      themeSwitcher,
+      loadingStates: {
+        fetched: false,
+        spinning: false,
+      },
+      planning: false,
+      applying: false,
+      planVisible: false,
+      settings: {
+        mode: 'off',
+        domain: '',
+        realityPort: 8443,
+        stubSiteId: 0,
+        subsBehind443: false,
+        panelBehind443: false,
+        manageFirewall: false,
+      },
+      status: {
+        installed: false,
+        running: false,
+        hasStream: false,
+        version: '',
+        routes: [],
+        warnings: [],
+        certOk: false,
+        certFile: '',
+        certExpiry: 0,
+      },
+      plan: { changes: [], blockers: [] },
+      SizeFormatter,
+      stubs: [],
+      stubTemplates: [],
+      stubModal: { visible: false, saving: false, id: 0, name: '', html: '', template: undefined, warnings: [] },
+      stubTitleNew: '{{ i18n "pages.nginx.stubNew" }}',
+      stubTitleEdit: '{{ i18n "pages.nginx.stubEdit" }}',
+      stubColumns: [
+        { title: '{{ i18n "pages.nginx.stubName" }}', dataIndex: 'name' },
+        { title: '{{ i18n "pages.nginx.stubSize" }}', scopedSlots: { customRender: 'size' }, width: 110 },
+        { title: '{{ i18n "pages.nginx.stubState" }}', scopedSlots: { customRender: 'state' }, width: 150 },
+        { title: '', scopedSlots: { customRender: 'actions' }, width: 110, align: 'right' },
+      ],
+      routeColumns: [
+        { title: '{{ i18n "pages.nginx.routeInbound" }}', dataIndex: 'remark' },
+        { title: '{{ i18n "pages.nginx.routeProtocol" }}', dataIndex: 'protocol' },
+        { title: '{{ i18n "pages.nginx.routeSni" }}', scopedSlots: { customRender: 'sni' } },
+        { title: '{{ i18n "pages.nginx.routeInternal" }}', scopedSlots: { customRender: 'internal' } },
+      ],
+    },
+    computed: {
+      // Offering a mode the server cannot deliver only produces a confusing
+      // failure later, so the choice itself stays closed until nginx can do it.
+      canEnable() {
+        return this.status.installed && this.status.hasStream;
+      },
+      modeDesc() {
+        switch (this.settings.mode) {
+          case 'shared': return '{{ i18n "pages.nginx.modeSharedDesc" }}';
+          case 'only443': return '{{ i18n "pages.nginx.modeOnly443Soon" }}';
+          default: return '{{ i18n "pages.nginx.modeOffDesc" }}';
+        }
+      },
+      canApply() {
+        return this.loadingStates.fetched && (this.settings.mode === 'off' || this.canEnable);
+      },
+      hasBlockers() {
+        return (this.plan.blockers || []).length > 0;
+      },
+      hasLinkChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'links');
+      },
+      hasDualChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'dual');
+      },
+      certLabel() {
+        if (!this.status.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
+        const date = new Date(this.status.certExpiry).toISOString().slice(0, 10);
+        return '{{ i18n "pages.nginx.certExpires" }}'.replace('%s', date);
+      },
+    },
+    methods: {
+      async load() {
+        this.loadingStates.spinning = true;
+        try {
+          const [settings, status] = await Promise.all([
+            HttpUtil.get('panel/api/nginx/settings'),
+            HttpUtil.get('panel/api/nginx/status'),
+          ]);
+          if (settings.success) this.settings = settings.obj;
+          if (status.success) this.status = status.obj;
+          this.loadingStates.fetched = true;
+        } finally {
+          this.loadingStates.spinning = false;
+        }
+      },
+      async openPlan() {
+        this.planning = true;
+        try {
+          const msg = await HttpUtil.postJson('panel/api/nginx/plan', this.settings);
+          if (!msg.success) return;
+          this.plan = msg.obj || { changes: [], blockers: [] };
+          this.planVisible = true;
+        } finally {
+          this.planning = false;
+        }
+      },
+      async apply() {
+        this.applying = true;
+        try {
+          const msg = await HttpUtil.postJson('panel/api/nginx/apply', this.settings);
+          if (!msg.success) return;
+          this.planVisible = false;
+          await this.load();
+        } finally {
+          this.applying = false;
+        }
+      },
+      async loadStubs() {
+        const [sites, templates] = await Promise.all([
+          HttpUtil.get('panel/api/nginx/stubs'),
+          HttpUtil.get('panel/api/nginx/stub-templates'),
+        ]);
+        if (sites.success) this.stubs = sites.obj || [];
+        if (templates.success) this.stubTemplates = templates.obj || [];
+      },
+      newStub() {
+        this.stubModal = { visible: true, saving: false, id: 0, name: '', html: '', template: undefined, warnings: [] };
+      },
+      async editStub(site) {
+        // The list is fetched without the markup — it can be half a megabyte
+        // per page — so the full page is read only when one is opened.
+        const msg = await HttpUtil.get('panel/api/nginx/stub/' + site.id);
+        if (!msg.success) return;
+        this.stubModal = {
+          visible: true, saving: false, id: msg.obj.id, name: msg.obj.name,
+          html: msg.obj.html, template: undefined, warnings: [],
+        };
+      },
+      applyStubTemplate(key) {
+        const tpl = this.stubTemplates.find(t => t.key === key);
+        if (!tpl) return;
+        this.stubModal.html = tpl.html;
+        if (!this.stubModal.name) this.stubModal.name = tpl.name;
+      },
+      // Returning false keeps a-upload from posting the file anywhere: the
+      // page is read in the browser and travels with the save.
+      readStubFile(file) {
+        const reader = new FileReader();
+        reader.onload = e => { this.stubModal.html = e.target.result; };
+        reader.readAsText(file);
+        return false;
+      },
+      async saveStub() {
+        this.stubModal.saving = true;
+        try {
+          const msg = await HttpUtil.postJson('panel/api/nginx/stub/save', {
+            id: this.stubModal.id, name: this.stubModal.name, html: this.stubModal.html,
+          });
+          if (!msg.success) return;
+          this.stubModal.warnings = (msg.obj && msg.obj.warnings) || [];
+          await this.loadStubs();
+          // Warnings are advice, not a failure — keep the editor open so they
+          // can actually be read and acted on.
+          if (!this.stubModal.warnings.length) this.stubModal.visible = false;
+          else this.stubModal.id = msg.obj.site.id;
+        } finally {
+          this.stubModal.saving = false;
+        }
+      },
+      async activateStub(site) {
+        const msg = await HttpUtil.postJson('panel/api/nginx/stub/activate/' + site.id, {});
+        if (msg.success) await this.loadStubs();
+      },
+      async deleteStub(site) {
+        const msg = await HttpUtil.postJson('panel/api/nginx/stub/del/' + site.id, {});
+        if (msg.success) await this.loadStubs();
+      },
+      planIcon(change) {
+        switch (change.kind) {
+          case 'links': return 'link';
+          case 'dual': return 'fork';
+          case 'move': return 'swap';
+          default: return 'global';
+        }
+      },
+      // The plan is assembled server-side as (kind, subject, from, to) so the
+      // wording lives here, in the language the panel is showing.
+      planText(change) {
+        const templates = {
+          move: '{{ i18n "pages.nginx.planMove" }}',
+          links: '{{ i18n "pages.nginx.planLinks" }}',
+          serve: '{{ i18n "pages.nginx.planServe" }}',
+          dual: '{{ i18n "pages.nginx.planDual" }}',
+        };
+        const template = templates[change.kind] || '%subject%: %from% → %to%';
+        return template
+          .replace('%subject%', change.subject || '')
+          .replace('%from%', change.from || '')
+          .replace('%to%', change.to || '');
+      },
+    },
+    async mounted() {
+      await this.load();
+      await this.loadStubs();
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

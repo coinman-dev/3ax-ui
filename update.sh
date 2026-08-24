@@ -884,6 +884,88 @@ config_after_update() {
 
 # Translates the panel's arch label to xray-core's release naming so we can
 # fetch the right Xray-linux-{ARCH}.zip from XTLS/Xray-core releases.
+# install_nginx puts nginx on the server so the panel can consolidate every TLS
+# protocol onto port 443. It is installed unconditionally, before the panel, for
+# the same reason AmneziaWG is: the panel decides on first start what it can
+# offer, and a front-end that appears only after the next update is a front-end
+# nobody finds.
+#
+# Nothing here fails the installation. A server without nginx keeps working
+# exactly as before — it simply cannot hide its protocols behind one port.
+install_nginx() {
+    if command -v nginx &>/dev/null; then
+        echo -e "${green}nginx already installed: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
+    else
+        echo -e "${green}Installing nginx...${plain}"
+        case "${release}" in
+            ubuntu | debian | armbian)
+                # On Debian and its derivatives the stream module is a separate
+                # package, and without it nginx cannot split 443 by SNI at all.
+                apt-get install -y -q nginx libnginx-mod-stream 2>/dev/null ||
+                    apt-get install -y -q nginx 2>/dev/null || true
+                ;;
+            fedora | amzn | rhel | almalinux | rocky | ol | centos)
+                dnf install -y nginx nginx-mod-stream 2>/dev/null ||
+                    dnf install -y nginx 2>/dev/null ||
+                    yum install -y nginx 2>/dev/null || true
+                ;;
+            arch | manjaro | parch)
+                pacman -Syu --noconfirm nginx 2>/dev/null || true
+                ;;
+            alpine)
+                apk add nginx nginx-mod-stream 2>/dev/null || apk add nginx 2>/dev/null || true
+                ;;
+            *)
+                echo -e "${yellow}Unknown OS — install nginx by hand to use the «everything on 443» modes.${plain}"
+                ;;
+        esac
+    fi
+
+    if ! command -v nginx &>/dev/null; then
+        echo -e "${yellow}nginx was not installed. The panel works as before; the Nginx page will${plain}"
+        echo -e "${yellow}stay unavailable until nginx is installed.${plain}"
+        return
+    fi
+
+    # The panel owns this directory: a distro's nginx.conf includes conf.d from
+    # inside http {}, where a stream block is a syntax error, so the stream part
+    # of the config needs a home of its own.
+    mkdir -p /etc/nginx/stream-enabled /usr/local/x-ui/www
+
+    if ! nginx -V 2>&1 | grep -q -- '--with-stream' &&
+        ! ls /etc/nginx/modules-enabled/*stream*.conf &>/dev/null; then
+        echo -e "${yellow}This nginx has no stream module, so port 443 cannot be split by server name.${plain}"
+        case "${release}" in
+            ubuntu | debian | armbian) echo -e "${yellow}  Fix: apt-get install -y libnginx-mod-stream${plain}" ;;
+            alpine) echo -e "${yellow}  Fix: apk add nginx-mod-stream${plain}" ;;
+            *) echo -e "${yellow}  Install the nginx stream module for your distribution.${plain}" ;;
+        esac
+    fi
+
+    # A configuration the panel generated earlier may not be accepted by a newer
+    # nginx. Saying so here is the difference between a five-minute fix and a
+    # server where 443 is quietly down after an update.
+    if ! nginx -t &>/dev/null; then
+        echo -e "${red}nginx refuses the current configuration:${plain}"
+        nginx -t 2>&1 | sed 's/^/    /'
+        echo -e "${yellow}Port 443 stays down until this is fixed. The panel rewrites its own part${plain}"
+        echo -e "${yellow}of the config from the Nginx page — reapplying the mode there is usually enough.${plain}"
+        return
+    fi
+
+    # A server that reboots without nginx comes back with 443 shut and every
+    # protocol behind it unreachable.
+    if command -v systemctl &>/dev/null; then
+        systemctl enable nginx &>/dev/null || true
+        systemctl start nginx &>/dev/null || systemctl reload nginx &>/dev/null || true
+    elif command -v rc-update &>/dev/null; then
+        rc-update add nginx default &>/dev/null || true
+        rc-service nginx start &>/dev/null || true
+    fi
+
+    echo -e "${green}nginx: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
+}
+
 xray_release_arch() {
     case "$(arch)" in
         amd64) echo "64" ;;
@@ -1588,6 +1670,37 @@ update_x-ui_print_footer() {
 └───────────────────────────────────────────────────────┘"
 }
 
+# prune_stale_amneziawg_dkms drops every amneziawg build in the DKMS tree except
+# the newest one.
+#
+# Upgrading the package normally removes its own predecessor, but a version left
+# behind by an interrupted upgrade — or a module someone built by hand before
+# the panel was installed — stays in the tree, gets rebuilt for every new kernel
+# from then on, and leaves two amneziawg.ko for depmod to choose between. The
+# symptom is a tunnel that works until a kernel update and then loads the wrong
+# module.
+prune_stale_amneziawg_dkms() {
+    command -v dkms &>/dev/null || return 0
+
+    local versions count newest
+    # dkms 2.x prints "amneziawg, 1.0.0, <kernel>, ..."; 3.x prints
+    # "amneziawg/1.0.0, <kernel>, ...". Both reduce to the version alone.
+    versions=$(dkms status amneziawg 2>/dev/null |
+        sed -E 's#^amneziawg[/,][[:space:]]*([^,]+),.*#\1#' | sort -Vu)
+    count=$(echo "$versions" | grep -c '[^[:space:]]')
+    [[ "$count" -gt 1 ]] || return 0
+
+    newest=$(echo "$versions" | tail -n1)
+    echo -e "${yellow}Several amneziawg versions found in the DKMS tree, keeping ${newest}:${plain}"
+    while read -r v; do
+        [[ -n "$v" && "$v" != "$newest" ]] || continue
+        echo -e "${yellow}  removing amneziawg/${v}${plain}"
+        dkms remove "amneziawg/${v}" --all &>/dev/null ||
+            dkms remove -m amneziawg -v "${v}" --all &>/dev/null || true
+    done <<<"$versions"
+    depmod -a &>/dev/null || true
+}
+
 ensure_wireguard_native() {
     if command -v wg &>/dev/null; then
         modprobe wireguard 2>/dev/null || true
@@ -1652,4 +1765,6 @@ detect_debug_mode_from_existing_install() {
 detect_debug_mode_from_existing_install
 install_base
 ensure_wireguard_native
+prune_stale_amneziawg_dkms
+install_nginx
 update_x-ui $1

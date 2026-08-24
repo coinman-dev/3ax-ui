@@ -17,6 +17,7 @@ type APIController struct {
 	awgController     *TunnelController
 	wgController      *TunnelController
 	mtprotoController *MtprotoController
+	nginxController   *NginxController
 	Tgbot             service.Tgbot
 }
 
@@ -62,6 +63,10 @@ func (a *APIController) initRouter(g *gin.RouterGroup, customGeo *service.Custom
 	// MTProto API
 	mtprotoGroup := api.Group("/mtproto")
 	a.mtprotoController = NewMtprotoController(mtprotoGroup)
+
+	// Nginx front-end API
+	nginxGroup := api.Group("/nginx")
+	a.nginxController = NewNginxController(nginxGroup)
 
 	// Custom Geo API
 	NewCustomGeoController(api.Group("/custom-geo"), customGeo)

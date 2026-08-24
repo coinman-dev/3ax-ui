@@ -30,6 +30,7 @@ func (a *XUIController) initRouter(g *gin.RouterGroup) {
 	g.GET("/awg", a.wgPage) // legacy redirect: /awg → same WG settings page
 	g.GET("/settings", a.settings)
 	g.GET("/xray", a.xraySettings)
+	g.GET("/nginx", a.nginxPage)
 
 	a.settingController = NewSettingController(g)
 	a.xraySettingController = NewXraySettingController(g)
@@ -50,6 +51,11 @@ func (a *XUIController) wgPage(c *gin.Context) {
 	html(c, "awg.html", "pages.wg.title", gin.H{
 		"active_wg_tab": "awg",
 	})
+}
+
+// nginxPage renders the nginx front-end settings page.
+func (a *XUIController) nginxPage(c *gin.Context) {
+	html(c, "nginx.html", "pages.nginx.title", nil)
 }
 
 // settings renders the settings management page.

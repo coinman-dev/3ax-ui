@@ -122,7 +122,7 @@ func (s *SubClashService) getProxies(inbound *model.Inbound, client model.Client
 		externalProxies = []any{map[string]any{
 			"forceTls": "same",
 			"dest":     host,
-			"port":     float64(inbound.Port),
+			"port":     float64(inbound.LinkPort()),
 			"remark":   "",
 		}}
 	}
