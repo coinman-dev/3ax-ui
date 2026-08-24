@@ -803,7 +803,7 @@
 "s3Desc" = "AmneziaWG 2.0: random padding for Cookie packets (0-64). 0 keeps 1.x behaviour."
 "s4Desc" = "AmneziaWG 2.0: random padding for Data (transport) packets (0-32). 0 keeps 1.x behaviour."
 "i1Desc" = "AmneziaWG 2.0: CPS signature packet sent before each handshake, e.g. <r 128> (N random bytes). Empty keeps 1.x behaviour."
-"i2to5Desc" = "I2-I5 are further signature packets sent before the handshake alongside I1. The generator gives each one the opening bytes of another protocol — QUIC, STUN, DTLS — so the start of the flow reads as something a censor already allows. They need not match the server; the receiver never validates them. Tags: <b 0xHEX> literal bytes, <r N> random bytes, <c> counter, <t> timestamp. Empty fields are skipped, and a client app older than AmneziaVPN 5.18 ignores them."
+"i2to5Desc" = "(I2-I5) further signature packets sent before the handshake alongside I1. The generator gives each one the opening bytes of another protocol — QUIC, STUN, DTLS — so the start of the flow reads as something a censor already allows. They need not match the server; the receiver never validates them. Tags: <b 0xHEX> literal bytes, <r N> random bytes, <c> counter, <t> timestamp. Empty fields are skipped, and a client app older than AmneziaVPN 5.18 ignores them."
 "awg3Unsupported" = "This server's AmneziaWG is too old for 3.0 — update amneziawg-tools and the kernel module. Installed:"
 "off" = "off"
 "headerProtectionKeyDesc" = "AmneziaWG 3.0: base64 32-byte key encrypting the packet header (ChaCha20). The one 3.0 parameter that must match on both ends — a client without it cannot connect. Requires S1-S4 to be at least 12. Empty = off."

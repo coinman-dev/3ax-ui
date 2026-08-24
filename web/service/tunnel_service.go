@@ -128,6 +128,19 @@ func (s *TunnelService[K]) GetServer() (*model.TunnelServer, error) {
 		needSave = true
 	}
 
+	// A brand-new AmneziaWG server is born obfuscated. Until now a fresh
+	// install served the 1.x defaults — no junk packets at all — until somebody
+	// found the Generate button, which is the worst moment to discover it: the
+	// first clients are already connected and changing the set disconnects them.
+	//
+	// Only ever on creation. Upgrading a panel must not touch a live tunnel, and
+	// isInitialRecord is what separates the two: it is true exactly once, in the
+	// call that generates the server's keys.
+	if isInitialRecord && k.Obfuscation {
+		seedObfuscation(&server, tunnel.SupportsV3(k))
+		needSave = true
+	}
+
 	if needSave {
 		if err := db.Save(&server).Error; err != nil {
 			return nil, err
@@ -135,6 +148,40 @@ func (s *TunnelService[K]) GetServer() (*model.TunnelServer, error) {
 	}
 
 	return &server, nil
+}
+
+// seedObfuscation fills a new AmneziaWG record with a generated parameter set:
+// the 3.x one where the host's tools and kernel module can run it, the 2.0 one
+// otherwise. The 2.0 fallback matters on a host where amneziawg is older or was
+// installed after the panel — writing 3.0 keys there yields a config that
+// refuses to load, which is worse than weaker obfuscation.
+//
+// Clients must match the server, so both cases mean the same thing for whoever
+// connects: they import the config the panel hands them. That is free on a fresh
+// install, where there are no clients yet.
+func seedObfuscation(server *model.TunnelServer, supportsV3 bool) {
+	if !supportsV3 {
+		applyObfuscation20(server, tunnel.GenerateObfuscation20("default"))
+		return
+	}
+	o := tunnel.GenerateObfuscation30("default")
+	applyObfuscation20(server, o.Obfuscation20)
+	server.HeaderProtectionKey = o.HeaderProtectionKey
+	server.ContentPaddingAddition = o.ContentPaddingAddition
+	server.RekeyAfterTime = o.RekeyAfterTime
+	server.RekeyTimeout = o.RekeyTimeout
+	server.RejectAfterTime = o.RejectAfterTime
+	server.KeepaliveTimeout = o.KeepaliveTimeout
+	server.MaxHandshakeAttempts = o.MaxHandshakeAttempts
+	server.RandomTrailers = o.RandomTrailers
+	server.DisableCookies = o.DisableCookies
+}
+
+func applyObfuscation20(server *model.TunnelServer, o tunnel.Obfuscation20) {
+	server.Jc, server.Jmin, server.Jmax = o.Jc, o.Jmin, o.Jmax
+	server.S1, server.S2, server.S3, server.S4 = o.S1, o.S2, o.S3, o.S4
+	server.H1, server.H2, server.H3, server.H4 = o.H1, o.H2, o.H3, o.H4
+	server.I1, server.I2, server.I3, server.I4, server.I5 = o.I1, o.I2, o.I3, o.I4, o.I5
 }
 
 // SaveServer saves server settings and optionally applies them to the OS.

@@ -485,9 +485,10 @@
                             :style="{ width: '100%' }"></a-input>
                         </template>
                       </a-setting-list-item>
-                      <!-- I2-I5 share one explanation, printed once below the
-                           four fields instead of four times over. -->
-                      <a-setting-list-item paddings="small" v-for="n in [2, 3, 4, 5]" :key="'i' + n">
+                      <!-- One explanation for the four of them, carried by the
+                           last row so it reads as a note under the group rather
+                           than four copies of the same paragraph. -->
+                      <a-setting-list-item paddings="small" v-for="n in [2, 3, 4]" :key="'i' + n">
                         <template #title>I[[ n ]]</template>
                         <template #control>
                           <a-input v-model="awgServer['i' + n]" placeholder="&lt;r 64&gt;"
@@ -495,7 +496,12 @@
                         </template>
                       </a-setting-list-item>
                       <a-setting-list-item paddings="small">
+                        <template #title>I5</template>
                         <template #description>{{ i18n "pages.awg.i2to5Desc" }}</template>
+                        <template #control>
+                          <a-input v-model="awgServer.i5" placeholder="&lt;r 64&gt;"
+                            :style="{ width: '100%' }"></a-input>
+                        </template>
                       </a-setting-list-item>
 
                       <a-setting-list-item paddings="small">
