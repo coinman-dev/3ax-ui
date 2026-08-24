@@ -176,6 +176,21 @@ func (s *NginxService) GetStatus() NginxStatus {
 				"this nginx was built without the stream module, so it cannot split port 443 by SNI")
 		}
 	}
+	// Two settings that are easy to leave empty and produce a result nobody
+	// would guess: with no domain the front-end is pure passthrough, so a
+	// browser opening the panel's own domain falls through to the Reality
+	// inbound and is answered with somebody else's certificate. It looks like
+	// a broken certificate rather than a missing setting.
+	if set.Mode != string(nginx.ModeOff) {
+		if set.Domain == "" {
+			st.Warnings = append(st.Warnings,
+				"no domain is set, so opening this server in a browser lands on the Reality cover site and shows its certificate — fill the domain in to serve your own page here")
+		} else if s.stubService.ActiveSite() == nil {
+			st.Warnings = append(st.Warnings,
+				"no cover page is active, so the domain answers with an empty site — add one under «Cover page»")
+		}
+	}
+
 	if set.Domain != "" {
 		if cert, _, expiry, err := findCertificate(set.Domain); err == nil {
 			st.CertFile, st.CertOk = cert, true

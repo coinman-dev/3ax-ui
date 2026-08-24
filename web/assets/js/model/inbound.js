@@ -1581,6 +1581,23 @@ class Inbound extends XrayCommonClass {
         return this.publicPort > 0 && this.publicPort !== this.port;
     }
 
+    // The address a client should dial.
+    //
+    // `listen` is where the inbound binds, which is only sometimes a usable
+    // public address: a wildcard means "wherever this panel is reached", and a
+    // loopback address means the inbound is behind something else — nginx, in
+    // the front-end modes — and is not reachable at 127.0.0.1 from anywhere but
+    // the server itself. Putting either into a link hands out something that
+    // cannot possibly connect.
+    get linkAddress() {
+        const listen = this.listen;
+        if (ObjectUtil.isEmpty(listen)) return location.hostname;
+        if (["0.0.0.0", "::", "::0", "127.0.0.1", "::1", "localhost"].includes(listen)) {
+            return location.hostname;
+        }
+        return listen;
+    }
+
     // Copy the xPadding* settings into the query-string of a vless/trojan/ss
     // link. Without this, the admin's custom xPaddingBytes range and (in
     // obfs mode) the custom xPaddingKey / xPaddingHeader / placement /
@@ -2284,7 +2301,7 @@ class Inbound extends XrayCommonClass {
     }
 
     genWireguardLinks(remark = '', remarkModel = '-ieo') {
-        const addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        const addr = this.linkAddress;
         const separationChar = remarkModel.charAt(0);
         let links = [];
         this.settings.peers.forEach((p, index) => {
@@ -2294,7 +2311,7 @@ class Inbound extends XrayCommonClass {
     }
 
     genWireguardConfigs(remark = '', remarkModel = '-ieo') {
-        const addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        const addr = this.linkAddress;
         const separationChar = remarkModel.charAt(0);
         let links = [];
         this.settings.peers.forEach((p, index) => {
@@ -2334,7 +2351,7 @@ class Inbound extends XrayCommonClass {
     genMtprotoLink(address = '', port = this.linkPort, remark = '', client) {
         let addr = address;
         if (ObjectUtil.isEmpty(addr)) {
-            addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+            addr = this.linkAddress;
         }
         const secret = (client && client.secret) ? client.secret : '';
         return `tg://proxy?server=${MtprotoLinkHost.pick(addr)}&port=${port}&secret=${secret}`;
@@ -2348,7 +2365,7 @@ class Inbound extends XrayCommonClass {
     genProxyLink(scheme, address = '', port = this.linkPort, remark = '', client) {
         let addr = address;
         if (ObjectUtil.isEmpty(addr)) {
-            addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+            addr = this.linkAddress;
         }
         let userinfo = '';
         if (client && client.email) {
@@ -2361,7 +2378,7 @@ class Inbound extends XrayCommonClass {
     genAllLinks(remark = '', remarkModel = '-ieo', client) {
         let result = [];
         let email = client ? client.email : '';
-        let addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        let addr = this.linkAddress;
         let port = this.linkPort;
         const separationChar = remarkModel.charAt(0);
         const orderChars = remarkModel.slice(1);
@@ -2390,7 +2407,7 @@ class Inbound extends XrayCommonClass {
     }
 
     genInboundLinks(remark = '', remarkModel = '-ieo') {
-        let addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        let addr = this.linkAddress;
         if (this.clients) {
             let links = [];
             this.clients.forEach((client) => {

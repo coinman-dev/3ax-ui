@@ -538,11 +538,28 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	return url.String()
 }
 
+// resolveInboundAddress returns the address a client should dial.
+//
+// inbound.Listen is where the inbound binds, which is only sometimes a usable
+// public address. A wildcard means "wherever this server is reached". A
+// loopback address means the inbound sits behind something else — nginx, in the
+// front-end modes — and is reachable at 127.0.0.1 from nowhere but the server
+// itself, so putting it in a link hands out something that cannot connect.
 func (s *SubService) resolveInboundAddress(inbound *model.Inbound) string {
-	if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+	if !isPublicListenAddress(inbound.Listen) {
 		return s.address
 	}
 	return inbound.Listen
+}
+
+// isPublicListenAddress reports whether a listen address is one a client
+// outside the server could actually dial.
+func isPublicListenAddress(listen string) bool {
+	switch strings.TrimSpace(listen) {
+	case "", "0.0.0.0", "::", "::0", "127.0.0.1", "::1", "localhost":
+		return false
+	}
+	return true
 }
 
 func findClientIndex(clients []model.Client, email string) int {

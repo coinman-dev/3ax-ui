@@ -529,3 +529,55 @@ func TestClassificationSurvivesAnApply(t *testing.T) {
 		t.Errorf("%d routes got a relay after the move, want exactly 1", relays)
 	}
 }
+
+// TestStatusWarnsWhenTheDomainHasNothingBehindIt covers the trap that looks
+// like a broken certificate: with the front-end on but no domain configured,
+// 443 is pure passthrough, so a browser opening the server's own domain falls
+// through to the Reality inbound and is shown the cover site's certificate.
+// Nothing is wrong — but nothing says so either.
+func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
+	s := newNginxTestServer(t)
+	seedInbounds(t)
+
+	mentions := func(warnings []string, needle string) bool {
+		for _, w := range warnings {
+			if strings.Contains(w, needle) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if err := s.SaveSettings(NginxSettings{Mode: "shared", RealityPort: 8443}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStatus().Warnings; !mentions(got, "no domain is set") {
+		t.Errorf("an empty domain was not reported: %v", got)
+	}
+
+	// Switched off, none of this is worth saying — nothing is in front of
+	// anything.
+	if err := s.SaveSettings(NginxSettings{Mode: "off", RealityPort: 8443}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStatus().Warnings; mentions(got, "no domain is set") {
+		t.Errorf("the front-end is off, yet it complained about the domain: %v", got)
+	}
+
+	// With a domain but no page, the domain answers with an empty site.
+	if err := s.SaveSettings(NginxSettings{Mode: "shared", Domain: "example.net", RealityPort: 8443}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStatus().Warnings; !mentions(got, "no cover page is active") {
+		t.Errorf("a missing cover page was not reported: %v", got)
+	}
+
+	// Once a page exists, that particular complaint stops.
+	stubs := &StubService{}
+	if _, err := stubs.SaveSite(&model.StubSite{Name: "site", Html: "<p>hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStatus().Warnings; mentions(got, "no cover page is active") {
+		t.Errorf("a page is active, yet it still complained: %v", got)
+	}
+}
