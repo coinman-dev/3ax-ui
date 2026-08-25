@@ -75,147 +75,154 @@
                    without one is not floated and would be laid out from the top
                    of the row, straight over the cards above it. -->
               <a-col :span="24">
-                <a-collapse default-active-key="1">
-                  <a-collapse-panel key="1" header='{{ i18n "pages.nginx.mode" }}'>
-                    <a-alert type="info" show-icon message='{{ i18n "pages.nginx.udpNote" }}'
-                      :style="{ marginBottom: '12px' }"></a-alert>
+                <!-- The sections live inside a card of their own, the way the
+                     AWG page's do. There the surface comes from the theme
+                     styling .ant-tabs as a card; this page has no tabs, so it
+                     says so outright — same background and radius, from the
+                     same variables. -->
+                <a-card :body-style="{ padding: isMobile ? '.5rem' : '2rem' }">
+                  <a-collapse default-active-key="1">
+                    <a-collapse-panel key="1" header='{{ i18n "pages.nginx.mode" }}'>
+                      <a-alert type="info" show-icon message='{{ i18n "pages.nginx.udpNote" }}'
+                        :style="{ marginBottom: '12px' }"></a-alert>
 
-                    <a-setting-list-item paddings="small">
-                      <template #title>{{ i18n "pages.nginx.mode" }}</template>
-                      <!-- One explanation, for the mode actually chosen. Three
-                           paragraphs at once is noise; what matters is what the
-                           selected one will do. -->
-                      <template #description>[[ modeDesc ]]</template>
-                      <template #control>
-                        <a-radio-group v-model="settings.mode" button-style="solid"
-                          :size="isMobile ? 'small' : ''">
-                          <a-radio-button value="off">{{ i18n "pages.nginx.modeOff" }}</a-radio-button>
-                          <a-tooltip title='{{ i18n "pages.nginx.modeSharedHint" }}'>
-                            <a-radio-button value="shared" :disabled="!canEnable">
-                              {{ i18n "pages.nginx.modeShared" }}</a-radio-button>
-                          </a-tooltip>
-                          <a-tooltip title='{{ i18n "pages.nginx.modeOnly443Hint" }}'>
-                            <a-radio-button value="only443" :disabled="!canEnable">
-                              {{ i18n "pages.nginx.modeOnly443" }}</a-radio-button>
-                          </a-tooltip>
-                        </a-radio-group>
-                      </template>
-                    </a-setting-list-item>
-                  </a-collapse-panel>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.mode" }}</template>
+                        <!-- One explanation, for the mode actually chosen. Three
+                             paragraphs at once is noise; what matters is what the
+                             selected one will do. -->
+                        <template #description>[[ modeDesc ]]</template>
+                        <template #control>
+                          <a-radio-group v-model="settings.mode" button-style="solid"
+                            :size="isMobile ? 'small' : ''">
+                            <a-radio-button value="off">{{ i18n "pages.nginx.modeOff" }}</a-radio-button>
+                            <a-tooltip title='{{ i18n "pages.nginx.modeSharedHint" }}'>
+                              <a-radio-button value="shared" :disabled="!canEnable">
+                                {{ i18n "pages.nginx.modeShared" }}</a-radio-button>
+                            </a-tooltip>
+                            <a-tooltip title='{{ i18n "pages.nginx.modeOnly443Hint" }}'>
+                              <a-radio-button value="only443" :disabled="!canEnable">
+                                {{ i18n "pages.nginx.modeOnly443" }}</a-radio-button>
+                            </a-tooltip>
+                          </a-radio-group>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
 
-                  <a-collapse-panel key="2" header='{{ i18n "pages.nginx.domain" }}'>
-                    <a-setting-list-item paddings="small">
-                      <template #title>{{ i18n "pages.nginx.domain" }}</template>
-                      <template #description>{{ i18n "pages.nginx.domainDesc" }}</template>
-                      <template #control>
-                        <a-input type="text" v-model="settings.domain" placeholder="panel.example.com"
-                          @change="checkCertificate" @blur="checkCertificate"></a-input>
-                      </template>
-                    </a-setting-list-item>
-                    <a-setting-list-item paddings="small" v-if="settings.domain">
-                      <template #title>{{ i18n "pages.nginx.certificate" }}</template>
-                      <template #description>[[ cert.certFile || '—' ]]</template>
-                      <template #control>
-                        <a-badge v-if="checkingCert" status="processing" text='{{ i18n "loading"}}'></a-badge>
-                        <a-badge v-else-if="cert.certOk" status="success" :text="certLabel"></a-badge>
-                        <a-badge v-else status="warning" text='{{ i18n "pages.nginx.certMissing" }}'></a-badge>
-                      </template>
-                    </a-setting-list-item>
-                  </a-collapse-panel>
+                    <a-collapse-panel key="2" header='{{ i18n "pages.nginx.domain" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.domain" }}</template>
+                        <template #description>{{ i18n "pages.nginx.domainDesc" }}</template>
+                        <template #control>
+                          <a-input type="text" v-model="settings.domain" placeholder="panel.example.com"
+                            @change="checkCertificate" @blur="checkCertificate"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-if="settings.domain">
+                        <template #title>{{ i18n "pages.nginx.certificate" }}</template>
+                        <template #description>[[ cert.certFile || '—' ]]</template>
+                        <template #control>
+                          <a-badge v-if="checkingCert" status="processing" text='{{ i18n "loading"}}'></a-badge>
+                          <a-badge v-else-if="cert.certOk" status="success" :text="certLabel"></a-badge>
+                          <a-badge v-else status="warning" text='{{ i18n "pages.nginx.certMissing" }}'></a-badge>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
 
-                  <a-collapse-panel key="5" header='{{ i18n "pages.nginx.publish" }}'>
-                    <a-setting-list-item paddings="small">
-                      <template #title>{{ i18n "pages.nginx.subsPublish" }}</template>
-                      <!-- The switch is dead without a certificate: the site
-                           that would carry the subscriptions is the same one
-                           the domain's certificate is for. -->
-                      <template #description>[[ publishHint ]]</template>
-                      <template #control>
-                        <a-switch v-model="settings.subsBehind443" :disabled="!canPublish"></a-switch>
-                      </template>
-                    </a-setting-list-item>
-                    <a-setting-list-item paddings="small">
-                      <template #title>{{ i18n "pages.nginx.panelPublish" }}</template>
-                      <!-- Only in mode 3. With the other ports still open the
-                           panel is already reachable, and putting it behind 443
-                           as well would add a second address for nothing. -->
-                      <template #description>[[ panelPublishHint ]]</template>
-                      <template #control>
-                        <a-switch v-model="settings.panelBehind443" :disabled="!canPublishPanel"></a-switch>
-                      </template>
-                    </a-setting-list-item>
-                  </a-collapse-panel>
+                    <a-collapse-panel key="5" header='{{ i18n "pages.nginx.publish" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.subsPublish" }}</template>
+                        <!-- The switch is dead without a certificate: the site
+                             that would carry the subscriptions is the same one
+                             the domain's certificate is for. -->
+                        <template #description>[[ publishHint ]]</template>
+                        <template #control>
+                          <a-switch v-model="settings.subsBehind443" :disabled="!canPublish"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.panelPublish" }}</template>
+                        <!-- Only in mode 3. With the other ports still open the
+                             panel is already reachable, and putting it behind 443
+                             as well would add a second address for nothing. -->
+                        <template #description>[[ panelPublishHint ]]</template>
+                        <template #control>
+                          <a-switch v-model="settings.panelBehind443" :disabled="!canPublishPanel"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
 
-                  <a-collapse-panel key="6" header='{{ i18n "pages.nginx.firewall" }}'>
-                    <a-setting-list-item paddings="small">
-                      <template #title>{{ i18n "pages.nginx.firewallSwitch" }}</template>
-                      <template #description>[[ firewallHint ]]</template>
-                      <template #control>
-                        <a-switch v-model="settings.manageFirewall"
-                          :disabled="settings.mode !== 'only443'"></a-switch>
-                      </template>
-                    </a-setting-list-item>
-                    <a-setting-list-item paddings="small" v-if="settings.manageFirewall">
-                      <template #title>{{ i18n "pages.nginx.firewallExtra" }}</template>
-                      <template #description>{{ i18n "pages.nginx.firewallExtraDesc" }}</template>
-                      <template #control>
-                        <a-input type="text" v-model="settings.firewallExtra"
-                          placeholder="53, 8080, 9000-9100"></a-input>
-                      </template>
-                    </a-setting-list-item>
-                  </a-collapse-panel>
+                    <a-collapse-panel key="6" header='{{ i18n "pages.nginx.firewall" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.firewallSwitch" }}</template>
+                        <template #description>[[ firewallHint ]]</template>
+                        <template #control>
+                          <a-switch v-model="settings.manageFirewall"
+                            :disabled="settings.mode !== 'only443'"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-if="settings.manageFirewall">
+                        <template #title>{{ i18n "pages.nginx.firewallExtra" }}</template>
+                        <template #description>{{ i18n "pages.nginx.firewallExtraDesc" }}</template>
+                        <template #control>
+                          <a-input type="text" v-model="settings.firewallExtra"
+                            placeholder="53, 8080, 9000-9100"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
 
-                  <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}'>
-                    <a-alert type="info" show-icon message='{{ i18n "pages.nginx.stubsDesc" }}'
-                      :style="{ marginBottom: '12px' }"></a-alert>
-                    <a-space direction="horizontal" :style="{ marginBottom: '12px' }">
-                      <a-button type="primary" icon="plus" @click="newStub">
-                        {{ i18n "pages.nginx.stubAdd" }}
-                      </a-button>
-                    </a-space>
-                    <a-table v-if="stubs && stubs.length" :columns="stubColumns" :data-source="stubs"
-                      :row-key="site => site.id" :pagination="false"
-                      :scroll="isMobile ? { x: 560 } : {}" size="small">
-                      <template slot="state" slot-scope="text, site">
-                        <a-tag v-if="site.active" color="green">{{ i18n "pages.nginx.stubActive" }}</a-tag>
-                        <a-button v-else size="small" @click="activateStub(site)">
-                          {{ i18n "pages.nginx.stubMakeActive" }}</a-button>
-                      </template>
-                      <template slot="size" slot-scope="text, site">
-                        [[ SizeFormatter.sizeFormat(site.size) ]]
-                      </template>
-                      <template slot="actions" slot-scope="text, site">
-                        <a-space direction="horizontal">
-                          <a-button size="small" icon="edit" @click="editStub(site)"></a-button>
-                          <a-popconfirm title='{{ i18n "pages.nginx.stubDeleteAsk" }}'
-                            ok-text='{{ i18n "sure" }}' cancel-text='{{ i18n "cancel" }}'
-                            @confirm="deleteStub(site)">
-                            <a-button size="small" type="danger" icon="delete"
-                              :disabled="site.active"></a-button>
-                          </a-popconfirm>
-                        </a-space>
-                      </template>
-                    </a-table>
-                    <a-empty v-else description='{{ i18n "pages.nginx.stubsEmpty" }}'></a-empty>
-                  </a-collapse-panel>
+                    <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}'>
+                      <a-alert type="info" show-icon message='{{ i18n "pages.nginx.stubsDesc" }}'
+                        :style="{ marginBottom: '12px' }"></a-alert>
+                      <a-space direction="horizontal" :style="{ marginBottom: '12px' }">
+                        <a-button type="primary" icon="plus" @click="newStub">
+                          {{ i18n "pages.nginx.stubAdd" }}
+                        </a-button>
+                      </a-space>
+                      <a-table v-if="stubs && stubs.length" :columns="stubColumns" :data-source="stubs"
+                        :row-key="site => site.id" :pagination="false"
+                        :scroll="isMobile ? { x: 560 } : {}" size="small">
+                        <template slot="state" slot-scope="text, site">
+                          <a-tag v-if="site.active" color="green">{{ i18n "pages.nginx.stubActive" }}</a-tag>
+                          <a-button v-else size="small" @click="activateStub(site)">
+                            {{ i18n "pages.nginx.stubMakeActive" }}</a-button>
+                        </template>
+                        <template slot="size" slot-scope="text, site">
+                          [[ SizeFormatter.sizeFormat(site.size) ]]
+                        </template>
+                        <template slot="actions" slot-scope="text, site">
+                          <a-space direction="horizontal">
+                            <a-button size="small" icon="edit" @click="editStub(site)"></a-button>
+                            <a-popconfirm title='{{ i18n "pages.nginx.stubDeleteAsk" }}'
+                              ok-text='{{ i18n "sure" }}' cancel-text='{{ i18n "cancel" }}'
+                              @confirm="deleteStub(site)">
+                              <a-button size="small" type="danger" icon="delete"
+                                :disabled="site.active"></a-button>
+                            </a-popconfirm>
+                          </a-space>
+                        </template>
+                      </a-table>
+                      <a-empty v-else description='{{ i18n "pages.nginx.stubsEmpty" }}'></a-empty>
+                    </a-collapse-panel>
 
-                  <a-collapse-panel key="3" header='{{ i18n "pages.nginx.routes" }}'>
-                    <a-alert type="info" show-icon message='{{ i18n "pages.nginx.routesDesc" }}'
-                      :style="{ marginBottom: '12px' }"></a-alert>
-                    <a-table v-if="status.routes && status.routes.length" :columns="routeColumns"
-                      :data-source="status.routes" :row-key="route => route.inboundId" :pagination="false"
-                      :scroll="isMobile ? { x: 600 } : {}" size="small">
-                      <template slot="sni" slot-scope="text, route">
-                        <a-tag v-for="sni in route.snis" :key="sni">[[ sni ]]</a-tag>
-                        <a-tag v-if="route.fallback" color="blue">{{ i18n "pages.nginx.routeFallback" }}</a-tag>
-                      </template>
-                      <template slot="internal" slot-scope="text, route">
-                        <a-tag color="purple">[[ route.listen || '0.0.0.0' ]]:[[ route.port ]]</a-tag>
-                      </template>
-                    </a-table>
-                    <a-empty v-else description='{{ i18n "pages.nginx.noRoutes" }}'></a-empty>
-                  </a-collapse-panel>
-                </a-collapse>
+                    <a-collapse-panel key="3" header='{{ i18n "pages.nginx.routes" }}'>
+                      <a-alert type="info" show-icon message='{{ i18n "pages.nginx.routesDesc" }}'
+                        :style="{ marginBottom: '12px' }"></a-alert>
+                      <a-table v-if="status.routes && status.routes.length" :columns="routeColumns"
+                        :data-source="status.routes" :row-key="route => route.inboundId" :pagination="false"
+                        :scroll="isMobile ? { x: 600 } : {}" size="small">
+                        <template slot="sni" slot-scope="text, route">
+                          <a-tag v-for="sni in route.snis" :key="sni">[[ sni ]]</a-tag>
+                          <a-tag v-if="route.fallback" color="blue">{{ i18n "pages.nginx.routeFallback" }}</a-tag>
+                        </template>
+                        <template slot="internal" slot-scope="text, route">
+                          <a-tag color="purple">[[ route.listen || '0.0.0.0' ]]:[[ route.port ]]</a-tag>
+                        </template>
+                      </a-table>
+                      <a-empty v-else description='{{ i18n "pages.nginx.noRoutes" }}'></a-empty>
+                    </a-collapse-panel>
+                  </a-collapse>
+                </a-card>
               </a-col>
             </a-row>
           </template>
