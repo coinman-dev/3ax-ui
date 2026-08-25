@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "「%s」把面板自己的網域 %s 用作了偽裝網域。"
 "warnCertMissingFor" = "%s 沒有憑證。請先簽發一個——沒有它，面板無法透過 TLS 提供該網域。"
 "warnCertProblem" = "%s 的憑證無法使用。"
+"warnStubExternal" = "該頁面會從 %s 拉取檔案——在那些位址被封鎖的網路上它可能打不開，而它發出的這些請求本身就是一種特徵。"
+"warnFirewallExtraUnreadable" = "「%s」不是連接埠也不是區間，因此被忽略了——而一個本想保持開放卻沒被讀懂的連接埠，這個模式會把它關掉。請用逗號分隔：53, 8080, 9000-9100。"
 "warnNothingToRoute" = "目前還沒有可以依伺服器名稱區分的東西——需要一個 VLESS Reality 或 MTProto 入站。"
 "warnInboundsUnreadable" = "無法讀取入站。"
 "confirmPendingTitle" = "請確認面板仍然可達"

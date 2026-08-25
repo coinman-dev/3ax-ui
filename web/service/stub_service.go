@@ -65,7 +65,7 @@ func (s *StubService) GetSite(id int) (*model.StubSite, error) {
 
 // SaveSite creates or updates a page and returns whatever is worth warning
 // about. A returned error means nothing was saved.
-func (s *StubService) SaveSite(site *model.StubSite) ([]string, error) {
+func (s *StubService) SaveSite(site *model.StubSite) ([]NginxWarning, error) {
 	site.Name = strings.TrimSpace(site.Name)
 	if site.Name == "" {
 		return nil, fmt.Errorf("the page needs a name")
@@ -238,7 +238,11 @@ func (s *StubService) Templates() []StubTemplate {
 
 // warnings lists what is worth telling the operator about a page without
 // refusing to save it.
-func (s *StubService) warnings(html string) []string {
+//
+// They travel as codes, like every other warning this feature produces: the
+// service runs with no request and no locale, so a sentence written here would
+// reach the panel in English whatever language it is set to.
+func (s *StubService) warnings(html string) []NginxWarning {
 	out := StubWarnings(html)
 
 	// A page shipped with the panel, served unchanged, is a fingerprint: the
@@ -246,8 +250,7 @@ func (s *StubService) warnings(html string) []string {
 	// page is to look like one particular site, so say this out loud.
 	for _, t := range s.Templates() {
 		if strings.TrimSpace(html) == strings.TrimSpace(t.Html) {
-			out = append(out, "this is the stock page that ships with the panel, unchanged — "+
-				"the same page on every server is a give-away of its own, so edit the text and the name")
+			out = append(out, warn("stockCoverPage"))
 			break
 		}
 	}
@@ -255,8 +258,8 @@ func (s *StubService) warnings(html string) []string {
 }
 
 // StubWarnings lists the problems that can be seen in the markup alone.
-func StubWarnings(html string) []string {
-	var warnings []string
+func StubWarnings(html string) []NginxWarning {
+	var warnings []NginxWarning
 
 	hosts := map[string]bool{}
 	for _, m := range externalResource.FindAllStringSubmatch(html, -1) {
@@ -271,9 +274,7 @@ func StubWarnings(html string) []string {
 			names = append(names, host)
 		}
 		sort.Strings(names)
-		warnings = append(warnings, fmt.Sprintf(
-			"the page loads files from %s — it may not open where those are blocked, and the requests are a pattern of their own",
-			strings.Join(names, ", ")))
+		warnings = append(warnings, warn("stubExternal", strings.Join(names, ", ")))
 	}
 	return warnings
 }

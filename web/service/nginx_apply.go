@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
@@ -36,6 +37,16 @@ type inboundSnapshot struct {
 	ProxyProtocol bool `json:"proxyProtocol"`
 }
 
+// applyMu serialises everything that moves inbounds and rewrites /etc/nginx.
+//
+// Two callers reach Apply: the operator pressing the button, and the reconcile
+// job every half minute, which cannot see that an apply is already in flight.
+// Left to overlap they stage the same files with separate rollback snapshots,
+// so one rolling back can put the other's half-written config back in place.
+// NginxService is a zero value copied into the job and into the controller, so
+// the lock has to belong to the package rather than to the receiver.
+var applyMu sync.Mutex
+
 // Apply moves the server to the requested mode, or leaves it exactly as it was.
 //
 // The order is dictated by port 443: the inbound that owns it has to let go
@@ -45,6 +56,9 @@ func (s *NginxService) Apply(in NginxSettings) error {
 	if !nginx.Mode(in.Mode).Valid() {
 		return fmt.Errorf("unknown mode %q", in.Mode)
 	}
+	applyMu.Lock()
+	defer applyMu.Unlock()
+
 	previous := s.GetSettings()
 	if in.Mode == string(nginx.ModeOff) {
 		return s.disable(in)
@@ -332,7 +346,9 @@ func (s *NginxService) Reconcile() {
 		s.failures, s.skipTicks = 0, 0
 		if stale, err := nginx.NeedsUpdate(nginx.Config{Mode: nginx.ModeOff}); err == nil && stale {
 			logger.Info("nginx: the mode is off but the front-end is still up, taking it down")
-			if err := s.disable(set); err != nil {
+			// Through Apply rather than straight to disable, so this takes the
+			// same lock as the operator pressing the button.
+			if err := s.Apply(set); err != nil {
 				logger.Error("nginx: could not take the front-end down:", err)
 			}
 		}
@@ -495,6 +511,9 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 		if !nginx.FirewallAvailable() {
 			plan.Blockers = append(plan.Blockers, warn("noFirewall"))
 		}
+		if bad := unreadablePorts(in.FirewallExtra); len(bad) > 0 {
+			plan.Blockers = append(plan.Blockers, warn("firewallExtraUnreadable", strings.Join(bad, ", ")))
+		}
 		fw, cut := s.firewallPlan(in)
 		plan.Changes = append(plan.Changes, NginxChange{Kind: "kept", From: keptPorts(fw)})
 		plan.Changes = append(plan.Changes, cut...)
@@ -624,6 +643,26 @@ func portLabel(p nginx.PortRange, proto string) string {
 		return fmt.Sprintf("%d/%s", p.From, proto)
 	}
 	return fmt.Sprintf("%d-%d/%s", p.From, p.To, proto)
+}
+
+// unreadablePorts names the tokens the port parser threw away.
+//
+// portfwd.Parse silently drops what it cannot read, which is the right
+// behaviour for a free-text port-forwarding field and the wrong one here: a
+// port the operator meant to keep open and that was quietly ignored is a port
+// this mode closes. «53 8080» — a space where a comma belonged — is the whole
+// of it, and nothing else on the page would ever say so.
+func unreadablePorts(input string) []string {
+	var bad []string
+	for _, token := range strings.FieldsFunc(input, func(r rune) bool { return r == ',' || r == ';' }) {
+		if token = strings.TrimSpace(token); token == "" {
+			continue
+		}
+		if len(portfwd.Parse(token)) == 0 {
+			bad = append(bad, token)
+		}
+	}
+	return bad
 }
 
 // tunnelInterfaces names the WireGuard-family interfaces this panel runs.

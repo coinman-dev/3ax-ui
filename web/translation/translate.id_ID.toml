@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "«%s» memakai domain panel sendiri, %s, sebagai domain penyamaran."
 "warnCertMissingFor" = "Tidak ada sertifikat untuk %s. Terbitkan satu — tanpa itu panel tidak bisa menyajikan domain lewat TLS."
 "warnCertProblem" = "Sertifikat untuk %s tidak dapat dipakai."
+"warnStubExternal" = "Halaman ini mengambil berkas dari %s — di tempat yang memblokirnya halaman bisa gagal terbuka, dan permintaan yang dibuatnya sudah menjadi pola tersendiri."
+"warnFirewallExtraUnreadable" = "«%s» bukan port maupun rentang, jadi diabaikan — dan port yang ingin dibiarkan terbuka tetapi tidak terbaca adalah port yang ditutup oleh mode ini. Pisahkan dengan koma: 53, 8080, 9000-9100."
 "warnNothingToRoute" = "Tidak ada inbound yang bisa dibedakan lewat nama server — perlu VLESS Reality atau MTProto."
 "warnInboundsUnreadable" = "Tidak dapat membaca inbound."
 "confirmPendingTitle" = "Konfirmasikan bahwa panel masih terjangkau"

@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "«%s» usa o próprio domínio do painel, %s, como domínio de disfarce."
 "warnCertMissingFor" = "Não há certificado para %s. Emita um — sem ele o painel não consegue servir o domínio por TLS."
 "warnCertProblem" = "O certificado de %s não pode ser usado."
+"warnStubExternal" = "A página busca arquivos em %s: pode não abrir onde eles estiverem bloqueados, e as requisições que faz já são um rastro por si só."
+"warnFirewallExtraUnreadable" = "«%s» não é uma porta nem um intervalo, então foi ignorado — e uma porta que se queria manter aberta e não foi entendida é uma porta que este modo fecha. Separe com vírgulas: 53, 8080, 9000-9100."
 "warnNothingToRoute" = "Não há entrada que dê para separar por nome de servidor — é preciso uma VLESS Reality ou MTProto."
 "warnInboundsUnreadable" = "Não foi possível ler as entradas."
 "confirmPendingTitle" = "Confirme que o painel continua acessível"

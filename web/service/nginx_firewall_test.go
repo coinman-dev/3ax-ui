@@ -177,3 +177,39 @@ func TestPlanSaysWhatStaysOpen(t *testing.T) {
 		t.Errorf("SSH (port %d) is not named in %q", ssh[0], kept)
 	}
 }
+
+// TestUnreadablePortsBlockTheApply: the port parser drops what it cannot read,
+// which is right for a free-text forwarding field and wrong here. «53 8080» —
+// a space where a comma belonged — would have closed both ports while the
+// operator believed they had kept them.
+func TestUnreadablePortsBlockTheApply(t *testing.T) {
+	svc := newNginxTestServer(t)
+	seedInbounds(t)
+
+	blockers := func(extra string) []string {
+		set := only443(true)
+		set.FirewallExtra = extra
+		var codes []string
+		for _, b := range svc.Plan(set).Blockers {
+			if b.Code == "firewallExtraUnreadable" {
+				codes = append(codes, strings.Join(b.Params, "|"))
+			}
+		}
+		return codes
+	}
+
+	if got := blockers("53, 8080, 9000-9100"); len(got) != 0 {
+		t.Errorf("a list the parser understands was rejected: %v", got)
+	}
+	if got := blockers(""); len(got) != 0 {
+		t.Errorf("an empty list was rejected: %v", got)
+	}
+
+	got := blockers("53 8080, 9000-9100")
+	if len(got) != 1 {
+		t.Fatalf("a space where a comma belonged was not caught: %v", got)
+	}
+	if got[0] != "53 8080" {
+		t.Errorf("the blocker names %q, want the token it could not read", got[0])
+	}
+}

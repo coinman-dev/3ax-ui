@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "«%s» uses the panel's own domain %s as its cover domain."
 "warnCertMissingFor" = "There is no certificate for %s. Issue one — the panel cannot serve the domain over TLS without it."
 "warnCertProblem" = "The certificate for %s cannot be used."
+"warnFirewallExtraUnreadable" = "«%s» is not a port or a range, so it was ignored — and a port meant to stay open that nobody understood is a port this mode closes. Separate them with commas: 53, 8080, 9000-9100."
+"warnStubExternal" = "The page loads files from %s — it may not open where those are blocked, and the requests it makes are a pattern of their own."
 "warnNothingToRoute" = "No inbound can be told apart by server name — a VLESS Reality or an MTProto inbound is needed."
 "warnInboundsUnreadable" = "Could not read the inbounds."
 "confirmPendingTitle" = "Confirm the panel is still reachable"

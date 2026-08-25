@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "«%s» usa el propio dominio del panel, %s, como dominio de tapadera."
 "warnCertMissingFor" = "No hay certificado para %s. Emite uno: sin él el panel no puede servir el dominio por TLS."
 "warnCertProblem" = "El certificado de %s no se puede usar."
+"warnStubExternal" = "La página trae archivos de %s: puede no abrirse donde esos estén bloqueados, y las peticiones que hace son un rastro por sí mismas."
+"warnFirewallExtraUnreadable" = "«%s» no es un puerto ni un rango, así que se ha ignorado — y un puerto que se quería dejar abierto y no se ha entendido es un puerto que este modo cierra. Sepáralos con comas: 53, 8080, 9000-9100."
 "warnNothingToRoute" = "No hay ninguna entrada que se pueda distinguir por nombre de servidor: hace falta una VLESS Reality o MTProto."
 "warnInboundsUnreadable" = "No se han podido leer las entradas."
 "confirmPendingTitle" = "Confirma que el panel sigue siendo accesible"

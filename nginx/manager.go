@@ -141,12 +141,19 @@ func streamModuleLoaded() bool {
 //
 // The range is above the well-known ports and below the ephemeral range, so a
 // port picked here is not going to be taken later by an outgoing connection.
-func FreeLoopbackPort(preferred int) (int, error) {
-	if preferred > 0 && portFree(preferred) {
+//
+// taken is the set of ports the caller has already handed out but not yet
+// bound, and it is not optional bookkeeping. Nothing this returns is listening
+// until nginx reloads, so two calls in a row would otherwise answer with the
+// same number — and a config where the site's TLS backend and an inbound's
+// relay share a port sails through `nginx -t`, which binds nothing, and then
+// fails to start.
+func FreeLoopbackPort(preferred int, taken map[int]bool) (int, error) {
+	if preferred > 0 && !taken[preferred] && portFree(preferred) {
 		return preferred, nil
 	}
 	for port := 8081; port <= 8999; port++ {
-		if portFree(port) {
+		if !taken[port] && portFree(port) {
 			return port, nil
 		}
 	}
@@ -391,6 +398,23 @@ func (s *Staged) verify() error {
 		}
 	}
 
+	// Every relay too. If the reload failed to bind one of these, nginx kept
+	// the old workers — which are still holding the public port, so checking
+	// that alone would report success over a config that never came up.
+	for _, r := range s.cfg.Routes {
+		if r.Relay == "" {
+			continue
+		}
+		if _, portStr, err := net.SplitHostPort(r.Relay); err == nil {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				want = append(want, struct {
+					port int
+					what string
+				}{port, "the relay for " + r.Name})
+			}
+		}
+	}
+
 	for _, w := range want {
 		ok := false
 		// A reload is not instant; give the new worker a moment to bind.
@@ -435,6 +459,17 @@ func NeedsUpdate(c Config) (bool, error) {
 	httpConf, err := c.HTTPConf()
 	if err != nil {
 		return false, err
+	}
+
+	// The include in nginx.conf counts as much as the files it points at. A
+	// package upgrade that replaces nginx.conf, or an operator tidying it,
+	// takes our stream block out of the build while both of our files sit
+	// there looking correct — the front-end is down and comparing only the
+	// files would report nothing to do, for ever.
+	if main, err := os.ReadFile(MainConfPath()); err == nil {
+		if included := includeRe.MatchString(string(main)); included != (c.Mode != ModeOff) {
+			return true, nil
+		}
 	}
 	for _, f := range []struct {
 		path string

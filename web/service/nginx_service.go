@@ -543,7 +543,7 @@ func (s *NginxService) httpBackendPort(set NginxSettings) (int, error) {
 	if set.HTTPPort > 0 {
 		return set.HTTPPort, nil
 	}
-	port, err := nginx.FreeLoopbackPort(0)
+	port, err := nginx.FreeLoopbackPort(0, s.takenLoopbackPorts())
 	if err != nil {
 		return 0, err
 	}
@@ -554,6 +554,41 @@ func (s *NginxService) httpBackendPort(set NginxSettings) (int, error) {
 	return port, nil
 }
 
+// takenLoopbackPorts is every loopback port the panel has already handed out.
+//
+// None of them is listening yet — they are only bound when nginx reloads — so
+// asking the operating system «is this port free» answers yes for a port that
+// is already spoken for. Without this, a server with a dual inbound and a
+// domain gets the same number twice: once as the relay that strips the PROXY
+// header, once as the address the site's TLS terminates on. The config passes
+// `nginx -t`, which binds nothing, and then nginx will not start.
+func (s *NginxService) takenLoopbackPorts() map[int]bool {
+	taken := map[int]bool{}
+	if raw, err := s.settingService.getString("nginxHttpPort"); err == nil {
+		if port, _ := strconv.Atoi(raw); port > 0 {
+			taken[port] = true
+		}
+	}
+	for _, port := range s.savedRelayPorts() {
+		taken[port] = true
+	}
+	return taken
+}
+
+// savedRelayPorts is the inbound-id → port map recorded by earlier applies.
+func (s *NginxService) savedRelayPorts() map[string]int {
+	ports := map[string]int{}
+	raw, err := s.settingService.getString("nginxRelayPorts")
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return ports
+	}
+	if err := json.Unmarshal([]byte(raw), &ports); err != nil {
+		logger.Warning("nginx: the saved relay ports are unreadable, choosing again:", err)
+		return map[string]int{}
+	}
+	return ports
+}
+
 // relayPort returns the loopback port nginx uses to strip the PROXY header for
 // one inbound, choosing it once and remembering it.
 //
@@ -561,30 +596,15 @@ func (s *NginxService) httpBackendPort(set NginxSettings) (int, error) {
 // is on disk, and a port that wandered would look like a change and reload
 // nginx every half minute.
 func (s *NginxService) relayPort(inboundId int) (int, error) {
-	ports := map[string]int{}
-	if raw, err := s.settingService.getString("nginxRelayPorts"); err == nil && strings.TrimSpace(raw) != "" {
-		if err := json.Unmarshal([]byte(raw), &ports); err != nil {
-			logger.Warning("nginx: the saved relay ports are unreadable, choosing again:", err)
-			ports = map[string]int{}
-		}
-	}
+	ports := s.savedRelayPorts()
 	key := strconv.Itoa(inboundId)
 	if port, ok := ports[key]; ok && port > 0 {
 		return port, nil
 	}
 
-	taken := map[int]bool{}
-	for _, port := range ports {
-		taken[port] = true
-	}
-	port, err := nginx.FreeLoopbackPort(0)
+	port, err := nginx.FreeLoopbackPort(0, s.takenLoopbackPorts())
 	if err != nil {
 		return 0, err
-	}
-	for taken[port] {
-		if port, err = nginx.FreeLoopbackPort(port + 1); err != nil {
-			return 0, err
-		}
 	}
 
 	ports[key] = port

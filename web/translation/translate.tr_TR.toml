@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "«%s», panelin kendi alan adını (%s) örtü alan adı olarak kullanıyor."
 "warnCertMissingFor" = "%s için sertifika yok. Bir tane çıkartın — onsuz panel alan adını TLS üzerinden sunamaz."
 "warnCertProblem" = "%s için sertifika kullanılamıyor."
+"warnStubExternal" = "Sayfa %s adresinden dosya çekiyor — bunların engellendiği yerde açılmayabilir, üstelik yaptığı istekler başlı başına bir iz bırakır."
+"warnFirewallExtraUnreadable" = "«%s» bir port ya da aralık değil, bu yüzden yok sayıldı — ve açık kalması istenen ama anlaşılmayan bir port, bu modun kapattığı bir porttur. Virgülle ayırın: 53, 8080, 9000-9100."
 "warnNothingToRoute" = "Sunucu adına göre ayrılabilecek bir gelen bağlantı yok — bir VLESS Reality ya da MTProto gerekiyor."
 "warnInboundsUnreadable" = "Gelen bağlantılar okunamadı."
 "confirmPendingTitle" = "Panele hâlâ erişilebildiğini onaylayın"

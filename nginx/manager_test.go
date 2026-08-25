@@ -190,3 +190,61 @@ func read(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// TestNeedsUpdateWatchesTheInclude: the include in nginx.conf is as much a part
+// of the front-end as the files it points at. A package upgrade that replaces
+// nginx.conf takes our stream block out of the build while both files sit there
+// looking perfectly correct — and comparing only the files would report nothing
+// to do, for ever, over a server whose 443 is dead.
+func TestNeedsUpdateWatchesTheInclude(t *testing.T) {
+	root := t.TempDir()
+	prev := ConfRoot
+	ConfRoot = root
+	t.Cleanup(func() { ConfRoot = prev })
+	if err := os.MkdirAll(filepath.Join(root, "conf.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{Mode: ModeShared, Port: 443, Routes: []Route{
+		{Name: "reality", SNIs: []string{"www.icloud.com"}, Upstream: "127.0.0.1:8443", Fallback: true},
+	}}
+	streamConf, err := cfg.StreamConf()
+	if err != nil {
+		t.Fatalf("StreamConf: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(StreamConfPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(StreamConfPath(), []byte(streamConf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// nginx.conf carries the include: everything matches, nothing to do.
+	main, err := withStreamInclude("events {}\nhttp {}\n")
+	if err != nil {
+		t.Fatalf("withStreamInclude: %v", err)
+	}
+	if err := os.WriteFile(MainConfPath(), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := NeedsUpdate(cfg)
+	if err != nil {
+		t.Fatalf("NeedsUpdate: %v", err)
+	}
+	if stale {
+		t.Error("a config that matches was reported as needing an update")
+	}
+
+	// Somebody replaced nginx.conf. The files are untouched and still correct,
+	// but nginx no longer reads them.
+	if err := os.WriteFile(MainConfPath(), []byte("events {}\nhttp {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale, err = NeedsUpdate(cfg)
+	if err != nil {
+		t.Fatalf("NeedsUpdate: %v", err)
+	}
+	if !stale {
+		t.Error("the include is gone from nginx.conf and nothing noticed")
+	}
+}

@@ -102,7 +102,7 @@ func TestFallbackPrefersReality(t *testing.T) {
 func TestFreeLoopbackPortAvoidsWhatIsTaken(t *testing.T) {
 	// Take whichever port in the scanned range happens to be free, so the test
 	// does not depend on what else this machine is running.
-	free, err := FreeLoopbackPort(0)
+	free, err := FreeLoopbackPort(0, nil)
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestFreeLoopbackPortAvoidsWhatIsTaken(t *testing.T) {
 	defer occupied.Close()
 	taken := free
 
-	got, err := FreeLoopbackPort(taken)
+	got, err := FreeLoopbackPort(taken, nil)
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestFreeLoopbackPortAvoidsWhatIsTaken(t *testing.T) {
 
 	// A port that is genuinely free must be kept: the panel stores its choice
 	// and must not wander to a new port on every reconcile.
-	if again, err := FreeLoopbackPort(got); err != nil || again != got {
+	if again, err := FreeLoopbackPort(got, nil); err != nil || again != got {
 		t.Errorf("a free port was not kept: %d -> %d (%v)", got, again, err)
 	}
 }

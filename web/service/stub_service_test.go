@@ -152,9 +152,17 @@ func TestWarningsAreAdviceNotRefusal(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Fatal("nothing was said about the external files")
 	}
-	joined := strings.Join(warnings, " ")
-	if !strings.Contains(joined, "fonts.googleapis.com") || !strings.Contains(joined, "cdn.example.net") {
-		t.Errorf("the warning does not name the hosts: %q", joined)
+	// The hosts travel as a parameter, not baked into a sentence: the wording
+	// lives with the translations, where the panel can say it in the
+	// operator's own language.
+	var named string
+	for _, w := range warnings {
+		if w.Code == "stubExternal" && len(w.Params) > 0 {
+			named = w.Params[0]
+		}
+	}
+	if !strings.Contains(named, "fonts.googleapis.com") || !strings.Contains(named, "cdn.example.net") {
+		t.Errorf("the warning does not name the hosts: %+v", warnings)
 	}
 	if stored, err := s.GetSite(site.Id); err != nil || stored.Name != "external" {
 		t.Error("the page was not saved despite the warning")
@@ -175,8 +183,16 @@ func TestStockTemplateIsFlagged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "give-away") {
-		t.Errorf("an unchanged stock page was not flagged: %v", warnings)
+	flagged := func(ws []NginxWarning) bool {
+		for _, w := range ws {
+			if w.Code == "stockCoverPage" {
+				return true
+			}
+		}
+		return false
+	}
+	if !flagged(warnings) {
+		t.Errorf("an unchanged stock page was not flagged: %+v", warnings)
 	}
 
 	// A page the operator actually edited must not be nagged about.
@@ -185,10 +201,8 @@ func TestStockTemplateIsFlagged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range warnings {
-		if strings.Contains(w, "give-away") {
-			t.Errorf("an edited page was still called stock: %q", w)
-		}
+	if flagged(warnings) {
+		t.Errorf("an edited page was still called stock: %+v", warnings)
 	}
 }
 

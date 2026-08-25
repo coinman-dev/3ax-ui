@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "«%s» dùng chính tên miền của bảng điều khiển, %s, làm tên miền nguỵ trang."
 "warnCertMissingFor" = "Không có chứng chỉ cho %s. Hãy cấp một cái — thiếu nó bảng điều khiển không thể phục vụ tên miền qua TLS."
 "warnCertProblem" = "Không dùng được chứng chỉ cho %s."
+"warnStubExternal" = "Trang này lấy tệp từ %s — ở nơi những địa chỉ đó bị chặn thì có thể không mở được, và chính những yêu cầu nó gửi đi đã là một dấu vết."
+"warnFirewallExtraUnreadable" = "«%s» không phải là cổng cũng không phải khoảng, nên đã bị bỏ qua — mà một cổng muốn để mở nhưng không đọc được là một cổng chế độ này sẽ đóng. Hãy ngăn bằng dấu phẩy: 53, 8080, 9000-9100."
 "warnNothingToRoute" = "Không có inbound nào phân biệt được theo tên máy chủ — cần một VLESS Reality hoặc MTProto."
 "warnInboundsUnreadable" = "Không đọc được các inbound."
 "confirmPendingTitle" = "Hãy xác nhận bảng điều khiển vẫn truy cập được"

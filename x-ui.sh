@@ -213,6 +213,34 @@ delete_script() {
     exit 1
 }
 
+# cleanup_firewall takes the panel's firewall chain back out.
+#
+# The «only 443» mode closes every other port through a chain of the panel's
+# own, hooked into INPUT. Netfilter knows nothing about packages: uninstall the
+# panel with that mode on and the chain stays, dropping everything it was told
+# to drop, with nothing left on the server that knows how to undo it. The names
+# here mirror nginx/firewall.go — change them together.
+cleanup_firewall() {
+    local chain removed
+    chain="THREEAX-IN"
+    removed=0
+
+    for bin in iptables ip6tables; do
+        command -v "$bin" &>/dev/null || continue
+        # The jump may have been added more than once if an apply died halfway.
+        while "$bin" -C INPUT -j "$chain" &>/dev/null; do
+            "$bin" -D INPUT -j "$chain" &>/dev/null || break
+            removed=1
+        done
+        "$bin" -F "$chain" &>/dev/null && removed=1
+        "$bin" -X "$chain" &>/dev/null
+    done
+
+    if [[ $removed == 1 ]]; then
+        echo -e "${green}Firewall rules removed, the other ports are open again.${plain}"
+    fi
+}
+
 # cleanup_nginx removes the config the panel generated for port 443.
 #
 # Without this the panel disappears while nginx carries on holding 443 and
@@ -382,6 +410,7 @@ uninstall() {
     echo -e "${green}WireGuard Native cleanup complete.${plain}"
     # --- End WireGuard Native cleanup ---
 
+    cleanup_firewall
     cleanup_nginx
 
     rm /etc/x-ui/ -rf

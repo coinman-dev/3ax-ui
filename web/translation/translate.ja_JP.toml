@@ -322,6 +322,8 @@
 "warnSniIsOwnDomain" = "「%s」がパネル自身のドメイン %s をカバードメインに使っています。"
 "warnCertMissingFor" = "%s の証明書がありません。発行してください。これがないとパネルはそのドメインを TLS で配れません。"
 "warnCertProblem" = "%s の証明書は使えません。"
+"warnStubExternal" = "このページは %s からファイルを取ってきます。そこが塞がれている場所では開かないことがあり、そのリクエスト自体がひとつの特徴になります。"
+"warnFirewallExtraUnreadable" = "「%s」はポートでも範囲でもないので無視されました。開けておきたかったのに読み取れなかったポートは、このモードが閉じるポートです。カンマで区切ってください: 53, 8080, 9000-9100。"
 "warnNothingToRoute" = "サーバー名で見分けられるインバウンドがありません。VLESS Reality か MTProto が必要です。"
 "warnInboundsUnreadable" = "インバウンドを読み込めませんでした。"
 "confirmPendingTitle" = "パネルに届くことを確認してください"

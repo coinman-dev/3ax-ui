@@ -276,7 +276,7 @@
     </a-tabs>
 
     <a-alert v-for="(warning, i) in stubModal.warnings" :key="'sw' + i" type="warning" show-icon
-      :message="warning" :style="{ marginTop: '12px' }"></a-alert>
+      :message="warningText(warning)" :style="{ marginTop: '12px' }"></a-alert>
   </a-modal>
 
   <!-- Nothing moves until this has been read and confirmed: a link that changes
@@ -613,6 +613,8 @@
           noFirewall: '{{ i18n "pages.nginx.warnNoFirewall" }}',
           certMissingFor: '{{ i18n "pages.nginx.warnCertMissingFor" }}',
           certProblem: '{{ i18n "pages.nginx.warnCertProblem" }}',
+          stubExternal: '{{ i18n "pages.nginx.warnStubExternal" }}',
+          firewallExtraUnreadable: '{{ i18n "pages.nginx.warnFirewallExtraUnreadable" }}',
           inboundsUnreadable: '{{ i18n "pages.nginx.warnInboundsUnreadable" }}',
         };
         let text = wording[warning.code];

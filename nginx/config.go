@@ -177,6 +177,13 @@ func (c Config) Validate() error {
 		if c.Site.Listen == "" {
 			return errors.New("the site has no listen address")
 		}
+		// The site terminates TLS on a loopback port and so does every relay.
+		// Two servers on one address is the mistake `nginx -t` cannot catch,
+		// because it binds nothing: the config tests clean and then nginx will
+		// not start.
+		if owner, dup := relays[c.Site.Listen]; dup {
+			return fmt.Errorf("the site and route %q both listen on %s", owner, c.Site.Listen)
+		}
 		if err := claim(c.Site.Domain, "the site"); err != nil {
 			return err
 		}
