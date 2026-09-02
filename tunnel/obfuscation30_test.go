@@ -191,7 +191,7 @@ func TestObfuscation30JSONShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	want := []string{
+	wants := []string{
 		// the 2.0 half the form has always read
 		"jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4",
 		"i1", "i2", "i3", "i4", "i5",
@@ -200,19 +200,20 @@ func TestObfuscation30JSONShape(t *testing.T) {
 		"rekeyTimeout", "rejectAfterTime", "keepaliveTimeout",
 		"maxHandshakeAttempts", "randomTrailers", "disableCookies",
 	}
-	for _, k := range want {
+	for _, k := range wants {
 		if _, ok := got[k]; !ok {
 			t.Errorf("generated set is missing %q; the form field would stay empty", k)
 		}
 	}
-	if len(got) != len(want) {
-		t.Errorf("payload has %d keys, expected %d: %v", len(got), len(want), got)
+	if len(got) != len(wants) {
+		t.Errorf("payload has %d keys, expected %d: %v", len(got), len(wants), got)
 	}
 }
 
 // TestGeneratedSignaturePackets: I2-I5 are parsed by the kernel module, and a
 // malformed tag is refused with EINVAL — the interface then fails to come up.
-// The grammar is <b 0xHEX> (even number of hex digits), <r N>, <c>, <t>.
+// The grammar is <b 0xHEX> (even number of hex digits), <r N>, <t>.
+// The <c> tag is intentionally not used to ensure compatibility with amneziawg-go (Windows).
 func TestGeneratedSignaturePackets(t *testing.T) {
 	tag := regexp.MustCompile(`^<(b 0x[0-9a-f]+|r [0-9]+|c|t)>$`)
 	for i := 0; i < 200; i++ {
@@ -220,6 +221,9 @@ func TestGeneratedSignaturePackets(t *testing.T) {
 		for n, packet := range map[string]string{"I2": o.I2, "I3": o.I3, "I4": o.I4, "I5": o.I5} {
 			if packet == "" {
 				t.Fatalf("%s should be generated", n)
+			}
+			if strings.Contains(packet, "<c>") {
+				t.Fatalf("%s = %q contains <c>, which is unsupported by amneziawg-go on Windows", n, packet)
 			}
 			// Split "<a><b>" into its tags without losing the delimiters.
 			parts := strings.SplitAfter(packet, ">")

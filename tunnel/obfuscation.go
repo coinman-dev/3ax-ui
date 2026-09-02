@@ -103,15 +103,17 @@ func GenerateObfuscation20(preset string) Obfuscation20 {
 // real header bytes of its protocol and randomises the rest, and the lengths
 // vary per call so two servers never emit the same preamble.
 //
-// Tag grammar (parsed by the kernel module): <b 0xHEX> literal bytes, <r N>
-// N random bytes, <c> a 4-byte counter, <t> a 4-byte unix timestamp.
+// Tag grammar: <b 0xHEX> literal bytes, <r N> N random bytes, <t> a 4-byte unix
+// timestamp. Note: <c> (packet counter) is intentionally omitted because
+// amneziawg-go (used by the Windows client) lacks support for <c> and fails
+// with "unknown tag <c>".
 func generateSignaturePackets() (i2, i3, i4, i5 string) {
-	// QUIC long header: version 1, then a connection id and a counter.
-	i2 = fmt.Sprintf("<b 0xc30000000108><r %d><c>", randInt(8, 24))
+	// QUIC long header: version 1, then a connection id and random payload.
+	i2 = fmt.Sprintf("<b 0xc30000000108><r %d>", randInt(12, 28))
 	// STUN binding request: type 0x0001, then the magic cookie 0x2112a442.
 	i3 = fmt.Sprintf("<b 0x000100002112a442><r %d>", randInt(12, 28))
 	// DTLS 1.2 handshake record: content type 22, version 0xfeff.
-	i4 = fmt.Sprintf("<b 0x16feff0000000000000000><r %d>", randInt(16, 48))
+	i4 = fmt.Sprintf("<b 0x16feff00000000000000><r %d>", randInt(16, 48))
 	// A timestamped blob, which is what a keepalive of many protocols is.
 	i5 = fmt.Sprintf("<t><r %d>", randInt(16, 64))
 	return i2, i3, i4, i5
