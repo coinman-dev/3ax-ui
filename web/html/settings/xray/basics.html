@@ -44,13 +44,7 @@
                     :style="{ width: '100%' }"></a-input>
             </template>
         </a-setting-list-item>
-        <a-setting-list-item paddings="small">
-            <template #title>{{ i18n "pages.xray.hiddifyCompat" }}</template>
-            <template #description>{{ i18n "pages.xray.hiddifyCompatDesc" }}</template>
-            <template #control>
-                <a-switch v-model="hiddifyCompat"></a-switch>
-            </template>
-        </a-setting-list-item>
+
     </a-collapse-panel>
     <a-collapse-panel key="2" header='{{ i18n "pages.xray.statistics" }}'>
         <a-setting-list-item paddings="small">

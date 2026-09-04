@@ -87,7 +87,7 @@ var defaultValueMap = map[string]string{
 	"externalTrafficInformURI":    "",
 	"restartXrayOnClientDisable":  "true",
 	"xrayOutboundTestUrl":         "https://www.google.com/generate_204",
-	"xrayHiddifyCompat":           "true",
+	"xrayHiddifyCompat":           "false",
 
 	// LDAP defaults
 	"ldapEnable":            "false",
