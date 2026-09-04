@@ -713,6 +713,8 @@
 "RoutingStrategyDesc" = "Definir a estratégia geral de roteamento de tráfego para resolver todas as solicitações."
 "outboundTestUrl" = "URL de teste de outbound"
 "outboundTestUrlDesc" = "URL usada ao testar conectividade do outbound"
+"hiddifyCompat" = "Modo de compatibilidade com Hiddify"
+"hiddifyCompatDesc" = "Adiciona automaticamente alpn=h2 aos links VLESS Reality com transporte xhttp para compatibilidade com Hiddify e sing-box"
 "Torrent" = "Bloquear Protocolo BitTorrent"
 "Inbounds" = "Inbounds"
 "Outbounds" = "Outbounds"

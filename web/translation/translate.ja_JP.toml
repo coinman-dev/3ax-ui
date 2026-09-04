@@ -713,6 +713,8 @@
 "RoutingStrategyDesc" = "DNS解決の全体的なルーティング戦略を設定する"
 "outboundTestUrl" = "アウトバウンドテスト URL"
 "outboundTestUrlDesc" = "アウトバウンド接続テストに使用する URL。既定値"
+"hiddifyCompat" = "Hiddify 互換モード"
+"hiddifyCompatDesc" = "Hiddify および sing-box との互換性のために、xhttp トランスポートの VLESS Reality リンクに alpn=h2 を自動追加します"
 "Torrent" = "BitTorrent プロトコルをブロック"
 "Inbounds" = "インバウンドルール"
 "Outbounds" = "アウトバウンドルール"

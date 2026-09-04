@@ -2,6 +2,7 @@ package sub
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -85,5 +86,39 @@ func TestBuildURLsFollowsTheFrontEnd(t *testing.T) {
 		if got.url != got.want {
 			t.Errorf("URL = %q, want %q", got.url, got.want)
 		}
+	}
+}
+
+func TestHiddifyCompatAddsALPN(t *testing.T) {
+	s := &SubService{
+		address:       "example.com",
+		remarkModel:   "-ieo",
+		hiddifyCompat: true,
+	}
+	inbound := &model.Inbound{
+		Protocol: "vless",
+		Port:     443,
+		Settings: `{"clients":[{"id":"00000000-0000-0000-0000-000000000000","email":"test@example.com"}]}`,
+		StreamSettings: `{
+			"network": "xhttp",
+			"security": "reality",
+			"xhttpSettings": {"path": "/xhttp"},
+			"realitySettings": {
+				"serverNames": ["www.amd.com"],
+				"shortIds": ["0123456789abcdef"],
+				"settings": {"publicKey": "abcdef", "fingerprint": "chrome"}
+			}
+		}`,
+	}
+	link := s.genVlessLink(inbound, "test@example.com")
+	if !strings.Contains(link, "alpn=h2") {
+		t.Fatalf("expected alpn=h2 in link, got: %s", link)
+	}
+
+	// When hiddifyCompat is disabled
+	s.hiddifyCompat = false
+	linkNoCompat := s.genVlessLink(inbound, "test@example.com")
+	if strings.Contains(linkNoCompat, "alpn=h2") {
+		t.Fatalf("did not expect alpn=h2 when hiddifyCompat is false, got: %s", linkNoCompat)
 	}
 }

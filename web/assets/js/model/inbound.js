@@ -2029,6 +2029,9 @@ class Inbound extends XrayCommonClass {
             if (type == 'tcp' && !ObjectUtil.isEmpty(flow)) {
                 params.set("flow", flow);
             }
+            if ((window.hiddifyCompat ?? true) && (type === 'xhttp' || type === 'grpc')) {
+                params.set("alpn", "h2");
+            }
         }
 
         else {
@@ -2208,6 +2211,9 @@ class Inbound extends XrayCommonClass {
             }
             if (!ObjectUtil.isEmpty(this.stream.reality.settings.mldsa65Verify)) {
                 params.set("pqv", this.stream.reality.settings.mldsa65Verify);
+            }
+            if ((window.hiddifyCompat ?? true) && (type === 'xhttp' || type === 'grpc')) {
+                params.set("alpn", "h2");
             }
         }
 

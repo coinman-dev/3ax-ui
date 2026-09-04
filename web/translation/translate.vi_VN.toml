@@ -713,6 +713,8 @@
 "RoutingStrategyDesc" = "Đặt chiến lược định tuyến tổng thể cho việc giải quyết DNS."
 "outboundTestUrl" = "URL kiểm tra outbound"
 "outboundTestUrlDesc" = "URL dùng khi kiểm tra kết nối outbound"
+"hiddifyCompat" = "Chế độ tương thích Hiddify"
+"hiddifyCompatDesc" = "Tự động thêm alpn=h2 vào liên kết VLESS Reality với truyền tải xhttp để tương thích với Hiddify và sing-box"
 "Torrent" = "Cấu hình sử dụng BitTorrent"
 "Inbounds" = "Đầu vào"
 "Outbounds" = "Đầu ra"

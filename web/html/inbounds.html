@@ -1727,6 +1727,7 @@
                 subJsonURI: "",
                 subJsonEnable: false,
             },
+            hiddifyCompat: true,
             remarkModel: "-ieo",
             // Что фронтенд nginx делает с каждым инбаундом: колонка порта
             // должна показывать доступность, а её из самого инбаунда не видно.
@@ -2104,6 +2105,8 @@
                     this.remarkModel = remarkModel;
                     this.datepicker = datepicker;
                     this.ipLimitEnable = ipLimitEnable;
+                    this.hiddifyCompat = hiddifyCompat !== undefined ? hiddifyCompat : true;
+                    window.hiddifyCompat = this.hiddifyCompat;
                 }
             },
             setInbounds(dbInbounds) {

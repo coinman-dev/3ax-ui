@@ -713,6 +713,8 @@
 "RoutingStrategyDesc" = "設定 DNS 解析的整體路由策略"
 "outboundTestUrl" = "出站測試 URL"
 "outboundTestUrlDesc" = "測試出站連線時使用的 URL"
+"hiddifyCompat" = "Hiddify 相容模式"
+"hiddifyCompatDesc" = "為 xhttp 傳輸的 VLESS Reality 連結自動加入 alpn=h2，以相容 Hiddify 和 sing-box"
 "Torrent" = "遮蔽 BitTorrent 協議"
 "Inbounds" = "入站規則"
 "Outbounds" = "出站規則"

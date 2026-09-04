@@ -713,6 +713,8 @@
 "RoutingStrategyDesc" = "استراتژی کلی مسیریابی برای حل تمام درخواست‌ها را تعیین می‌کند"
 "outboundTestUrl" = "آدرس تست خروجی"
 "outboundTestUrlDesc" = "آدرسی که برای تست اتصال خروجی استفاده می‌شود."
+"hiddifyCompat" = "حالت سازگاری با Hiddify"
+"hiddifyCompatDesc" = "افزودن خودکار alpn=h2 به لینک‌های VLESS Reality با انتقال xhttp برای سازگاری با Hiddify و sing-box"
 "Torrent" = "مسدودسازی پروتکل بیت‌تورنت"
 "Inbounds" = "ورودی‌ها"
 "Outbounds" = "خروجی‌ها"

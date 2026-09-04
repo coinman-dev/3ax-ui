@@ -713,6 +713,8 @@
 "RoutingStrategyDesc" = "Установка общей стратегии маршрутизации разрешения DNS"
 "outboundTestUrl" = "URL для теста исходящего"
 "outboundTestUrlDesc" = "URL для проверки подключения исходящего"
+"hiddifyCompat" = "Режим совместимости с Hiddify"
+"hiddifyCompatDesc" = "Автоматически добавлять alpn=h2 в ссылки VLESS Reality с транспортом xhttp для поддержки Hiddify и sing-box"
 "Torrent" = "Заблокировать BitTorrent"
 "Inbounds" = "Входящие подключения"
 "Outbounds" = "Исходящие подключения"

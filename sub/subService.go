@@ -29,6 +29,7 @@ type SubService struct {
 	remarkModel    string
 	datepicker     string
 	subTheme       string
+	hiddifyCompat  bool
 	inboundService service.InboundService
 	settingService service.SettingService
 }
@@ -65,6 +66,7 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 
 func (s *SubService) buildSubs(subId string, host string) ([]string, int64, xray.ClientTraffic, error) {
 	s.address = host
+	s.hiddifyCompat, _ = s.settingService.GetXrayHiddifyCompat()
 	var result []string
 	var traffic xray.ClientTraffic
 	var lastOnline int64
@@ -289,6 +291,11 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 		}
 	case "reality":
 		applyShareRealityParams(stream, params)
+		if s.hiddifyCompat && (streamNetwork == "xhttp" || streamNetwork == "grpc") {
+			if _, ok := params["alpn"]; !ok {
+				params["alpn"] = "h2"
+			}
+		}
 		if streamNetwork == "tcp" && len(clients[clientIndex].Flow) > 0 {
 			params["flow"] = clients[clientIndex].Flow
 		}
@@ -340,6 +347,11 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 		applyShareTLSParams(stream, params)
 	case "reality":
 		applyShareRealityParams(stream, params)
+		if s.hiddifyCompat && (streamNetwork == "xhttp" || streamNetwork == "grpc") {
+			if _, ok := params["alpn"]; !ok {
+				params["alpn"] = "h2"
+			}
+		}
 		if streamNetwork == "tcp" && len(clients[clientIndex].Flow) > 0 {
 			params["flow"] = clients[clientIndex].Flow
 		}

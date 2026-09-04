@@ -87,6 +87,7 @@ var defaultValueMap = map[string]string{
 	"externalTrafficInformURI":    "",
 	"restartXrayOnClientDisable":  "true",
 	"xrayOutboundTestUrl":         "https://www.google.com/generate_204",
+	"xrayHiddifyCompat":           "true",
 
 	// LDAP defaults
 	"ldapEnable":            "false",
@@ -317,6 +318,14 @@ func (s *SettingService) GetXrayOutboundTestUrl() (string, error) {
 
 func (s *SettingService) SetXrayOutboundTestUrl(url string) error {
 	return s.setString("xrayOutboundTestUrl", url)
+}
+
+func (s *SettingService) GetXrayHiddifyCompat() (bool, error) {
+	return s.getBool("xrayHiddifyCompat")
+}
+
+func (s *SettingService) SetXrayHiddifyCompat(compat bool) error {
+	return s.setBool("xrayHiddifyCompat", compat)
 }
 
 func (s *SettingService) GetListen() (string, error) {
@@ -846,6 +855,7 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 		"remarkModel":    func() (any, error) { return s.GetRemarkModel() },
 		"datepicker":     func() (any, error) { return s.GetDatepicker() },
 		"ipLimitEnable":  func() (any, error) { return s.GetIpLimitEnable() },
+		"hiddifyCompat":  func() (any, error) { return s.GetXrayHiddifyCompat() },
 	}
 
 	result := make(map[string]any)
