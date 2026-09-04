@@ -304,6 +304,12 @@ func (s *NginxService) collectRoutes(set NginxSettings) ([]NginxRoute, []NginxWa
 	var warnings []NginxWarning
 	seen := map[string]string{}
 
+	snapshots := s.loadSnapshots()
+	origPorts := map[int]int{}
+	for _, snap := range snapshots {
+		origPorts[snap.Id] = snap.Port
+	}
+
 	for _, ib := range inbounds {
 		if !ib.Enable {
 			continue
@@ -340,7 +346,12 @@ func (s *NginxService) collectRoutes(set NginxSettings) ([]NginxRoute, []NginxWa
 		// the very next pass. It would then be handed a relay that strips the
 		// PROXY header it is configured to require, and every client would be
 		// refused.
-		gaveUpPublicPort := ib.Port == PublicPort || ib.PublicPort == PublicPort
+		var gaveUpPublicPort bool
+		if orig, ok := origPorts[ib.Id]; ok {
+			gaveUpPublicPort = (orig == PublicPort)
+		} else {
+			gaveUpPublicPort = (ib.Port == PublicPort) || (ib.Port == set.RealityPort && ib.PublicPort == PublicPort)
+		}
 		dual := !gaveUpPublicPort
 		if nginx.Mode(set.Mode) == nginx.ModeOnly443 {
 			// Nothing is dual once the other ports are closed: an inbound left

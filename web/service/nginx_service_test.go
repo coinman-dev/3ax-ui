@@ -716,3 +716,27 @@ func writeTestCert(t *testing.T, dir, domain string) (certFile, keyFile string) 
 	}
 	return certFile, keyFile
 }
+
+func TestOnly443RelocatesWithoutCollidingOnRealityPort(t *testing.T) {
+	s := newNginxTestServer(t)
+	reality, mt := seedInbounds(t)
+	set := NginxSettings{Mode: "only443", RealityPort: 8443}
+
+	if _, err := s.relocateInbounds(set, false); err != nil {
+		t.Fatalf("first relocate: %v", err)
+	}
+
+	rIb, _ := inboundByID(reality.Id)
+	mIb, _ := inboundByID(mt.Id)
+
+	if rIb.Listen != "127.0.0.1" || rIb.Port != 8443 || rIb.PublicPort != 443 {
+		t.Errorf("Reality = %s:%d (public %d), want 127.0.0.1:8443 (public 443)", rIb.Listen, rIb.Port, rIb.PublicPort)
+	}
+	if mIb.Listen != "127.0.0.1" || mIb.Port != 4343 || mIb.PublicPort != 443 {
+		t.Errorf("MTProto = %s:%d (public %d), want 127.0.0.1:4343 (public 443)", mIb.Listen, mIb.Port, mIb.PublicPort)
+	}
+
+	if _, err := s.relocateInbounds(set, false); err != nil {
+		t.Fatalf("second relocate failed (likely port collision): %v", err)
+	}
+}
