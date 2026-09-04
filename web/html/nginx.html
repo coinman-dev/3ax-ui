@@ -1,4 +1,40 @@
 {{ template "page/head_start" .}}
+<style>
+  .dark .ant-alert,
+  .ultra-dark .ant-alert,
+  .dark .ant-alert-with-description,
+  .ultra-dark .ant-alert-with-description {
+    color: var(--dark-color-text-primary);
+  }
+  .dark .ant-alert-message,
+  .ultra-dark .ant-alert-message,
+  .dark .ant-alert-with-description .ant-alert-message,
+  .ultra-dark .ant-alert-with-description .ant-alert-message {
+    color: #fff;
+  }
+  .dark .ant-alert-description,
+  .ultra-dark .ant-alert-description,
+  .dark .ant-alert-with-description .ant-alert-description,
+  .ultra-dark .ant-alert-with-description .ant-alert-description {
+    color: var(--dark-color-text-primary);
+  }
+  .dark .ant-alert-info .ant-alert-message,
+  .ultra-dark .ant-alert-info .ant-alert-message {
+    color: #fff;
+  }
+  .dark .ant-alert-info .ant-alert-description,
+  .ultra-dark .ant-alert-info .ant-alert-description {
+    color: var(--dark-color-text-primary);
+  }
+  .dark .ant-alert-warning .ant-alert-message,
+  .ultra-dark .ant-alert-warning .ant-alert-message {
+    color: var(--dark-color-tag-orange-color);
+  }
+  .dark .ant-alert-warning .ant-alert-description,
+  .ultra-dark .ant-alert-warning .ant-alert-description {
+    color: var(--dark-color-text-primary);
+  }
+</style>
 {{ template "page/head_end" .}}
 
 {{ template "page/body_start" .}}
