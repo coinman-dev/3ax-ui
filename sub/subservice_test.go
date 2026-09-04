@@ -159,7 +159,7 @@ func TestResolveRequestDoesNotUseClientRealIPAsHost(t *testing.T) {
 
 	// Also test when X-Forwarded-Host is explicitly set by Nginx
 	req.Header.Set("X-Forwarded-Host", "net-ru.modulator.net")
-	scheme, host, _, _ = s.ResolveRequest(c)
+	_, host, _, _ = s.ResolveRequest(c)
 	if host != "net-ru.modulator.net" {
 		t.Errorf("host with X-Forwarded-Host = %q, want net-ru.modulator.net", host)
 	}
