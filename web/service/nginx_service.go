@@ -91,6 +91,7 @@ type NginxStatus struct {
 	CertOk     bool   `json:"certOk"`
 	CertExpiry int64  `json:"certExpiry"` // unix ms, 0 when unknown
 	PublicPort int    `json:"publicPort"`
+	PanelPort  int    `json:"panelPort"`
 	// FirewallOn reports whether our chain is in the INPUT path right now —
 	// what the machine is actually doing, not what the settings ask for.
 	FirewallOn bool `json:"firewallOn"`
@@ -183,13 +184,25 @@ func (s *NginxService) GetSettings() NginxSettings {
 	}
 	stubId, _ := strconv.Atoi(get("nginxStubSiteId"))
 	httpPort, _ := strconv.Atoi(get("nginxHttpPort"))
+	mode := get("nginxMode")
+	subsBehind443 := get("nginxSubsBehind443") == "true"
+	panelBehind443 := get("nginxPanelBehind443") == "true"
+	manageFirewall := get("nginxManageFirewall") == "true"
+	if mode == string(nginx.ModeOff) || mode == "" {
+		subsBehind443 = false
+		panelBehind443 = false
+		manageFirewall = false
+	} else if mode == string(nginx.ModeShared) {
+		panelBehind443 = false
+		manageFirewall = false
+	}
 	return NginxSettings{
-		Mode:           get("nginxMode"),
+		Mode:           mode,
 		Domain:         domain,
 		StubSiteId:     stubId,
-		SubsBehind443:  get("nginxSubsBehind443") == "true",
-		PanelBehind443: get("nginxPanelBehind443") == "true",
-		ManageFirewall: get("nginxManageFirewall") == "true",
+		SubsBehind443:  subsBehind443,
+		PanelBehind443: panelBehind443,
+		ManageFirewall: manageFirewall,
 		FirewallExtra:  get("nginxFirewallExtra"),
 		RealityPort:    realityPort,
 		HTTPPort:       httpPort,
@@ -206,6 +219,14 @@ func (s *NginxService) SaveSettings(in NginxSettings) error {
 	}
 	if in.RealityPort == PublicPort {
 		return fmt.Errorf("the internal port cannot be %d — that is the port nginx takes over", PublicPort)
+	}
+	if in.Mode == string(nginx.ModeOff) {
+		in.SubsBehind443 = false
+		in.PanelBehind443 = false
+		in.ManageFirewall = false
+	} else if in.Mode == string(nginx.ModeShared) {
+		in.PanelBehind443 = false
+		in.ManageFirewall = false
 	}
 	pairs := map[string]string{
 		"nginxMode":           in.Mode,
@@ -231,11 +252,13 @@ func (s *NginxService) SaveSettings(in NginxSettings) error {
 // GetStatus reports what the server looks like right now.
 func (s *NginxService) GetStatus() NginxStatus {
 	set := s.GetSettings()
+	panelPort, _ := s.settingService.GetPort()
 	st := NginxStatus{
 		Installed:  nginx.IsInstalled(),
 		Mode:       set.Mode,
 		Domain:     set.Domain,
 		PublicPort: PublicPort,
+		PanelPort:  panelPort,
 		FirewallOn: nginx.FirewallActive(),
 
 		ConfirmDeadline: s.PendingConfirmation(),

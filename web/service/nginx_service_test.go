@@ -740,3 +740,97 @@ func TestOnly443RelocatesWithoutCollidingOnRealityPort(t *testing.T) {
 		t.Fatalf("second relocate failed (likely port collision): %v", err)
 	}
 }
+
+func TestSwitchFromOnly443ToSharedRestoresDualInbounds(t *testing.T) {
+	s := newNginxTestServer(t)
+	reality, mt := seedInbounds(t)
+
+	setOnly443 := NginxSettings{Mode: "only443", RealityPort: 8443}
+	if _, err := s.relocateInbounds(setOnly443, false); err != nil {
+		t.Fatalf("relocate only443: %v", err)
+	}
+
+	mIb, _ := inboundByID(mt.Id)
+	if mIb.Listen != "127.0.0.1" || mIb.Port != 4343 || mIb.PublicPort != 443 {
+		t.Fatalf("MTProto not relocated in only443: %+v", mIb)
+	}
+
+	// Switch to shared mode where MTProto is dual
+	setShared := NginxSettings{Mode: "shared", RealityPort: 8443}
+	if _, err := s.relocateInbounds(setShared, false); err != nil {
+		t.Fatalf("relocate shared: %v", err)
+	}
+
+	mIbRestored, _ := inboundByID(mt.Id)
+	if mIbRestored.Listen != "" || mIbRestored.Port != 4343 || mIbRestored.PublicPort != 0 {
+		t.Errorf("MTProto not restored when switching to shared: listen=%q, port=%d, public_port=%d",
+			mIbRestored.Listen, mIbRestored.Port, mIbRestored.PublicPort)
+	}
+
+	rIb, _ := inboundByID(reality.Id)
+	if rIb.Listen != "127.0.0.1" || rIb.Port != 8443 || rIb.PublicPort != 443 {
+		t.Errorf("Reality should stay on 127.0.0.1:8443 (public 443): %+v", rIb)
+	}
+}
+
+func TestModeSwitchingSanitizesSettings(t *testing.T) {
+	s := newNginxTestServer(t)
+
+	err := s.SaveSettings(NginxSettings{
+		Mode:           "off",
+		SubsBehind443:  true,
+		PanelBehind443: true,
+		ManageFirewall: true,
+		RealityPort:    8443,
+	})
+	if err != nil {
+		t.Fatalf("save off: %v", err)
+	}
+	got := s.GetSettings()
+	if got.SubsBehind443 || got.PanelBehind443 || got.ManageFirewall {
+		t.Errorf("expected all false for mode off, got subs=%v panel=%v fw=%v",
+			got.SubsBehind443, got.PanelBehind443, got.ManageFirewall)
+	}
+
+	err = s.SaveSettings(NginxSettings{
+		Mode:           "shared",
+		SubsBehind443:  true,
+		PanelBehind443: true,
+		ManageFirewall: true,
+		RealityPort:    8443,
+	})
+	if err != nil {
+		t.Fatalf("save shared: %v", err)
+	}
+	got = s.GetSettings()
+	if !got.SubsBehind443 || got.PanelBehind443 || got.ManageFirewall {
+		t.Errorf("expected subs=true, panel=false, fw=false for mode shared, got subs=%v panel=%v fw=%v",
+			got.SubsBehind443, got.PanelBehind443, got.ManageFirewall)
+	}
+}
+
+func TestPlanDetectsPortConflict(t *testing.T) {
+	s := newNginxTestServer(t)
+	seedInbounds(t)
+
+	db := database.GetDB()
+	conflictIb := &model.Inbound{
+		UserId: 1, Remark: "Existing-8443", Enable: true, Listen: "", Port: 8443,
+		Protocol: model.VLESS, Tag: "inbound-8443", Settings: `{"clients":[]}`,
+	}
+	if err := db.Create(conflictIb).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	plan := s.Plan(NginxSettings{Mode: "only443", RealityPort: 8443})
+	hasConflict := false
+	for _, b := range plan.Blockers {
+		if b.Code == "portConflict" && len(b.Params) >= 1 && b.Params[0] == "8443" {
+			hasConflict = true
+			break
+		}
+	}
+	if !hasConflict {
+		t.Errorf("expected portConflict blocker in plan for port 8443, got blockers: %+v", plan.Blockers)
+	}
+}

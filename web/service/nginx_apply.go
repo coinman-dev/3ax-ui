@@ -172,6 +172,9 @@ func (s *NginxService) disable(in NginxSettings) error {
 		return fmt.Errorf("restart xray: %w", err)
 	}
 	in.Mode = string(nginx.ModeOff)
+	in.SubsBehind443 = false
+	in.PanelBehind443 = false
+	in.ManageFirewall = false
 	// Nothing is closed any more, so there is nothing left to confirm.
 	if err := s.clearConfirmation(); err != nil {
 		logger.Warning("nginx: could not clear the pending confirmation:", err)
@@ -207,6 +210,36 @@ func (s *NginxService) relocateInbounds(in NginxSettings, dryRun bool) (bool, er
 		// serving the clients it already has, and simply gains a second way
 		// in through the public port.
 		if r.Dual {
+			// If this inbound was relocated in a previous mode (e.g. only443),
+			// restore its original listen address, port, and proxy protocol so it
+			// can answer directly on its own port again.
+			for idx, snap := range snapshots {
+				if snap.Id == r.InboundId {
+					ib, err := inboundByID(r.InboundId)
+					if err != nil {
+						break
+					}
+					if !dryRun {
+						updates := map[string]any{
+							"listen":      snap.Listen,
+							"port":        snap.Port,
+							"public_port": snap.PublicPort,
+						}
+						if err := setProxyProtocol(ib, updates, snap.ProxyProtocol); err != nil {
+							return moved, fmt.Errorf("restore «%s»: %w", ib.Remark, err)
+						}
+						if err := db.Model(model.Inbound{}).Where("id = ?", ib.Id).Updates(updates).Error; err != nil {
+							return moved, fmt.Errorf("restore «%s»: %w", ib.Remark, err)
+						}
+						moved = true
+						logger.Infof("nginx: dual inbound %q restored to %s:%d", ib.Remark, snap.Listen, snap.Port)
+					} else {
+						moved = true
+					}
+					snapshots = append(snapshots[:idx], snapshots[idx+1:]...)
+					break
+				}
+			}
 			continue
 		}
 		ib, err := inboundByID(r.InboundId)
@@ -386,6 +419,14 @@ func (s *NginxService) Reconcile() {
 		}
 	}
 
+	// If nginx is not running while a camouflage mode is configured, revive it.
+	if !nginx.IsRunning() {
+		logger.Warning("nginx reconcile: front-end is enabled but nginx is not running, starting it")
+		if err := nginx.Reload(); err != nil {
+			logger.Warning("nginx reconcile: could not start nginx:", err)
+		}
+	}
+
 	// A fresh install switches the front-end on before there is anything to put
 	// behind it. That is not a fault to report every half minute — it simply has
 	// no work yet, and picks up the first Reality or MTProto inbound the moment
@@ -495,6 +536,15 @@ func (s *NginxService) Plan(in NginxSettings) NginxPlan {
 			continue
 		}
 		if ib.Listen != r.Listen || ib.Port != r.Port {
+			if r.Port != ib.Port {
+				exist, err := s.inboundService.checkPortExist("127.0.0.1", r.Port, ib.Id)
+				if err == nil && exist {
+					plan.Blockers = append(plan.Blockers, NginxWarning{
+						Code:   "portConflict",
+						Params: []string{strconv.Itoa(r.Port), r.Remark},
+					})
+				}
+			}
 			plan.Changes = append(plan.Changes, NginxChange{
 				Kind: "move", Subject: r.Remark,
 				From: listenLabel(ib.Listen, ib.Port),

@@ -107,6 +107,13 @@
                           </a-radio-group>
                         </template>
                       </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-if="settings.mode !== 'off'">
+                        <template #title>{{ i18n "pages.nginx.realityPort" }}</template>
+                        <template #description>{{ i18n "pages.nginx.realityPortDesc" }}</template>
+                        <template #control>
+                          <a-input-number v-model="settings.realityPort" :min="1" :max="65535" :precision="0"></a-input-number>
+                        </template>
+                      </a-setting-list-item>
                     </a-collapse-panel>
 
                     <a-collapse-panel key="2" header='{{ i18n "pages.nginx.domain" }}'>
@@ -315,9 +322,12 @@
   <!-- Shown when applying changes that relocate the panel or close ports, so
        the operator is given the new address directly rather than being left on
        an unreachable connection. -->
-  <a-modal v-model="applyModal.visible" title='{{ i18n "pages.nginx.applyModalTitle" }}'
+  <a-modal v-model="applyModal.visible" :title="applyModal.leaving ? '{{ i18n "pages.nginx.applyModalLeavingTitle" }}' : '{{ i18n "pages.nginx.applyModalTitle" }}'"
     :mask-closable="false" :closable="true" :class="themeSwitcher.currentTheme">
-    <a-alert type="warning" show-icon :message="applyModalRemaining"
+    <a-alert v-if="applyModal.leaving" type="info" show-icon
+      message='{{ i18n "pages.nginx.applyModalLeavingNotice" }}'
+      description='{{ i18n "pages.nginx.applyModalLeavingBody" }}' :style="{ marginBottom: '16px' }"></a-alert>
+    <a-alert v-else type="warning" show-icon :message="applyModalRemaining"
       description='{{ i18n "pages.nginx.applyModalBody" }}' :style="{ marginBottom: '16px' }"></a-alert>
     <div :style="{ marginBottom: '8px', fontWeight: 'bold' }">
       {{ i18n "pages.nginx.applyModalUrlLabel" }}
@@ -367,6 +377,7 @@
       applyModal: {
         visible: false,
         url: '',
+        leaving: false,
       },
       settings: {
         mode: 'off',
@@ -388,6 +399,7 @@
         certOk: false,
         certFile: '',
         certExpiry: 0,
+        panelPort: 0,
         firewallOn: false,
         confirmDeadline: 0,
       },
@@ -467,10 +479,13 @@
         return '{{ i18n "pages.nginx.confirmPendingTitle" }} (' + clock + ')';
       },
       canPublish() {
-        return !!this.settings.domain && !!this.cert.certOk;
+        return this.settings.mode !== 'off' && !!this.settings.domain && !!this.cert.certOk;
       },
       publishHint() {
-        return this.canPublish
+        if (this.settings.mode === 'off') {
+          return '{{ i18n "pages.nginx.subsPublishNeedsMode" }}';
+        }
+        return (this.settings.domain && this.cert.certOk)
           ? '{{ i18n "pages.nginx.subsPublishDesc" }}'
           : '{{ i18n "pages.nginx.subsPublishNeedsDomain" }}';
       },
@@ -491,6 +506,18 @@
         if (!this.cert.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
         const date = new Date(this.cert.certExpiry).toISOString().slice(0, 10);
         return '{{ i18n "pages.nginx.certExpires" }}'.replace('%s', date);
+      },
+    },
+    watch: {
+      'settings.mode'(newMode) {
+        if (newMode === 'off') {
+          this.settings.subsBehind443 = false;
+          this.settings.panelBehind443 = false;
+          this.settings.manageFirewall = false;
+        } else if (newMode === 'shared') {
+          this.settings.panelBehind443 = false;
+          this.settings.manageFirewall = false;
+        }
       },
     },
     methods: {
@@ -534,7 +561,13 @@
           this.planning = false;
         }
       },
-      computePanelUrl() {
+      computePanelUrl(isLeaving) {
+        if (isLeaving) {
+          const port = this.status.panelPort || window.location.port || 33757;
+          const host = window.location.hostname;
+          const proto = window.location.protocol;
+          return `${proto}//${host}:${port}${basePath}panel/nginx`;
+        }
         if (this.settings.mode === 'only443' && this.settings.panelBehind443) {
           const domain = (this.settings.domain || window.location.hostname).trim();
           const proto = 'https:';
@@ -562,10 +595,12 @@
       async apply() {
         const movesBehind443 = this.settings.mode === 'only443' && this.settings.panelBehind443;
         const currentPort = window.location.port;
-        const portWillChange = movesBehind443 && (currentPort !== '' && currentPort !== '443');
+        const currentOn443 = (currentPort === '' || currentPort === '443');
+        const entering443 = !currentOn443 && movesBehind443;
+        const leaving443 = currentOn443 && !movesBehind443;
         const closesPorts = this.settings.mode === 'only443' && this.settings.manageFirewall;
-        const willDisruptConnection = portWillChange || closesPorts;
-        const newUrl = this.computePanelUrl();
+        const willDisruptConnection = entering443 || leaving443 || closesPorts;
+        const newUrl = this.computePanelUrl(leaving443);
 
         this.applying = true;
         try {
@@ -573,23 +608,31 @@
           if (!msg.success) return;
           this.planVisible = false;
           if (willDisruptConnection) {
-            this.status.confirmDeadline = Date.now() + 120000;
-            this.watchConfirmation();
             this.applyModal.url = newUrl;
+            this.applyModal.leaving = leaving443;
+            if (!leaving443) {
+              this.status.confirmDeadline = Date.now() + 120000;
+              this.watchConfirmation();
+            }
             this.applyModal.visible = true;
           }
-          try {
-            await this.load();
-          } catch (e) {
-            console.warn('Post-apply load failed (expected if port closed):', e);
+          if (!leaving443) {
+            try {
+              await this.load();
+            } catch (e) {
+              console.warn('Post-apply load failed (expected if port changed/closed):', e);
+            }
           }
         } catch (err) {
           console.error('Apply request error:', err);
           if (willDisruptConnection) {
             this.planVisible = false;
-            this.status.confirmDeadline = Date.now() + 120000;
-            this.watchConfirmation();
             this.applyModal.url = newUrl;
+            this.applyModal.leaving = leaving443;
+            if (!leaving443) {
+              this.status.confirmDeadline = Date.now() + 120000;
+              this.watchConfirmation();
+            }
             this.applyModal.visible = true;
           }
         } finally {
@@ -704,6 +747,7 @@
           stubExternal: '{{ i18n "pages.nginx.warnStubExternal" }}',
           firewallExtraUnreadable: '{{ i18n "pages.nginx.warnFirewallExtraUnreadable" }}',
           inboundsUnreadable: '{{ i18n "pages.nginx.warnInboundsUnreadable" }}',
+          portConflict: '{{ i18n "pages.nginx.warnPortConflict" }}',
         };
         let text = wording[warning.code];
         // Codes with no wording of their own carry the message from below.
