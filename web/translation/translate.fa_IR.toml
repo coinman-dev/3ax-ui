@@ -331,6 +331,12 @@
 "confirmPendingButton" = "بله، به پنل دسترسی دارم"
 "confirmPendingExpired" = "در حال باز کردن دوبارهٔ پورت‌ها…"
 
+"applyModalTitle" = "تنظیمات اعمال شد — دسترسی به پنل را تأیید کنید"
+"applyModalBody" = "پورت‌ها در حال بسته شدن هستند و پنل اکنون از طریق آدرس جدید در دسترس است. پنل را از طریق پیوند زیر باز کنید و ظرف ۲ دقیقه دسترسی را تأیید کنید، در غیر این صورت تنظیمات به صورت خودکار بازگردانده می‌شوند."
+"applyModalUrlLabel" = "آدرس جدید پنل:"
+"applyModalOpenButton" = "باز کردن آدرس جدید"
+"applyModalCopyButton" = "کپی پیوند"
+
 [pages.nginx.toasts]
 "applied" = "تنظیمات Nginx اعمال شد"
 "invalidRequest" = "درخواست نامعتبر"

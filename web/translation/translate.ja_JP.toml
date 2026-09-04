@@ -331,6 +331,12 @@
 "confirmPendingButton" = "はい、パネルに届いています"
 "confirmPendingExpired" = "ポートを開き直しています…"
 
+"applyModalTitle" = "設定が適用されました — パネルへのアクセスを確認してください"
+"applyModalBody" = "ポートが閉じられ、パネルは新しいアドレスからアクセスできるようになりました。以下のリンクからパネルを開き、2分以内にアクセスを確認してください。確認されない場合、設定は自動的に元に戻ります。"
+"applyModalUrlLabel" = "新しいパネルアドレス："
+"applyModalOpenButton" = "新しいアドレスを開く"
+"applyModalCopyButton" = "リンクをコピー"
+
 [pages.nginx.toasts]
 "applied" = "Nginx の設定を適用しました"
 "invalidRequest" = "リクエストが不正です"

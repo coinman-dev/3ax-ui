@@ -331,6 +331,12 @@
 "confirmPendingButton" = "Sim, consigo acessar o painel"
 "confirmPendingExpired" = "reabrindo as portas…"
 
+"applyModalTitle" = "Configurações aplicadas — confirme o acesso ao painel"
+"applyModalBody" = "As portas estão fechando e o painel agora está acessível no novo endereço. Abra o painel pelo link abaixo e confirme o acesso em até 2 minutos, caso contrário as configurações serão revertidas automaticamente."
+"applyModalUrlLabel" = "Novo endereço do painel:"
+"applyModalOpenButton" = "Abrir novo endereço"
+"applyModalCopyButton" = "Copiar link"
+
 [pages.nginx.toasts]
 "applied" = "Configurações do Nginx aplicadas"
 "invalidRequest" = "Requisição inválida"

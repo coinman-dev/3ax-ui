@@ -331,6 +331,12 @@
 "confirmPendingButton" = "Evet, panele erişebiliyorum"
 "confirmPendingExpired" = "portlar yeniden açılıyor…"
 
+"applyModalTitle" = "Ayarlar uygulandı — panel erişimini onaylayın"
+"applyModalBody" = "Portlar kapatılıyor ve panele artık yeni adresten erişilebilir. Aşağıdaki bağlantıdan paneli açın ve 2 dakika içinde erişimi onaylayın, aksi takdirde ayarlar otomatik olarak geri alınacaktır."
+"applyModalUrlLabel" = "Yeni panel adresi:"
+"applyModalOpenButton" = "Yeni adresi aç"
+"applyModalCopyButton" = "Bağlantıyı kopyala"
+
 [pages.nginx.toasts]
 "applied" = "Nginx ayarları uygulandı"
 "invalidRequest" = "Geçersiz istek"

@@ -331,6 +331,12 @@
 "confirmPendingButton" = "Yes, I can reach the panel"
 "confirmPendingExpired" = "opening the ports again…"
 
+"applyModalTitle" = "Settings applied — confirm panel access"
+"applyModalBody" = "Ports are closing and the panel is now accessible at the new address. Open the panel via the link below and confirm reachability within 2 minutes, otherwise settings will automatically roll back."
+"applyModalUrlLabel" = "New panel address:"
+"applyModalOpenButton" = "Open new address"
+"applyModalCopyButton" = "Copy link"
+
 [pages.nginx.toasts]
 "applied" = "Nginx settings applied"
 "invalidRequest" = "Invalid request"

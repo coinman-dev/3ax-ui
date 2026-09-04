@@ -331,6 +331,12 @@
 "confirmPendingButton" = "نعم، أصل إلى اللوحة"
 "confirmPendingExpired" = "يُعاد فتح المنافذ…"
 
+"applyModalTitle" = "تم تطبيق الإعدادات — أكِّد الوصول إلى اللوحة"
+"applyModalBody" = "يتم إغلاق المنافذ وأصبحت اللوحة متاحة الآن عبر العنوان الجديد. افتح اللوحة من الرابط أدناه وأكِّد الوصول خلال دقيقتين، وإلا فستتم استعادة الإعدادات تلقائياً."
+"applyModalUrlLabel" = "عنوان اللوحة الجديد:"
+"applyModalOpenButton" = "فتح العنوان الجديد"
+"applyModalCopyButton" = "نسخ الرابط"
+
 [pages.nginx.toasts]
 "applied" = "طُبِّقت إعدادات Nginx"
 "invalidRequest" = "طلب غير صالح"

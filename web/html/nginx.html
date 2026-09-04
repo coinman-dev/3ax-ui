@@ -311,6 +311,33 @@
         message='{{ i18n "pages.nginx.closedWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
     </template>
   </a-modal>
+
+  <!-- Shown when applying changes that relocate the panel or close ports, so
+       the operator is given the new address directly rather than being left on
+       an unreachable connection. -->
+  <a-modal v-model="applyModal.visible" title='{{ i18n "pages.nginx.applyModalTitle" }}'
+    :mask-closable="false" :closable="true" :class="themeSwitcher.currentTheme">
+    <a-alert type="warning" show-icon :message="applyModalRemaining"
+      description='{{ i18n "pages.nginx.applyModalBody" }}' :style="{ marginBottom: '16px' }"></a-alert>
+    <div :style="{ marginBottom: '8px', fontWeight: 'bold' }">
+      {{ i18n "pages.nginx.applyModalUrlLabel" }}
+    </div>
+    <a-input :value="applyModal.url" readonly>
+      <a-icon slot="prefix" type="link"></a-icon>
+      <a-tooltip slot="suffix" title='{{ i18n "pages.nginx.applyModalCopyButton" }}'>
+        <a-icon type="copy" style="cursor: pointer;" @click="copyUrl(applyModal.url)"></a-icon>
+      </a-tooltip>
+    </a-input>
+
+    <template #footer>
+      <a-button @click="copyUrl(applyModal.url)">
+        {{ i18n "pages.nginx.applyModalCopyButton" }}
+      </a-button>
+      <a-button type="primary" icon="export" @click="goToUrl(applyModal.url)">
+        {{ i18n "pages.nginx.applyModalOpenButton" }}
+      </a-button>
+    </template>
+  </a-modal>
 </a-layout>
 
 {{template "page/body_scripts" .}}
@@ -337,6 +364,10 @@
       now: 0,
       confirmTimer: null,
       planVisible: false,
+      applyModal: {
+        visible: false,
+        url: '',
+      },
       settings: {
         mode: 'off',
         domain: '',
@@ -429,6 +460,12 @@
           : '{{ i18n "pages.nginx.confirmPendingExpired" }}';
         return '{{ i18n "pages.nginx.confirmPendingBody" }}'.replace('%s', clock);
       },
+      applyModalRemaining() {
+        const left = this.confirmLeft;
+        if (!left || left <= 0) return '{{ i18n "pages.nginx.confirmPendingTitle" }}';
+        const clock = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+        return '{{ i18n "pages.nginx.confirmPendingTitle" }} (' + clock + ')';
+      },
       canPublish() {
         return !!this.settings.domain && !!this.cert.certOk;
       },
@@ -497,13 +534,64 @@
           this.planning = false;
         }
       },
+      computePanelUrl() {
+        if (this.settings.mode === 'only443' && this.settings.panelBehind443) {
+          const domain = (this.settings.domain || window.location.hostname).trim();
+          const proto = 'https:';
+          return `${proto}//${domain}${basePath}panel/nginx`;
+        }
+        return window.location.href;
+      },
+      copyUrl(url) {
+        if (!url) return;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(url).then(() => this.$message.success('{{ i18n "copied" }}'));
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          this.$message.success('{{ i18n "copied" }}');
+        }
+      },
+      goToUrl(url) {
+        if (url) window.location.href = url;
+      },
       async apply() {
+        const movesBehind443 = this.settings.mode === 'only443' && this.settings.panelBehind443;
+        const currentPort = window.location.port;
+        const portWillChange = movesBehind443 && (currentPort !== '' && currentPort !== '443');
+        const closesPorts = this.settings.mode === 'only443' && this.settings.manageFirewall;
+        const willDisruptConnection = portWillChange || closesPorts;
+        const newUrl = this.computePanelUrl();
+
         this.applying = true;
         try {
           const msg = await HttpUtil.postJson('panel/api/nginx/apply', this.settings);
           if (!msg.success) return;
           this.planVisible = false;
-          await this.load();
+          if (willDisruptConnection) {
+            this.status.confirmDeadline = Date.now() + 120000;
+            this.watchConfirmation();
+            this.applyModal.url = newUrl;
+            this.applyModal.visible = true;
+          }
+          try {
+            await this.load();
+          } catch (e) {
+            console.warn('Post-apply load failed (expected if port closed):', e);
+          }
+        } catch (err) {
+          console.error('Apply request error:', err);
+          if (willDisruptConnection) {
+            this.planVisible = false;
+            this.status.confirmDeadline = Date.now() + 120000;
+            this.watchConfirmation();
+            this.applyModal.url = newUrl;
+            this.applyModal.visible = true;
+          }
         } finally {
           this.applying = false;
         }

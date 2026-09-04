@@ -331,6 +331,12 @@
 "confirmPendingButton" = "Vâng, tôi vào được bảng điều khiển"
 "confirmPendingExpired" = "đang mở lại các cổng…"
 
+"applyModalTitle" = "Đã áp dụng cài đặt — hãy xác nhận truy cập bảng điều khiển"
+"applyModalBody" = "Các cổng đang đóng lại và bảng điều khiển hiện có thể truy cập tại địa chỉ mới. Vui lòng mở bảng điều khiển qua liên kết bên dưới và xác nhận trong vòng 2 phút, nếu không cài đặt sẽ tự động hoàn tác."
+"applyModalUrlLabel" = "Địa chỉ bảng điều khiển mới:"
+"applyModalOpenButton" = "Mở địa chỉ mới"
+"applyModalCopyButton" = "Sao chép liên kết"
+
 [pages.nginx.toasts]
 "applied" = "Đã áp dụng cài đặt Nginx"
 "invalidRequest" = "Yêu cầu không hợp lệ"

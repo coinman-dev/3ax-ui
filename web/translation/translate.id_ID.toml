@@ -331,6 +331,12 @@
 "confirmPendingButton" = "Ya, saya bisa mencapai panel"
 "confirmPendingExpired" = "membuka port kembali…"
 
+"applyModalTitle" = "Pengaturan diterapkan — konfirmasikan akses panel"
+"applyModalBody" = "Port sedang ditutup dan panel sekarang dapat diakses di alamat baru. Buka panel melalui tautan di bawah dan konfirmasikan akses dalam 2 menit, jika tidak pengaturan akan otomatis dipulihkan."
+"applyModalUrlLabel" = "Alamat panel baru:"
+"applyModalOpenButton" = "Buka alamat baru"
+"applyModalCopyButton" = "Salin tautan"
+
 [pages.nginx.toasts]
 "applied" = "Pengaturan Nginx diterapkan"
 "invalidRequest" = "Permintaan tidak sah"

@@ -331,6 +331,12 @@
 "confirmPendingButton" = "Sí, llego al panel"
 "confirmPendingExpired" = "abriendo los puertos de nuevo…"
 
+"applyModalTitle" = "Ajustes aplicados — confirme el acceso al panel"
+"applyModalBody" = "Los puertos se están cerrando y el panel ahora es accesible en la nueva dirección. Abra el panel usando el enlace a continuación y confirme el acceso en 2 minutos, o los ajustes se revertirán automáticamente."
+"applyModalUrlLabel" = "Nueva dirección del panel:"
+"applyModalOpenButton" = "Abrir nueva dirección"
+"applyModalCopyButton" = "Copiar enlace"
+
 [pages.nginx.toasts]
 "applied" = "Ajustes de Nginx aplicados"
 "invalidRequest" = "Petición no válida"

@@ -331,6 +331,12 @@
 "confirmPendingButton" = "是的，面板可以访问"
 "confirmPendingExpired" = "正在重新打开端口……"
 
+"applyModalTitle" = "设置已应用 — 请确认面板可用"
+"applyModalBody" = "其他端口正在关闭，面板现在可通过新地址访问。请通过下方链接打开面板并在 2 分钟内确认可达性，否则设置将自动回滚。"
+"applyModalUrlLabel" = "新面板地址："
+"applyModalOpenButton" = "打开新地址"
+"applyModalCopyButton" = "复制链接"
+
 [pages.nginx.toasts]
 "applied" = "Nginx 设置已应用"
 "invalidRequest" = "请求无效"
