@@ -236,12 +236,24 @@ func (s *NginxService) relocateInbounds(in NginxSettings, dryRun bool) (bool, er
 			}
 		}
 
-		if err := setProxyProtocol(ib, updates, true); err != nil {
-			return moved, fmt.Errorf("«%s»: %w", ib.Remark, err)
+		isReality := ib.Protocol == model.VLESS && realitySNIs(ib.StreamSettings) != nil
+		if isReality {
+			// Inbounds using REALITY (e.g. VLESS REALITY with xhttp, tcp, grpc)
+			// must NEVER have acceptProxyProtocol enabled. The Nginx relay
+			// strips the PROXY protocol header before passing bytes to Xray,
+			// preventing handshake hangs/timeouts (XTLS/Xray-core Issue #2779).
+			if err := setProxyProtocol(ib, updates, false); err != nil {
+				return moved, fmt.Errorf("«%s»: %w", ib.Remark, err)
+			}
+		} else {
+			if err := setProxyProtocol(ib, updates, true); err != nil {
+				return moved, fmt.Errorf("«%s»: %w", ib.Remark, err)
+			}
 		}
 
+		expectedPP := !isReality
 		if ib.Listen == updates["listen"] && ib.Port == r.Port &&
-			ib.PublicPort == PublicPort && proxyProtocolFlag(ib) {
+			ib.PublicPort == PublicPort && proxyProtocolFlag(ib) == expectedPP {
 			continue // already where it belongs
 		}
 		if dryRun {

@@ -168,8 +168,8 @@ func TestRelocateAndRestoreRoundTrip(t *testing.T) {
 	if moved.Tag != "inbound-443" {
 		t.Errorf("the tag changed to %q; routing rules point at it by name", moved.Tag)
 	}
-	if !jsonFlag(t, moved.StreamSettings, "sockopt", "acceptProxyProtocol") {
-		t.Error("acceptProxyProtocol is off: Xray would see every client as 127.0.0.1")
+	if jsonFlag(t, moved.StreamSettings, "sockopt", "acceptProxyProtocol") {
+		t.Error("acceptProxyProtocol is on for Reality: XTLS REALITY breaks when PROXY protocol header is injected")
 	}
 	if !strings.Contains(moved.StreamSettings, "realitySettings") {
 		t.Error("the Reality settings were lost while setting one flag")
@@ -465,12 +465,8 @@ func TestDualRoutesKeepTheirOwnPort(t *testing.T) {
 		t.Fatalf("the generated config is invalid: %v", err)
 	}
 	for _, r := range cfg.Routes {
-		dual := strings.Contains(r.Name, "mtproto")
-		if dual && r.Relay == "" {
-			t.Errorf("%s keeps its own port but gets the PROXY header anyway — direct clients would be refused", r.Name)
-		}
-		if !dual && r.Relay != "" {
-			t.Errorf("%s is reachable only through nginx, so stripping the header throws the client address away", r.Name)
+		if r.Relay == "" {
+			t.Errorf("%s was not given a relay to strip the PROXY protocol header", r.Name)
 		}
 	}
 
@@ -527,7 +523,8 @@ func TestClassificationSurvivesAnApply(t *testing.T) {
 		t.Error("MTProto stopped being dual")
 	}
 
-	// And the config must still give exactly one of them a relay.
+	// Both routes (MTProto because it keeps its port, and Reality to prevent XTLS Issue #2779)
+	// get a relay to strip the PROXY protocol header.
 	cfg, err := s.buildConfig(set)
 	if err != nil {
 		t.Fatal(err)
@@ -538,8 +535,8 @@ func TestClassificationSurvivesAnApply(t *testing.T) {
 			relays++
 		}
 	}
-	if relays != 1 {
-		t.Errorf("%d routes got a relay after the move, want exactly 1", relays)
+	if relays != 2 {
+		t.Errorf("%d routes got a relay after the move, want exactly 2", relays)
 	}
 }
 

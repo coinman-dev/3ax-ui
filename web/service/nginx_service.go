@@ -410,7 +410,13 @@ func (s *NginxService) buildConfig(set NginxSettings) (nginx.Config, error) {
 		}
 		// An inbound that kept its own port serves direct clients too, and
 		// they send no PROXY header — so it must not be given one either.
-		if r.Dual {
+		//
+		// Inbounds using REALITY (e.g. VLESS REALITY with xhttp, tcp, grpc)
+		// must NEVER receive the PROXY protocol header: XTLS REALITY decodes
+		// raw TLS ClientHello, and injecting PROXY protocol triggers handshake
+		// hangs/timeouts (XTLS/Xray-core Issue #2779), breaking clients like Hiddify.
+		// Strip the PROXY header via relay for all REALITY inbounds as well.
+		if r.Dual || r.Protocol == string(model.VLESS) {
 			relay, err := s.relayPort(r.InboundId)
 			if err != nil {
 				return cfg, err
