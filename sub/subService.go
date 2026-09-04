@@ -558,10 +558,16 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 // front-end modes — and is reachable at 127.0.0.1 from nowhere but the server
 // itself, so putting it in a link hands out something that cannot connect.
 func (s *SubService) resolveInboundAddress(inbound *model.Inbound) string {
-	if !isPublicListenAddress(inbound.Listen) {
+	if isPublicListenAddress(inbound.Listen) {
+		return inbound.Listen
+	}
+	if s.address != "" && isPublicListenAddress(s.address) {
 		return s.address
 	}
-	return inbound.Listen
+	if _, pubHost, ok := service.PublicSubBase(); ok && pubHost != "" {
+		return pubHost
+	}
+	return s.address
 }
 
 // isPublicListenAddress reports whether a listen address is one a client
@@ -1400,13 +1406,15 @@ func (s *SubService) ResolveRequest(c *gin.Context) (scheme string, host string,
 		host = h
 	}
 	if host == "" {
-		host = c.GetHeader("X-Real-IP")
-	}
-	if host == "" {
 		var err error
 		host, _, err = net.SplitHostPort(c.Request.Host)
 		if err != nil {
 			host = c.Request.Host
+		}
+	}
+	if host == "" || !isPublicListenAddress(host) {
+		if _, pubHost, ok := service.PublicSubBase(); ok && pubHost != "" {
+			host = pubHost
 		}
 	}
 
@@ -1422,7 +1430,7 @@ func (s *SubService) ResolveRequest(c *gin.Context) (scheme string, host string,
 	// header display host
 	hostHeader = c.GetHeader("X-Forwarded-Host")
 	if hostHeader == "" {
-		hostHeader = c.GetHeader("X-Real-IP")
+		hostHeader = c.Request.Host
 	}
 	if hostHeader == "" {
 		hostHeader = host

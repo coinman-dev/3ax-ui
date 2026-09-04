@@ -369,6 +369,7 @@ func writeProxy(b *strings.Builder, p *Proxy) {
 		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
 		b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
 		b.WriteString("        proxy_set_header X-Forwarded-Proto https;\n")
+		b.WriteString("        proxy_set_header X-Forwarded-Host $host;\n")
 		b.WriteString("        proxy_set_header Upgrade $http_upgrade;\n")
 		b.WriteString("        proxy_set_header Connection $threeax_connection_upgrade;\n")
 		b.WriteString("        proxy_read_timeout 3600s;\n")

@@ -1,9 +1,13 @@
 package sub
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/gin-gonic/gin"
 	"testing"
 
 	"github.com/coinman-dev/3ax-ui/v2/database"
@@ -120,5 +124,43 @@ func TestHiddifyCompatAddsALPN(t *testing.T) {
 	linkNoCompat := s.genVlessLink(inbound, "test@example.com")
 	if strings.Contains(linkNoCompat, "alpn=h2") {
 		t.Fatalf("did not expect alpn=h2 when hiddifyCompat is false, got: %s", linkNoCompat)
+	}
+}
+
+func TestResolveRequestDoesNotUseClientRealIPAsHost(t *testing.T) {
+	s := NewSubService(false, "", "")
+
+	// Simulate a request proxied by Nginx:
+	// Host is the domain (net-ru.modulator.net)
+	// X-Real-IP is the client phone's IP (198.51.100.23)
+	// X-Forwarded-Proto is https
+	req, _ := http.NewRequest("GET", "/sub/test-id", nil)
+	req.Host = "net-ru.modulator.net"
+	req.Header.Set("X-Real-IP", "198.51.100.23")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+
+	scheme, host, hostWithPort, hostHeader := s.ResolveRequest(c)
+
+	if scheme != "https" {
+		t.Errorf("scheme = %q, want https", scheme)
+	}
+	if host != "net-ru.modulator.net" {
+		t.Errorf("host = %q, want net-ru.modulator.net (X-Real-IP must not override host)", host)
+	}
+	if hostWithPort != "net-ru.modulator.net" {
+		t.Errorf("hostWithPort = %q, want net-ru.modulator.net", hostWithPort)
+	}
+	if hostHeader != "net-ru.modulator.net" {
+		t.Errorf("hostHeader = %q, want net-ru.modulator.net", hostHeader)
+	}
+
+	// Also test when X-Forwarded-Host is explicitly set by Nginx
+	req.Header.Set("X-Forwarded-Host", "net-ru.modulator.net")
+	scheme, host, _, _ = s.ResolveRequest(c)
+	if host != "net-ru.modulator.net" {
+		t.Errorf("host with X-Forwarded-Host = %q, want net-ru.modulator.net", host)
 	}
 }
