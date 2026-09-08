@@ -291,7 +291,6 @@
 "certificate" = "Certificate"
 "stubs" = "Cover page"
 "stubsDesc" = "What a browser finds when it opens the domain above. It is stored in the panel, so it rides along in the backup and survives a reinstall; only the active one is written to disk for nginx to serve."
-"stubAdd" = "Add a page"
 "stubActive" = "Active"
 "stubDeleteAsk" = "Delete this page?"
 "stubName" = "Name"

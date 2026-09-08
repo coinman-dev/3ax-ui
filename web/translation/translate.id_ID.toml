@@ -292,7 +292,6 @@
 "certificate" = "Sertifikat"
 "stubs" = "Halaman sampul"
 "stubsDesc" = "Apa yang ditemukan peramban ketika membuka domain di atas. Disimpan di panel, jadi ikut terbawa dalam cadangan dan bertahan setelah pemasangan ulang; yang ditulis ke disk untuk disajikan nginx hanya yang aktif."
-"stubAdd" = "Tambah halaman"
 "stubActive" = "Aktif"
 "stubDeleteAsk" = "Hapus halaman ini?"
 "stubName" = "Nama"

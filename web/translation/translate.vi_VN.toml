@@ -292,7 +292,6 @@
 "certificate" = "Chứng chỉ"
 "stubs" = "Trang bìa"
 "stubsDesc" = "Thứ mà trình duyệt thấy khi mở tên miền ở trên. Nó được lưu trong bảng điều khiển nên đi kèm bản sao lưu và sống sót qua lần cài lại; chỉ trang đang hoạt động mới được ghi ra đĩa cho nginx phục vụ."
-"stubAdd" = "Thêm trang"
 "stubActive" = "Đang dùng"
 "stubDeleteAsk" = "Xoá trang này?"
 "stubName" = "Tên"

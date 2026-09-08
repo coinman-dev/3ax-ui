@@ -292,7 +292,6 @@
 "certificate" = "证书"
 "stubs" = "伪装页面"
 "stubsDesc" = "浏览器打开上面那个域名时看到的内容。它保存在面板里，因此会随备份一起带走，重装后依然存在；只有当前启用的那一个会写到磁盘上交给 nginx。"
-"stubAdd" = "添加页面"
 "stubActive" = "已启用"
 "stubDeleteAsk" = "删除这个页面？"
 "stubName" = "名称"

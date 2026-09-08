@@ -292,7 +292,6 @@
 "certificate" = "Certificado"
 "stubs" = "Página de portada"
 "stubsDesc" = "Lo que encuentra un navegador al abrir el dominio de arriba. Se guarda en el panel, así que viaja con la copia de seguridad y sobrevive a una reinstalación; en disco, para que nginx la sirva, solo se escribe la activa."
-"stubAdd" = "Añadir una página"
 "stubActive" = "Activa"
 "stubDeleteAsk" = "¿Borrar esta página?"
 "stubName" = "Nombre"

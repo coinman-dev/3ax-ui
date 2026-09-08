@@ -292,7 +292,6 @@
 "certificate" = "Sertifika"
 "stubs" = "Kapak sayfası"
 "stubsDesc" = "Yukarıdaki alan adını açan bir tarayıcının gördüğü şey. Panelde saklanır, dolayısıyla yedekle birlikte gider ve yeniden kurulumdan sağ çıkar; diske, nginx sunsun diye, yalnızca etkin olan yazılır."
-"stubAdd" = "Sayfa ekle"
 "stubActive" = "Etkin"
 "stubDeleteAsk" = "Bu sayfa silinsin mi?"
 "stubName" = "Ad"

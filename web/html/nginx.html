@@ -374,11 +374,6 @@
                     <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}' force-render>
                       <a-alert type="info" show-icon message='{{ i18n "pages.nginx.stubsDesc" }}'
                         :style="{ marginBottom: '12px' }"></a-alert>
-                      <a-space direction="horizontal" :style="{ marginBottom: '12px' }">
-                        <a-button type="primary" icon="plus" @click="newStub">
-                          {{ i18n "pages.nginx.stubAdd" }}
-                        </a-button>
-                      </a-space>
                       <!-- Every tile is the page itself, drawn at full size and
                            shrunk: a name in a list says nothing about what a
                            visitor would be looking at. -->
@@ -413,12 +408,13 @@
                             <span class="stub-weight">[[ SizeFormatter.sizeFormat(card.size) ]]</span>
                           </div>
                         </div>
-                        <div class="stub-card stub-own" @click="$refs.stubFile.click()">
+                        <!-- The last tile opens the editor rather than a file
+                             dialog: a page can be written there as well as
+                             uploaded, and it is the only way in now. -->
+                        <div class="stub-card stub-own" @click="newStub">
                           <a-icon type="cloud-upload"></a-icon>
                           <div>{{ i18n "pages.nginx.stubUploadOwn" }}</div>
                         </div>
-                        <input ref="stubFile" type="file" accept=".html,.htm"
-                          :style="{ display: 'none' }" @change="pickStubFile">
                       </div>
                     </a-collapse-panel>
 
@@ -922,22 +918,13 @@
       readStubFile(file) {
         const reader = new FileReader();
         reader.onload = e => {
-          // From the gallery tile there is no editor open yet — the file
-          // opens one, so the page can be named and its warnings read before
-          // anything is saved.
-          if (!this.stubModal.visible) this.newStub();
           this.stubModal.html = e.target.result;
+          // The file name is a better first guess than nothing, and the field
+          // is right there to be corrected.
           if (!this.stubModal.name) this.stubModal.name = file.name.replace(/\.html?$/i, '');
         };
         reader.readAsText(file);
         return false;
-      },
-      pickStubFile(event) {
-        const file = event.target.files && event.target.files[0];
-        // Cleared straight away, or picking the same file twice in a row does
-        // nothing at all.
-        event.target.value = '';
-        if (file) this.readStubFile(file);
       },
       // The tiles are a page drawn at full size and shrunk, and CSS cannot work
       // out the factor on its own — it needs the width in pixels. The section
