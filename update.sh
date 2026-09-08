@@ -995,6 +995,60 @@ xray_panel_arch() {
 # Pinned mtg (MTProto FakeTLS sidecar, github.com/9seconds/mtg) version.
 MTG_VER="2.2.8"
 
+# Pinned xray-core (github.com/XTLS/Xray-core) version. One source of truth:
+# it builds the download URL and decides whether the copy already on disk is
+# worth replacing.
+XRAY_VER="26.3.27"
+
+# installed_xray_version prints the version of the xray binary at $1, or
+# nothing when there is no binary to ask.
+installed_xray_version() {
+    local bin="$1"
+    [[ -x "$bin" ]] || return 1
+    "$bin" -version 2>/dev/null | head -n1 | awk '{print $2}'
+}
+
+# xray_is_current reports whether the binary at $1 is already the pinned
+# release or newer. Newer counts: an operator who upgraded xray by hand is not
+# asking for it to be put back.
+xray_is_current() {
+    local have
+    have=$(installed_xray_version "$1") || return 1
+    [[ -n "$have" ]] || return 1
+    [[ "$(printf '%s\n%s\n' "$XRAY_VER" "$have" | sort -V | head -n1)" == "$XRAY_VER" ]]
+}
+
+# fetch_geo_file refreshes one geo-data file, and only when the server has
+# something newer. The six of them come to about 145 MB, which used to be
+# downloaded again on every single update.
+#
+# `-z` sends If-Modified-Since from the file's timestamp and `-R` sets that
+# timestamp from the server's Last-Modified — the two are a pair, and without
+# the second the first has nothing to ask about. A 304 leaves the file on disk
+# untouched.
+#
+# The reachability prompt is only for a file we do not have. Once there is a
+# usable copy, a server that cannot be reached is not worth stopping an update
+# over.
+fetch_geo_file() {
+    local dest="$1" url="$2" label="$3" code
+    if [[ ! -f "$dest" ]]; then
+        check_url_or_skip "$url" "$label" || return 0
+        if ${curl_bin:-curl} -4sfLRo "$dest" "$url"; then
+            echo -e "  ${label}: downloaded"
+        else
+            echo -e "  ${yellow}${label}: could not be downloaded${plain}"
+        fi
+        return 0
+    fi
+    code=$(${curl_bin:-curl} -4sfLR -z "$dest" -o "$dest" -w '%{http_code}' "$url" 2>/dev/null)
+    case "$code" in
+        304) echo -e "  ${label}: up to date" ;;
+        200) echo -e "  ${green}${label}: updated${plain}" ;;
+        *)   echo -e "  ${yellow}${label}: kept the copy on disk (HTTP ${code:-none})${plain}" ;;
+    esac
+}
+
 # mtg release-asset arch (empty = no prebuilt binary; s390x has none, armv5
 # falls back to the armv6 build).
 mtg_release_arch() {
@@ -1144,57 +1198,72 @@ download_xray_and_geo() {
 
     mkdir -p "$target_bin_dir"
     local tmp_zip="/tmp/xray-core.$$.zip"
-    xray_url="https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-${xray_arch}.zip"
+    local xray_bin="$target_bin_dir/xray-linux-${xray_fname}"
+    xray_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VER}/Xray-linux-${xray_arch}.zip"
 
-    if ! check_url_or_skip "$xray_url" "xray-core binary"; then
-        echo -e "${red}Cannot proceed without xray-core — aborting xray bundle download.${plain}"
-        return 1
-    fi
-    echo -e "${green}Downloading xray-core ${xray_url}...${plain}"
-    if ! ${curl_bin} -4fLRo "$tmp_zip" "$xray_url"; then
+    # Twenty megabytes for a binary that is very often already there, and on
+    # the local-source path it used to be thrown away straight afterwards by
+    # the restore of the preserved copy.
+    if xray_is_current "$xray_bin"; then
+        echo -e "${green}xray-core $(installed_xray_version "$xray_bin") already installed, not downloading it again.${plain}"
+    else
+        # xray binary is mandatory — without it the panel can't run any
+        # protocol. Probe the URL up-front so the user gets a clean prompt
+        # instead of waiting through curl's full retry loop on a dead host.
+        if ! check_url_or_skip "$xray_url" "xray-core binary"; then
+            echo -e "${red}Cannot proceed without xray-core — aborting xray bundle download.${plain}"
+            return 1
+        fi
+        echo -e "${green}Downloading xray-core ${xray_url}...${plain}"
+        if ! ${curl_bin} -4fLRo "$tmp_zip" "$xray_url"; then
+            rm -f "$tmp_zip"
+            echo -e "${red}Failed to download xray-core.${plain}"
+            return 1
+        fi
+        (cd "$target_bin_dir" && unzip -o "$tmp_zip" >/dev/null) || {
+            rm -f "$tmp_zip"
+            echo -e "${red}Failed to unzip xray-core.${plain}"
+            return 1
+        }
         rm -f "$tmp_zip"
-        echo -e "${red}Failed to download xray-core.${plain}"
-        return 1
-    fi
-    (cd "$target_bin_dir" && unzip -o "$tmp_zip" >/dev/null) || {
-        rm -f "$tmp_zip"
-        echo -e "${red}Failed to unzip xray-core.${plain}"
-        return 1
-    }
-    rm -f "$tmp_zip"
-    rm -f "$target_bin_dir/geoip.dat" "$target_bin_dir/geosite.dat"
-    if [[ -f "$target_bin_dir/xray" ]]; then
-        mv -f "$target_bin_dir/xray" "$target_bin_dir/xray-linux-${xray_fname}"
-        chmod +x "$target_bin_dir/xray-linux-${xray_fname}"
+        # The zip carries its own geo files, which are the ones we replace
+        # below. Only worth removing when there has actually been a zip —
+        # doing it unconditionally would force a fresh 145 MB every run.
+        rm -f "$target_bin_dir/geoip.dat" "$target_bin_dir/geosite.dat"
+        if [[ -f "$target_bin_dir/xray" ]]; then
+            mv -f "$target_bin_dir/xray" "$xray_bin"
+            chmod +x "$xray_bin"
+        fi
     fi
 
-    echo -e "${green}Downloading geo data...${plain}"
-    local geo_url
-    geo_url="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
-    check_url_or_skip "$geo_url" "geoip.dat (Loyalsoldier)" && \
-        ${curl_bin} -4sfLRo "$target_bin_dir/geoip.dat" "$geo_url"
-    geo_url="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
-    check_url_or_skip "$geo_url" "geosite.dat (Loyalsoldier)" && \
-        ${curl_bin} -4sfLRo "$target_bin_dir/geosite.dat" "$geo_url"
-    geo_url="https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat"
-    check_url_or_skip "$geo_url" "geoip_IR.dat (Iran rules)" && \
-        ${curl_bin} -4sfLRo "$target_bin_dir/geoip_IR.dat" "$geo_url"
-    geo_url="https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat"
-    check_url_or_skip "$geo_url" "geosite_IR.dat (Iran rules)" && \
-        ${curl_bin} -4sfLRo "$target_bin_dir/geosite_IR.dat" "$geo_url"
-    geo_url="https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"
-    check_url_or_skip "$geo_url" "geoip_RU.dat (Russia rules)" && \
-        ${curl_bin} -4sfLRo "$target_bin_dir/geoip_RU.dat" "$geo_url"
-    geo_url="https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"
-    check_url_or_skip "$geo_url" "geosite_RU.dat (Russia rules)" && \
-        ${curl_bin} -4sfLRo "$target_bin_dir/geosite_RU.dat" "$geo_url"
+    echo -e "${green}Checking geo data...${plain}"
+    fetch_geo_file "$target_bin_dir/geoip.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" \
+        "geoip.dat (Loyalsoldier)"
+    fetch_geo_file "$target_bin_dir/geosite.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" \
+        "geosite.dat (Loyalsoldier)"
+    fetch_geo_file "$target_bin_dir/geoip_IR.dat" \
+        "https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat" \
+        "geoip_IR.dat (Iran rules)"
+    fetch_geo_file "$target_bin_dir/geosite_IR.dat" \
+        "https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat" \
+        "geosite_IR.dat (Iran rules)"
+    fetch_geo_file "$target_bin_dir/geoip_RU.dat" \
+        "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat" \
+        "geoip_RU.dat (Russia rules)"
+    fetch_geo_file "$target_bin_dir/geosite_RU.dat" \
+        "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat" \
+        "geosite_RU.dat (Russia rules)"
     return 0
 }
 
 # Wrapper around download_xray_and_geo that, in debug mode only, reuses
 # an existing xray + geo bundle from well-known cache locations
-# (${xui_folder}/bin, $SCRIPT_DIR/build/bin, $SCRIPT_DIR/target/bin)
-# instead of re-downloading. Production updates always pull fresh.
+# (${xui_folder}/bin, $SCRIPT_DIR/build/bin, $SCRIPT_DIR/target/bin) without
+# going near the network at all. A normal update still calls through, where
+# the pinned xray version and the geo files' timestamps decide what, if
+# anything, is actually worth fetching.
 fetch_xray_bundle_smart() {
     local target_bin_dir="$1"
     local panel_fname
@@ -1390,9 +1459,15 @@ update_x-ui() {
             fi
             chmod +x x-ui >/dev/null 2>&1
             [ -f bin/xray-linux-$(arch) ] && chmod +x bin/xray-linux-$(arch) >/dev/null 2>&1
+            # Only if it went missing. bin/ is not wiped on this path, and
+            # the fetch above leaves a current xray where it is and replaces
+            # an outdated one — copying the old binary back over either would
+            # undo the upgrade this run just made.
             if [[ -n "$xray_backup" && -n "$xray_backup_name" && -f "$xray_backup" ]]; then
-                cp -f "$xray_backup" "bin/${xray_backup_name}" >/dev/null 2>&1 && \
-                    chmod +x "bin/${xray_backup_name}" >/dev/null 2>&1
+                if [[ ! -f "bin/${xray_backup_name}" ]]; then
+                    cp -f "$xray_backup" "bin/${xray_backup_name}" >/dev/null 2>&1 && \
+                        chmod +x "bin/${xray_backup_name}" >/dev/null 2>&1
+                fi
                 rm -f "$xray_backup" >/dev/null 2>&1
             fi
             # Ensure the mtg MTProto sidecar is present (the local-source build
