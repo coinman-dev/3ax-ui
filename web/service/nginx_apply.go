@@ -419,12 +419,29 @@ func (s *NginxService) Reconcile() {
 		}
 	}
 
-	// If nginx is not running while a camouflage mode is configured, revive it.
-	if !nginx.IsRunning() {
-		logger.Warning("nginx reconcile: front-end is enabled but nginx is not running, starting it")
-		if err := nginx.Reload(); err != nil {
-			logger.Warning("nginx reconcile: could not start nginx:", err)
+	// nginx can be stopped from outside the panel — a botched package upgrade,
+	// an operator debugging something — and the front-end would stay down with
+	// the settings insisting it is up.
+	//
+	// Only once our config is actually on disk, though: before the first apply
+	// there is nothing of ours to serve, and starting nginx would put the
+	// distro's default site on port 80 of a server that never asked for one.
+	// And behind the same backoff as everything else here, because a server
+	// where nginx cannot start would otherwise be told to start it twice a
+	// minute for ever, with a warning in the log each time.
+	if !nginx.IsRunning() && nginx.ConfigInstalled() {
+		if s.skipTicks > 0 {
+			s.skipTicks--
+			return
 		}
+		logger.Warning("nginx reconcile: the front-end is on but nginx is not running, starting it")
+		if err := nginx.Reload(); err != nil {
+			s.failures++
+			s.skipTicks = min(2*s.failures, 20)
+			logger.Errorf("nginx reconcile: could not start nginx (attempt %d, pausing): %v", s.failures, err)
+			return
+		}
+		s.failures, s.skipTicks = 0, 0
 	}
 
 	// A fresh install switches the front-end on before there is anything to put

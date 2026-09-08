@@ -73,7 +73,13 @@ func writeObfuscation(b *strings.Builder, k Kind, server *Server) {
 			fmt.Fprintf(b, "I%d = %s\n", i+1, v)
 		}
 	}
-	writeObfuscation30(b, server)
+	// Only when the kernel will take them. They are kept in the record either
+	// way, so upgrading the module brings them back without the operator
+	// having to set anything up again — but writing keys this module refuses
+	// costs the whole interface, not just the feature.
+	if SupportsV3(k) {
+		writeObfuscation30(b, server)
+	}
 }
 
 // writeObfuscation30 appends the AmneziaWG 3.0 parameters. Each one is skipped

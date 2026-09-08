@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coinman-dev/3ax-ui/v2/logger"
+	"github.com/coinman-dev/3ax-ui/v2/shared/crypto"
 )
 
 // PeerStatus holds runtime stats for one peer parsed from `<tool> show`.
@@ -196,17 +198,90 @@ func versionToken(banner string) string {
 // SupportsV3 reports whether this host can run AmneziaWG 3.0 — header
 // protection and the randomised protocol timers.
 //
-// Both halves have to understand the new keys: amneziawg-tools parses them out
-// of the config, the kernel module accepts them over netlink. Either one being
-// 3.x is taken as proof, because they are packaged and upgraded together and
-// the tools have historically been the ones to under-report (see Version). A
-// host where neither reports 3.x gets the 3.0 fields disabled in the panel
-// instead of an interface that refuses to come up.
+// It asks the kernel instead of reading version numbers, because version
+// numbers lied. This used to accept either half reporting 3.x, on the reasoning
+// that the module and the tools are packaged together. In August 2026 they were
+// not: the tools called themselves 3.1 while the module was still 3.0, the
+// panel believed the tools, wrote the 3.0 keys into the config, and the module
+// refused the whole set with a bare EINVAL. What the operator saw was
+// «awg setconf: Unable to modify interface: Invalid argument», a tunnel that
+// would not come up, and a log naming nothing.
+//
+// The module is the only thing that can answer the question, and the cheapest
+// way to ask is to try: build a throwaway interface, hand it the keys, see what
+// it says. Cached, because the answer cannot change without the module being
+// reloaded, which does not happen under a running panel.
 func SupportsV3(k Kind) bool {
 	if !k.Obfuscation {
 		return false
 	}
-	return majorVersion(toolVersion(k)) >= 3 || majorVersion(ModuleVersion(k)) >= 3
+	v3Mu.Lock()
+	defer v3Mu.Unlock()
+	if known, ok := v3Cache[k.Name]; ok {
+		return known
+	}
+	ok := probeV3(k)
+	v3Cache[k.Name] = ok
+	if ok {
+		logger.Infof("%s: the kernel accepts the 3.0 parameters", k.Title)
+	} else {
+		logger.Infof("%s: the kernel does not accept the 3.0 parameters, keeping to 2.0", k.Title)
+	}
+	return ok
+}
+
+var (
+	v3Mu    sync.Mutex
+	v3Cache = map[string]bool{}
+)
+
+// v3ProbeIface is the scratch interface the probe builds. The name is ours and
+// deliberately unlike anything a person would choose, so a leftover from an
+// interrupted probe is recognisable and safe to delete.
+const v3ProbeIface = "awgv3probe"
+
+// probeV3 creates a throwaway interface and offers the kernel one of each 3.0
+// parameter. A module that takes them will run the real config; one that
+// refuses them here would have refused the real config too, with the difference
+// that here nothing is down.
+func probeV3(k Kind) bool {
+	key, _, err := crypto.GenerateKeyPair()
+	if err != nil {
+		return false
+	}
+
+	// A previous probe that was killed between add and delete would leave the
+	// interface behind and the add below would fail on the name.
+	_, _ = runCmd("ip", "link", "del", "dev", v3ProbeIface)
+	if out, err := runCmd("ip", "link", "add", v3ProbeIface, "type", k.KernelModule); err != nil {
+		logger.Debugf("%s: cannot probe for 3.0 support: %v: %s", k.Title, err, strings.TrimSpace(string(out)))
+		return false
+	}
+	defer func() { _, _ = runCmd("ip", "link", "del", "dev", v3ProbeIface) }()
+
+	conf, err := os.CreateTemp("", "awg-v3-probe-*.conf")
+	if err != nil {
+		return false
+	}
+	defer os.Remove(conf.Name())
+	// One of each shape the 3.0 set uses: a key, a range, and a switch.
+	body := "[Interface]\nPrivateKey = " + key + "\n" +
+		"HeaderProtectionKey = " + key + "\n" +
+		"ContentPaddingAddition = 8-26\n" +
+		"RekeyAfterTime = 106-131\n" +
+		"RandomTrailers = on\n"
+	if _, err := conf.WriteString(body); err != nil {
+		conf.Close()
+		return false
+	}
+	conf.Close()
+
+	out, err := runCmd(k.Tool, "setconf", v3ProbeIface, conf.Name())
+	if err != nil {
+		logger.Debugf("%s: the kernel refused the 3.0 parameters: %s", k.Title, strings.TrimSpace(string(out)))
+		return false
+	}
+	return true
 }
 
 // majorVersion pulls the leading number out of "v3.1.20260812" / "3.1.20260812",

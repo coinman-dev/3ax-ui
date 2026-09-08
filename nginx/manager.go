@@ -447,6 +447,17 @@ func (s *Staged) Rollback() {
 	}
 }
 
+// ConfigInstalled reports whether the panel's own stream config is on disk.
+//
+// It is the difference between "nginx is stopped and our front-end is down"
+// and "nginx is stopped and has nothing of ours to serve". Starting it in the
+// second case would put the distro's default site on port 80 of a server that
+// never asked for one.
+func ConfigInstalled() bool {
+	_, err := os.Stat(StreamConfPath())
+	return err == nil
+}
+
 // NeedsUpdate reports whether what is on disk differs from what c renders to.
 // The reconcile job runs every half minute; without this it would reload nginx
 // every time, dropping the connection counters and churning the logs for

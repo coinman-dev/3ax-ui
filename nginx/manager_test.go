@@ -248,3 +248,30 @@ func TestNeedsUpdateWatchesTheInclude(t *testing.T) {
 		t.Error("the include is gone from nginx.conf and nothing noticed")
 	}
 }
+
+// TestConfigInstalled tells «nginx is stopped and our front-end is down» from
+// «nginx is stopped and has nothing of ours to serve». The reconcile job starts
+// nginx only in the first case: in the second it would put the distro's default
+// site on port 80 of a server that never asked for one.
+func TestConfigInstalled(t *testing.T) {
+	root := t.TempDir()
+	prev := ConfRoot
+	ConfRoot = root
+	t.Cleanup(func() { ConfRoot = prev })
+
+	if ConfigInstalled() {
+		t.Error("an empty tree was reported as carrying our config")
+	}
+	if err := os.MkdirAll(filepath.Dir(StreamConfPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if ConfigInstalled() {
+		t.Error("the directory alone was taken for the config")
+	}
+	if err := os.WriteFile(StreamConfPath(), []byte(header), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ConfigInstalled() {
+		t.Error("our config is on disk and was not seen")
+	}
+}

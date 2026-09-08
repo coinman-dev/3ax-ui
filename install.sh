@@ -999,6 +999,81 @@ config_after_install() {
     ${xui_folder}/x-ui migrate
 }
 
+# ensure_amneziawg_current upgrades the AmneziaWG packages and says so when the
+# kernel module and the userspace tools disagree about their generation.
+#
+# The two halves come from one PPA but not always from one upstream commit: in
+# August 2026 the tools shipped 3.1 while the module was still 3.0. The panel
+# asks the tools what generation the host supports, wrote the 3.0 parameters
+# they advertise, and the module refused them — «awg setconf: Unable to modify
+# interface: Invalid argument», with the tunnel down and nothing in the log
+# naming the cause. Keeping both current is the only state that is coherent,
+# and when they still differ the operator needs to be told in words.
+#
+# Nothing here is fatal. A server whose PPA is unreachable keeps the AmneziaWG
+# it already has.
+ensure_amneziawg_current() {
+    command -v awg &>/dev/null || return 0
+    case "${release}" in
+        ubuntu | debian | armbian) ;;
+        *) return 0 ;;
+    esac
+
+    local pkgs=() p
+    for p in amneziawg amneziawg-dkms amneziawg-tools; do
+        dpkg -s "$p" &>/dev/null && pkgs+=("$p")
+    done
+    [[ ${#pkgs[@]} -gt 0 ]] || return 0
+
+    echo -e "${green}Checking AmneziaWG for updates...${plain}"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -q &>/dev/null || true
+    # All of them in one transaction: upgrading the tools without the module is
+    # exactly the split this function exists to prevent.
+    apt-get install -y -q --only-upgrade "${pkgs[@]}" &>/dev/null || true
+
+    reload_amneziawg_module
+    warn_amneziawg_version_split
+}
+
+# reload_amneziawg_module swaps in a freshly built module without a reboot.
+#
+# A DKMS build lands on disk, but the running kernel goes on using the module it
+# already loaded — so an upgrade appears to do nothing until the machine is
+# restarted. Reloading is only safe while nothing is using it; when a tunnel is
+# up we say what is needed instead of tearing it down underneath the operator.
+reload_amneziawg_module() {
+    local users
+    users=$(lsmod 2>/dev/null | awk '$1 == "amneziawg" {print $3}')
+    [[ -n "$users" ]] || { modprobe amneziawg &>/dev/null || true; return 0; }
+
+    if [[ "$users" == "0" ]]; then
+        modprobe -r amneziawg &>/dev/null && modprobe amneziawg &>/dev/null || true
+        return 0
+    fi
+    echo -e "${yellow}The AmneziaWG module is in use, so the running kernel keeps the old one.${plain}"
+    echo -e "${yellow}It is picked up on the next reboot, or after: awg-quick down awg0 && modprobe -r amneziawg && modprobe amneziawg${plain}"
+}
+
+# warn_amneziawg_version_split reports a module and tools that are not the same
+# generation, which the panel cannot tell from the outside.
+warn_amneziawg_version_split() {
+    local mod tools mod_gen tools_gen
+    mod=$(cat /sys/module/amneziawg/version 2>/dev/null ||
+        modinfo -F version amneziawg 2>/dev/null)
+    tools=$(awg --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+    [[ -n "$mod" && -n "$tools" ]] || return 0
+
+    # Compare major.minor only: the trailing build date moves on its own.
+    mod_gen=$(echo "$mod" | cut -d. -f1,2)
+    tools_gen=$(echo "$tools" | cut -d. -f1,2)
+    [[ "$mod_gen" == "$tools_gen" ]] && return 0
+
+    echo -e "${yellow}AmneziaWG halves are out of step: kernel module ${mod}, tools ${tools}.${plain}"
+    echo -e "${yellow}The panel offers whatever the older half supports, so the tunnel keeps working —${plain}"
+    echo -e "${yellow}but the newer features stay off until both are on the same generation.${plain}"
+}
+
 # prune_stale_amneziawg_dkms drops every amneziawg build in the DKMS tree except
 # the newest one.
 #
@@ -1107,7 +1182,10 @@ install_amneziawg() {
             modprobe amneziawg 2>/dev/null || true
         else
             echo -e "${green}AmneziaWG (awg) already installed.${plain}"
-            modprobe amneziawg 2>/dev/null || true
+            # Already installed is not the same as up to date. Skipping here is
+            # how a server sat for a month on a kernel module older than its own
+            # tools, with the tunnel refusing to come up.
+            ensure_amneziawg_current
         fi
         install_ndppd
     # Method 2: other distros — try to install wireguard as fallback

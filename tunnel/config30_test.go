@@ -9,7 +9,24 @@ import (
 // 3.0 keys against what amneziawg-tools parses, and that both ends of the
 // tunnel get them: HeaderProtectionKey has to match, and a client that
 // obfuscates differently from its server is half the point of the exercise.
+
+// kernelTakesV3 primes the capability cache so config generation can be tested
+// without a kernel to ask. Production probes the module; a test only needs to
+// say what the answer is.
+func kernelTakesV3(t *testing.T, yes bool) {
+	t.Helper()
+	v3Mu.Lock()
+	v3Cache = map[string]bool{AWG.Name: yes}
+	v3Mu.Unlock()
+	t.Cleanup(func() {
+		v3Mu.Lock()
+		v3Cache = map[string]bool{}
+		v3Mu.Unlock()
+	})
+}
+
 func TestConfigCarriesV3Parameters(t *testing.T) {
+	kernelTakesV3(t, true)
 	srv := goldenServer(AWG)
 	srv.S1, srv.S2, srv.S3, srv.S4 = 30, 40, 20, 16
 	srv.I1, srv.I2, srv.I3, srv.I4, srv.I5 = "<r 128>", "<r 64>", "<b 0xf1>", "<c>", "<t>"
@@ -65,6 +82,7 @@ func TestConfigCarriesV3Parameters(t *testing.T) {
 // produce exactly what it produced before 3.0 existed, or upgrading the panel
 // would silently rewrite every live tunnel.
 func TestConfigOmitsUnsetV3Parameters(t *testing.T) {
+	kernelTakesV3(t, true)
 	srv := goldenServer(AWG)
 	conf := GenerateServerConfig(AWG, srv, goldenClients())
 	for _, key := range []string{
@@ -110,5 +128,48 @@ func assertOrderedLines(t *testing.T, conf string, want []string) {
 			continue
 		}
 		rest = rest[idx+len(line):]
+	}
+}
+
+// TestConfigSkipsV3WhenTheKernelWillNotTakeIt is the outage this guards
+// against. The parameters stay in the record — upgrading the module brings them
+// back with nothing to set up again — but a config carrying keys this kernel
+// refuses does not cost the feature, it costs the whole interface: awg-quick
+// stops at «Unable to modify interface: Invalid argument» and the tunnel never
+// comes up.
+func TestConfigSkipsV3WhenTheKernelWillNotTakeIt(t *testing.T) {
+	kernelTakesV3(t, false)
+
+	srv := goldenServer(AWG)
+	srv.S1, srv.S2, srv.S3, srv.S4 = 30, 40, 20, 16
+	srv.I1 = "<r 128>"
+	srv.HeaderProtectionKey = "sVAr5W0dTv8XKQGmZTMr6bhVJVWQjMQ+9c1w5R9tzXo="
+	srv.ContentPaddingAddition = "8-48"
+	srv.RekeyAfterTime = "100-130"
+	srv.RandomTrailers = true
+	srv.DisableCookies = true
+
+	for _, tc := range []struct{ name, conf string }{
+		{"server", GenerateServerConfig(AWG, srv, goldenClients())},
+		{"client", GenerateClientConfig(AWG, srv, goldenClients()[0])},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, key := range []string{
+				"HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime",
+				"RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout",
+				"MaxHandshakeAttempts", "RandomTrailers", "DisableCookies",
+			} {
+				if strings.Contains(tc.conf, key) {
+					t.Errorf("%s was written for a kernel that refuses it", key)
+				}
+			}
+			// Everything the kernel does understand is still there: dropping
+			// to 2.0 must not drop to 1.x.
+			for _, line := range []string{"S3 = 20", "S4 = 16", "I1 = <r 128>"} {
+				if !strings.Contains(tc.conf, line) {
+					t.Errorf("%q went missing along with the 3.0 keys", line)
+				}
+			}
+		})
 	}
 }
