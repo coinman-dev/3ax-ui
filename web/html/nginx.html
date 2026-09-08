@@ -38,15 +38,31 @@
   /* The cover-page gallery. A tile is the page itself: a full 1280x720 render
      scaled down, so what the operator sees is what a visitor gets. The scale
      factor is set from JS — CSS cannot divide a width by a number. */
+  /* Four to a row on a wide screen, and never wider than 420px: a tile only
+     has to show what kind of page it is, and past that size it is just the
+     gallery pushing the rest of the section off the screen. The column count
+     is stated outright rather than left to auto-fill — the section sits in a
+     layout that jumps from 672px wide at 1024 to 928 at 1280, so one minimum
+     width cannot give a sensible count at every size. */
   .stub-gallery {
     display: grid;
     gap: 16px;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 420px);
     justify-content: start;
   }
   @media (min-width: 768px) {
     .stub-gallery {
-      grid-template-columns: repeat(2, minmax(0, 640px));
+      grid-template-columns: repeat(2, minmax(0, 420px));
+    }
+  }
+  @media (min-width: 1400px) {
+    .stub-gallery {
+      grid-template-columns: repeat(3, minmax(0, 420px));
+    }
+  }
+  @media (min-width: 1800px) {
+    .stub-gallery {
+      grid-template-columns: repeat(4, minmax(0, 420px));
     }
   }
   .stub-card {
