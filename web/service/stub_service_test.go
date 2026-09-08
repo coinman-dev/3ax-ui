@@ -321,3 +321,177 @@ func TestActivateSucceedsWhenTheDiskDoesNot(t *testing.T) {
 		t.Error("the page is not actually active")
 	}
 }
+
+// TestGalleryShowsEveryTemplate: the gallery is there to show what a visitor
+// would be looking at, so a template nobody has picked yet still needs a tile —
+// that is the one the operator is deciding about.
+func TestGalleryShowsEveryTemplate(t *testing.T) {
+	s := newStubTestService(t)
+
+	cards, err := s.Gallery()
+	if err != nil {
+		t.Fatalf("Gallery: %v", err)
+	}
+	if len(cards) != len(s.Templates()) {
+		t.Fatalf("got %d tiles for %d templates", len(cards), len(s.Templates()))
+	}
+	for i, card := range cards {
+		if card.Key == "" {
+			t.Errorf("tile %d is not a template", i)
+		}
+		if card.Id != 0 || card.Active {
+			t.Errorf("tile %q claims to be saved (id %d, active %v)", card.Key, card.Id, card.Active)
+		}
+		// The thumbnail is drawn from this, and a template is small enough to
+		// travel with the list.
+		if card.Html == "" {
+			t.Errorf("tile %q has no markup to draw", card.Key)
+		}
+	}
+}
+
+// TestGalleryFoldsASavedTemplateIntoItsOwnTile: a page saved straight from a
+// template *is* that template, byte for byte. Two tiles showing the same
+// picture would leave the operator guessing which one they are running.
+func TestGalleryFoldsASavedTemplateIntoItsOwnTile(t *testing.T) {
+	s := newStubTestService(t)
+	tpl := s.Templates()[1]
+	if _, err := s.SaveSite(&model.StubSite{Name: "mine", Html: tpl.Html}); err != nil {
+		t.Fatalf("SaveSite: %v", err)
+	}
+
+	cards, err := s.Gallery()
+	if err != nil {
+		t.Fatalf("Gallery: %v", err)
+	}
+	if len(cards) != len(s.Templates()) {
+		t.Fatalf("the saved page got a tile of its own: %d tiles for %d templates",
+			len(cards), len(s.Templates()))
+	}
+	for _, card := range cards {
+		if card.Key != tpl.Key {
+			continue
+		}
+		if card.Id == 0 {
+			t.Fatal("the template's tile does not know it has been saved")
+		}
+		if card.Name != "mine" {
+			t.Errorf("the tile is named %q, want the name the operator gave it", card.Name)
+		}
+		if !card.Active {
+			t.Error("the first page saved is the active one, but its tile has no tick")
+		}
+		return
+	}
+	t.Fatalf("template %q lost its tile", tpl.Key)
+}
+
+// TestGalleryKeepsTheOperatorsOwnPages: a page of their own is the whole point
+// of the upload tile, and it has to come back with somewhere to be shown.
+func TestGalleryKeepsTheOperatorsOwnPages(t *testing.T) {
+	s := newStubTestService(t)
+	if _, err := s.SaveSite(&model.StubSite{
+		Name: "shop", Html: "<!doctype html><title>shop</title><p>ours",
+	}); err != nil {
+		t.Fatalf("SaveSite: %v", err)
+	}
+
+	cards, err := s.Gallery()
+	if err != nil {
+		t.Fatalf("Gallery: %v", err)
+	}
+	if len(cards) != len(s.Templates())+1 {
+		t.Fatalf("got %d tiles, want the templates plus one", len(cards))
+	}
+	own := cards[len(cards)-1]
+	if own.Key != "" || own.Name != "shop" {
+		t.Errorf("the operator's page came back as %+v", own)
+	}
+	// Half a megabyte of markup per tile is exactly what the list avoids.
+	if own.Html != "" {
+		t.Error("a saved page was sent with the list instead of being fetched per tile")
+	}
+}
+
+// TestActivateTemplateSavesItOnce: picking the same tile twice must not fill
+// the gallery with copies of the same page.
+func TestActivateTemplateSavesItOnce(t *testing.T) {
+	s := newStubTestService(t)
+	tpl := s.Templates()[2]
+
+	for range 2 {
+		if err := s.ActivateTemplate(tpl.Key); err != nil {
+			t.Fatalf("ActivateTemplate: %v", err)
+		}
+	}
+
+	sites, err := s.GetSites()
+	if err != nil {
+		t.Fatalf("GetSites: %v", err)
+	}
+	if len(sites) != 1 {
+		t.Fatalf("picking one tile twice left %d pages behind", len(sites))
+	}
+	active := s.ActiveSite()
+	if active == nil || active.Html != tpl.Html {
+		t.Fatal("the picked page is not the active one")
+	}
+	// A click on a tile has to reach nginx, or the visitor still sees the old
+	// page and nothing in the panel says so.
+	onDisk, err := os.ReadFile(nginx.StubPath())
+	if err != nil {
+		t.Fatalf("read the served page: %v", err)
+	}
+	if string(onDisk) != tpl.Html {
+		t.Error("the page was activated but nginx is still serving the old one")
+	}
+}
+
+// TestActivateTemplateReusesAPageAlreadySaved: the default install saves the
+// construction page on first run. Picking that same tile again has to land on
+// the row that is already there — otherwise every switch back and forth leaves
+// another copy in the gallery.
+func TestActivateTemplateReusesAPageAlreadySaved(t *testing.T) {
+	s := newStubTestService(t)
+	if err := s.SyncToDisk(); err != nil {
+		t.Fatalf("SyncToDisk: %v", err)
+	}
+	before, err := s.GetSites()
+	if err != nil {
+		t.Fatalf("GetSites: %v", err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("the default install left %d pages, want one", len(before))
+	}
+
+	if err := s.ActivateTemplate("studio"); err != nil {
+		t.Fatalf("ActivateTemplate studio: %v", err)
+	}
+	if err := s.ActivateTemplate(DefaultTemplateKey); err != nil {
+		t.Fatalf("ActivateTemplate back: %v", err)
+	}
+
+	after, err := s.GetSites()
+	if err != nil {
+		t.Fatalf("GetSites: %v", err)
+	}
+	if len(after) != 2 {
+		t.Errorf("switching between two tiles left %d pages, want two", len(after))
+	}
+	if active := s.ActiveSite(); active == nil || active.Id != before[0].Id {
+		t.Error("going back to the built-in page saved a second copy of it")
+	}
+}
+
+// TestActivateTemplateRefusesOneThatDoesNotExist: the key comes off a URL, so
+// it is worth being sure a typo does not save an empty page.
+func TestActivateTemplateRefusesOneThatDoesNotExist(t *testing.T) {
+	s := newStubTestService(t)
+	if err := s.ActivateTemplate("no-such-page"); err == nil {
+		t.Fatal("a template that does not exist was accepted")
+	}
+	sites, _ := s.GetSites()
+	if len(sites) != 0 {
+		t.Errorf("a rejected key still left %d pages behind", len(sites))
+	}
+}

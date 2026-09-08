@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
@@ -34,19 +35,23 @@ func (a *NginxController) initRouter(g *gin.RouterGroup) {
 	// Cover pages
 	g.GET("/stubs", a.stubs)
 	g.GET("/stub/:id", a.stub)
+	g.GET("/stub/:id/preview", a.stubPreview)
 	g.GET("/stub-templates", a.stubTemplates)
 	g.POST("/stub/save", a.saveStub)
 	g.POST("/stub/del/:id", a.deleteStub)
 	g.POST("/stub/activate/:id", a.activateStub)
+	g.POST("/stub/activate-template/:key", a.activateStubTemplate)
 }
 
+// stubs answers with the gallery: a tile for every built-in template and one
+// for every page of the operator's own.
 func (a *NginxController) stubs(c *gin.Context) {
-	sites, err := a.stubService.GetSites()
+	cards, err := a.stubService.Gallery()
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.nginx.toasts.stubLoadFailed"), err)
 		return
 	}
-	jsonObj(c, sites, nil)
+	jsonObj(c, cards, nil)
 }
 
 func (a *NginxController) stub(c *gin.Context) {
@@ -61,6 +66,32 @@ func (a *NginxController) stub(c *gin.Context) {
 		return
 	}
 	jsonObj(c, site, nil)
+}
+
+// stubPreview serves one saved page for the gallery to draw a thumbnail of.
+//
+// It is not sent with the list: a page can be half a megabyte, and there is no
+// reason to carry every one of them on every load of the settings page. The
+// markup belongs to the operator, but it is still rendered inside a logged-in
+// session, so it goes out with everything switched off. The iframe's sandbox
+// takes away the origin; the header takes away scripts, forms, and every
+// request to anywhere else.
+func (a *NginxController) stubPreview(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.nginx.toasts.invalidRequest"), err)
+		return
+	}
+	site, err := a.stubService.GetSite(id)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.nginx.toasts.stubLoadFailed"), err)
+		return
+	}
+	c.Header("Content-Security-Policy",
+		"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(site.Html))
 }
 
 func (a *NginxController) stubTemplates(c *gin.Context) {
@@ -99,6 +130,13 @@ func (a *NginxController) activateStub(c *gin.Context) {
 		return
 	}
 	jsonMsg(c, I18nWeb(c, "pages.nginx.toasts.stubActivated"), a.stubService.ActivateSite(id))
+}
+
+// activateStubTemplate picks a built-in page straight from the gallery, saving
+// it on the way through so it can be edited afterwards like any other.
+func (a *NginxController) activateStubTemplate(c *gin.Context) {
+	err := a.stubService.ActivateTemplate(c.Param("key"))
+	jsonMsg(c, I18nWeb(c, "pages.nginx.toasts.stubActivated"), err)
 }
 
 func (a *NginxController) status(c *gin.Context) {

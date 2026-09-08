@@ -278,3 +278,132 @@ func StubWarnings(html string) []NginxWarning {
 	}
 	return warnings
 }
+
+// StubCard is one tile in the panel's gallery.
+//
+// Every built-in template gets a tile whether or not it has ever been saved:
+// the point of the gallery is to show what a visitor would be looking at, and
+// the page nobody has picked yet is exactly the one that needs showing. A page
+// saved straight from a template does not get a second tile — it *is* that
+// template, byte for byte, so it lights up the tile it came from.
+type StubCard struct {
+	Key    string `json:"key"` // the built-in template it holds, "" for a page of the operator's own
+	Id     int    `json:"id"`  // the saved page, 0 for a template nobody has picked yet
+	Name   string `json:"name"`
+	Size   int    `json:"size"`
+	Active bool   `json:"active"`
+	// Html is filled in for the built-in templates only — they are two or three
+	// kilobytes each. A saved page can be half a megabyte, and carrying every
+	// one of them on every load of the settings page to draw a thumbnail would
+	// be a poor trade; the panel fetches those one tile at a time.
+	Html string `json:"html,omitempty"`
+}
+
+// Gallery lists the tiles the panel draws: the built-in templates in the order
+// they ship, then the operator's own pages, newest first.
+func (s *StubService) Gallery() ([]StubCard, error) {
+	sites, err := s.GetSites()
+	if err != nil {
+		return nil, err
+	}
+	templates := s.Templates()
+	held := s.matchTemplates(sites, templates)
+
+	claimed := map[int]bool{}
+	cards := make([]StubCard, 0, len(templates)+len(sites))
+	for _, tpl := range templates {
+		card := StubCard{Key: tpl.Key, Name: tpl.Name, Size: tpl.Size, Html: tpl.Html}
+		if site, ok := held[tpl.Key]; ok {
+			// The operator may have renamed it, and their name is the one they
+			// will be looking for.
+			card.Id, card.Name, card.Size, card.Active = site.Id, site.Name, site.Size, site.Active
+			claimed[site.Id] = true
+		}
+		cards = append(cards, card)
+	}
+	for _, site := range sites {
+		if claimed[site.Id] {
+			continue
+		}
+		cards = append(cards, StubCard{
+			Id: site.Id, Name: site.Name, Size: site.Size, Active: site.Active,
+		})
+	}
+	return cards, nil
+}
+
+// matchTemplates works out which saved page is holding each built-in template.
+//
+// The markup itself is the link. There is no column saying where a page came
+// from, and one would start lying the moment somebody edited the page — which
+// is the moment it stops being the template and becomes theirs.
+//
+// Only pages whose stored size already matches a template are read back in
+// full: the rest are up to half a megabyte each and cannot possibly equal a two
+// kilobyte template.
+func (s *StubService) matchTemplates(sites []model.StubSite, templates []StubTemplate) map[string]model.StubSite {
+	bySize := map[int][]StubTemplate{}
+	for _, tpl := range templates {
+		bySize[tpl.Size] = append(bySize[tpl.Size], tpl)
+	}
+
+	held := map[string]model.StubSite{}
+	for _, site := range sites {
+		if len(bySize[site.Size]) == 0 {
+			continue
+		}
+		full, err := s.GetSite(site.Id)
+		if err != nil {
+			continue
+		}
+		for _, tpl := range bySize[site.Size] {
+			if full.Html != tpl.Html {
+				continue
+			}
+			// Copies are possible — nothing stops an operator saving the same
+			// template twice. Sites arrive newest first, so the first one wins,
+			// unless a later one is the active page: that is the tile the tick
+			// has to be on.
+			if _, taken := held[tpl.Key]; !taken || site.Active {
+				held[tpl.Key] = site
+			}
+			break
+		}
+	}
+	return held
+}
+
+// ActivateTemplate makes one of the built-in pages the one nginx serves,
+// saving it first if this is the first time it has been picked. Picking the
+// same template again does not leave a second copy behind.
+func (s *StubService) ActivateTemplate(key string) error {
+	var tpl StubTemplate
+	found := false
+	for _, t := range s.Templates() {
+		if t.Key == key {
+			tpl, found = t, true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("there is no built-in page called %q", key)
+	}
+
+	sites, err := s.GetSites()
+	if err != nil {
+		return err
+	}
+	if site, ok := s.matchTemplates(sites, []StubTemplate{tpl})[key]; ok {
+		return s.ActivateSite(site.Id)
+	}
+
+	now := time.Now().Unix()
+	site := &model.StubSite{
+		Name: tpl.Name, Html: tpl.Html, Size: len(tpl.Html),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := database.GetDB().Create(site).Error; err != nil {
+		return fmt.Errorf("save the built-in page %q: %w", key, err)
+	}
+	return s.ActivateSite(site.Id)
+}
