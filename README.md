@@ -13,7 +13,7 @@
 [![Downloads](https://img.shields.io/github/downloads/coinman-dev/3ax-ui/total.svg)](https://github.com/coinman-dev/3ax-ui/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
-**3AX-UI** is a fork of [3x-ui](https://github.com/MHSanaei/3x-ui) with built-in censorship-circumvention protocols the original lacks: **AmneziaWG** (through 3.1), **native WireGuard** with native IPv6, and **MTProto** (a Telegram proxy).
+**3AX-UI** is a fork of [3x-ui](https://github.com/MHSanaei/3x-ui) with built-in censorship-circumvention protocols the original lacks: **AmneziaWG** (through 3.1), **native WireGuard** with native IPv6, and **MTProto** (a Telegram proxy) — all of which it can hide behind a single port 443, where the server answers a browser with an ordinary website.
 
 > The **A** in the name stands for **Amnezia** — the protocol this fork started with and still its key difference from the original.
 
@@ -42,6 +42,8 @@ The original 3x-ui is built around the **Xray** core and supports VLESS, VMess, 
 - **MTProto** — a FakeTLS proxy for Telegram.
 
 **3AX-UI** integrates all three directly into the panel: they are created and managed exactly like any other protocol through the familiar **Inbounds** page.
+
+And then it hides them. An nginx front-end puts every protocol that announces a server name behind port 443, and answers anyone else there with an ordinary website — one open port instead of four.
 
 ---
 
@@ -79,7 +81,33 @@ The generation is picked from a dropdown next to the **Generate** button: 2.0 or
 
 > Clients must support 3.0 too: after switching, everyone re-imports their config, and an older AmneziaVPN app will not read it.
 
-### 2. MTProto — Telegram proxy (FakeTLS)
+### 2. Nginx camouflage — everything behind port 443
+
+**The problem it solves.** A panel on one port, Reality on 443, subscriptions on a third, MTProto on a fourth — that is a shape. A scanner finds several ports speaking TLS to nobody in particular, and a browser opening the domain finds nothing at all. Meanwhile plenty of networks let 443 through and very little else.
+
+**What it does.** nginx takes port 443 and reads the server name straight out of the TLS handshake without decrypting anything (`stream` + `ssl_preread`), then hands the connection to whichever inbound announced that name. Reality's TLS stays end to end — the panel never sits in the middle of it. Anyone who arrives without a name the server recognises is given an ordinary website.
+
+**Three modes** on the **Nginx camouflage** page:
+
+| Mode | What happens |
+| --- | --- |
+| **Off** | Every inbound keeps its own port. Nothing on the page is applied. |
+| **Dual mode** | The inbound that was on 443 moves to the loopback. Every other inbound keeps its own port **and** answers on 443 as well, so links already handed out go on working — nothing has to be re-issued. |
+| **Port 443 only** | Nothing is left on a port of its own, and the ports nobody needs any more are closed. |
+
+**A cover page, not an empty port.** The domain is served a real website: one of three built-in templates or your own single-file HTML, chosen from a gallery of live previews, edited in the panel and stored in the database — so it rides along in the backup and survives a reinstall. Only the active one is written to disk for nginx to serve.
+
+**The panel and the subscriptions can live there too.** Both can be published on the same domain over 443, each at its own path — two fewer ports to explain. The subscription server keeps its own port as well, so links already handed out do not break; new ones carry the new address.
+
+**Closing ports is a lease, not a leap.** SSH stays open, on whatever port sshd's own configuration says. So do the UDP tunnels, DHCP, anything arriving through a tunnel interface, the replies to whatever the server itself asked for, and any extra ports you name. Then you have two minutes to confirm from the panel that it is still reachable — if nobody does, it all comes back on its own. The deadline is stored in the database, so restarting the panel does not lose it.
+
+**Nothing moves until you have read what moves.** Applying shows a plan first: which inbound goes where, which links change port, whether the subscription address changes, what stays open, and what would be cut off because it announces no server name at all.
+
+**AmneziaWG and WireGuard are UDP** and cannot share a TCP port, so they keep their own ports in every mode.
+
+Needs nginx with the `stream` module — the panel checks and says so — and a certificate for the domain.
+
+### 3. MTProto — Telegram proxy (FakeTLS)
 
 The new **MTProto** protocol is a FakeTLS proxy for Telegram, run as a standalone **mtg / mtg-multi** process (not Xray) and managed from the **Inbounds** page like any other protocol.
 
@@ -97,13 +125,13 @@ The new **MTProto** protocol is a FakeTLS proxy for Telegram, run as a standalon
 
 Existing MTProto inbounds are **migrated automatically** on the first start after an update — secrets, settings, and recorded traffic are preserved, and old links keep working.
 
-### 3. Native WireGuard with native IPv6
+### 4. Native WireGuard with native IPv6
 
 A separate **native WireGuard** protocol (no obfuscation) for when you want clean, maximum-speed WireGuard rather than AmneziaWG. Managed the same way from the **Inbounds** page: multi-client, automatic key generation, QR, `.conf`, statistics, limits, and expiry per peer.
 
 Clients can likewise be given a **native public IPv6** address from the server without NAT66 (via NDP proxy) and have ports forwarded (see sections 5 and 6). Compatible with standard WireGuard clients.
 
-### 4. AmneziaWG obfuscation parameters
+### 5. AmneziaWG obfuscation parameters
 
 The AWG settings page lets you configure packet obfuscation parameters:
 
@@ -125,7 +153,7 @@ The AWG settings page lets you configure packet obfuscation parameters:
 
 These parameters are automatically written into each client's config — no manual configuration needed.
 
-### 5. Native IPv6 support without NAT
+### 6. Native IPv6 support without NAT
 
 AWG / native WireGuard clients can be assigned a **native public IPv6 address** from the server — without NAT66. This works via NDP proxy (ndppd or a built-in fallback using `ip -6 neigh add proxy`). Clients receive a real IPv6 address, which matters for services that require it.
 
@@ -151,7 +179,7 @@ Contact your provider's support. You need to find out:
 > **Message template for provider support:**
 > *"I'm running a server with multiple virtual network interfaces and need to assign individual public IPv6 addresses from my /64 block to each of them using NDP proxy. Could you please confirm whether my IPv6 allocation is a fully routed /64 prefix routed to my VM directly, and whether NDP Neighbor Advertisement packets originated from my VM are allowed through the hypervisor — or if they are dropped by MAC/ARP filtering on the host node?"*
 
-### 6. Per-client port forwarding for AmneziaWG / native WireGuard
+### 7. Per-client port forwarding for AmneziaWG / native WireGuard
 
 Each peer can forward arbitrary external ports straight to its tunnel IP for both **TCP and UDP** simultaneously — designed for game servers, P2P, voice apps, anything that needs an inbound port.
 
@@ -167,7 +195,7 @@ The forwarded ports are visible in three places:
 - a dedicated "Mapping" column in the inbound's peer table,
 - a row in the details modal directly under "Port".
 
-### 7. SOCKS5 and HTTP proxies with full per-user infrastructure
+### 8. SOCKS5 and HTTP proxies with full per-user infrastructure
 
 xray-core's `mixed` (SOCKS5) and `http` inbounds now share the **same VLESS-style stack** as VLESS / VMess / Trojan / Shadowsocks:
 - expandable peer table with per-client traffic, expiry, quota, IP limit, enable toggle;
@@ -177,16 +205,17 @@ xray-core's `mixed` (SOCKS5) and `http` inbounds now share the **same VLESS-styl
 
 The username remains editable after creation — renaming a client doesn't reset its traffic counters because the backend renames the underlying `client_traffic` row in place.
 
-### 8. Automatic protocol installation
+### 9. Automatic protocol installation
 
 The install script (`install.sh`) automatically:
 - Installs the AmneziaWG kernel module via PPA `ppa:amnezia/ppa`, plus `awg-tools` and `ndppd`
 - Detects the server's external interface and configures PostUp/PostDown rules
 - Fetches the MTProto sidecar binary (mtg-multi on amd64/arm64, otherwise mtg) from the official releases
+- Installs nginx together with its `stream` module — a separate package on Debian and its derivatives, and without it port 443 cannot be split by server name
 - Sets up AWG autostart after server reboot
 - Detects Secure Boot and warns about potential DKMS module issues
 
-### 9. Install / update from a local git clone
+### 10. Install / update from a local git clone
 
 Both `install.sh` and `update.sh` detect when they are being run from inside a cloned repository (file presence + a BASH_SOURCE safety check) and **build the panel binary on the spot from the local source** instead of downloading the pre-built release tarball.
 
@@ -200,7 +229,7 @@ If Go ≥ 1.21 isn't on the host, the script downloads Go 1.26.2 from go.dev aut
 
 `x-ui.db` and `bin/` survive across re-installs and updates, so re-running the installer does not wipe the panel database.
 
-### 10. Debug / diagnostic install mode
+### 11. Debug / diagnostic install mode
 
 A first prompt at install time:
 
@@ -215,7 +244,7 @@ On `y` the panel binds to `127.0.0.1`, runs over plain HTTP on the chosen port, 
 
 Protocol stacks (AmneziaWG, native WireGuard, MTProto, xray) install normally in debug mode — only the panel's web access is restricted to the loopback.
 
-### 11. Extras
+### 12. Extras
 
 - **Telegram bot:** sends connection links and QR codes straight to the client's chat on creation; pushes AWG configs to linked clients (for the 2.0 migration).
 - **Configurable QR code size:** 300 / 450 (default) / 600 px.
