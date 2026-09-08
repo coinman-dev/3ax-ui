@@ -240,6 +240,30 @@ var (
 // interrupted probe is recognisable and safe to delete.
 const v3ProbeIface = "awgv3probe"
 
+// v3ProbeServer is the parameter set the probe offers the kernel: one of every
+// 3.0 shape, over paddings big enough to carry the header-protection nonce.
+//
+// S1-S4 are not decoration. With header protection on, the module refuses the
+// interface unless every padding can hold the nonce — and a probe that leaves
+// them at zero trips that rule and reports «no 3.0 support» from a kernel that
+// supports it perfectly well. This function got that wrong once already.
+func v3ProbeServer() *Server {
+	pad := headerProtectionNonceSize + 8
+	return &Server{
+		// S1+56 must not equal S2, or the two handshake packets come out the
+		// same size and the kernel says so.
+		S1: pad, S2: pad + 10, S3: pad, S4: pad,
+		HeaderProtectionKey:    GenerateHeaderProtectionKey(),
+		ContentPaddingAddition: "8-26",
+		RekeyAfterTime:         "106-131",
+		RekeyTimeout:           "6-8",
+		RejectAfterTime:        "174-199",
+		KeepaliveTimeout:       "9-12",
+		MaxHandshakeAttempts:   "14-20",
+		RandomTrailers:         true,
+	}
+}
+
 // probeV3 creates a throwaway interface and offers the kernel one of each 3.0
 // parameter. A module that takes them will run the real config; one that
 // refuses them here would have refused the real config too, with the difference
@@ -264,13 +288,15 @@ func probeV3(k Kind) bool {
 		return false
 	}
 	defer os.Remove(conf.Name())
-	// One of each shape the 3.0 set uses: a key, a range, and a switch.
-	body := "[Interface]\nPrivateKey = " + key + "\n" +
-		"HeaderProtectionKey = " + key + "\n" +
-		"ContentPaddingAddition = 8-26\n" +
-		"RekeyAfterTime = 106-131\n" +
-		"RandomTrailers = on\n"
-	if _, err := conf.WriteString(body); err != nil {
+
+	probe := v3ProbeServer()
+	var body strings.Builder
+	fmt.Fprintf(&body, "[Interface]\nPrivateKey = %s\n", key)
+	fmt.Fprintf(&body, "S1 = %d\nS2 = %d\nS3 = %d\nS4 = %d\n", probe.S1, probe.S2, probe.S3, probe.S4)
+	// The same writer that produces the real config, so the question asked here
+	// is exactly the one that will be asked for real.
+	writeObfuscation30(&body, probe)
+	if _, err := conf.WriteString(body.String()); err != nil {
 		conf.Close()
 		return false
 	}

@@ -122,3 +122,44 @@ func TestProbeIsCached(t *testing.T) {
 		t.Errorf("the probe ran %d times, want 1", got)
 	}
 }
+
+// TestProbeConfigWouldBeAccepted is the guard for the mistake this probe made
+// on its first outing: it set HeaderProtectionKey and left S1-S4 at zero, which
+// the module refuses because the paddings are too small to carry the nonce. The
+// probe then reported «no 3.0 support» from a kernel that had it, and every
+// server quietly dropped to 2.0.
+//
+// The panel's own validator knows that rule, so ask it.
+func TestProbeConfigWouldBeAccepted(t *testing.T) {
+	probe := v3ProbeServer()
+	if err := ValidateObfuscation(probe); err != nil {
+		t.Fatalf("the probe offers the kernel a set the panel itself calls invalid: %v", err)
+	}
+	for i, s := range []int{probe.S1, probe.S2, probe.S3, probe.S4} {
+		if s < headerProtectionNonceSize {
+			t.Errorf("probe S%d = %d, too small to carry the header-protection nonce (%d)",
+				i+1, s, headerProtectionNonceSize)
+		}
+	}
+	if probe.HeaderProtectionKey == "" {
+		t.Error("the probe does not ask about header protection at all")
+	}
+}
+
+// TestProbeAsksAboutEveryV3Key: a probe that leaves one of them out would say
+// yes to a kernel that refuses the config the panel actually writes.
+func TestProbeAsksAboutEveryV3Key(t *testing.T) {
+	var body strings.Builder
+	writeObfuscation30(&body, v3ProbeServer())
+	got := body.String()
+
+	for _, key := range []string{
+		"HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime",
+		"RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout",
+		"MaxHandshakeAttempts", "RandomTrailers",
+	} {
+		if !strings.Contains(got, key) {
+			t.Errorf("the probe never asks the kernel about %s", key)
+		}
+	}
+}
