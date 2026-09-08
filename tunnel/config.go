@@ -303,7 +303,10 @@ func GenerateDefaultPostUp(k Kind, server *Server, clients []Client) string {
 		for _, c := range clients {
 			if c.Enable && c.IPv6Address != "" {
 				parts = append(parts,
-					fmt.Sprintf("ip -6 neigh add proxy %s dev %s", ipam.StripMask(c.IPv6Address), iface6),
+					// replace, not add: an entry left over from a bring-up
+					// that failed later would make this one fail with "File
+					// exists", and PostUp stops at the first error.
+					fmt.Sprintf("ip -6 neigh replace proxy %s dev %s", ipam.StripMask(c.IPv6Address), iface6),
 				)
 			}
 		}

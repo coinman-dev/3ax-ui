@@ -19,12 +19,14 @@ func wgParams() Params {
 // send tunnel traffic to the wrong place or leave rules behind.
 func TestPostUpLinesGolden(t *testing.T) {
 	want := []string{
+		"while ip rule del fwmark 0x1/0x1 lookup 100 2>/dev/null; do :; done",
 		"ip rule add fwmark 0x1/0x1 lookup 100",
-		"ip route add local default dev lo table 100",
+		"ip route replace local default dev lo table 100",
 		"iptables -t mangle -A PREROUTING -i awg0 -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 12345 --tproxy-mark 0x1/0x1",
 		"iptables -t mangle -A PREROUTING -i awg0 -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 12345 --tproxy-mark 0x1/0x1",
+		"while ip -6 rule del fwmark 0x1/0x1 lookup 100 2>/dev/null; do :; done",
 		"ip -6 rule add fwmark 0x1/0x1 lookup 100",
-		"ip -6 route add local default dev lo table 100",
+		"ip -6 route replace local default dev lo table 100",
 		"ip6tables -t mangle -A PREROUTING -i awg0 -p tcp -j TPROXY --on-ip ::1 --on-port 12345 --tproxy-mark 0x1/0x1",
 		"ip6tables -t mangle -A PREROUTING -i awg0 -p udp -j TPROXY --on-ip ::1 --on-port 12345 --tproxy-mark 0x1/0x1",
 	}
@@ -38,11 +40,11 @@ func TestPostDownLinesGolden(t *testing.T) {
 		"iptables -t mangle -D PREROUTING -i awg0 -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 12345 --tproxy-mark 0x1/0x1",
 		"iptables -t mangle -D PREROUTING -i awg0 -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 12345 --tproxy-mark 0x1/0x1",
 		"ip route del local default dev lo table 100",
-		"ip rule del fwmark 0x1/0x1 lookup 100",
+		"while ip rule del fwmark 0x1/0x1 lookup 100 2>/dev/null; do :; done",
 		"ip6tables -t mangle -D PREROUTING -i awg0 -p tcp -j TPROXY --on-ip ::1 --on-port 12345 --tproxy-mark 0x1/0x1",
 		"ip6tables -t mangle -D PREROUTING -i awg0 -p udp -j TPROXY --on-ip ::1 --on-port 12345 --tproxy-mark 0x1/0x1",
 		"ip -6 route del local default dev lo table 100",
-		"ip -6 rule del fwmark 0x1/0x1 lookup 100",
+		"while ip -6 rule del fwmark 0x1/0x1 lookup 100 2>/dev/null; do :; done",
 	}
 	assertLines(t, PostDownLines(awgParams()), want)
 }
@@ -52,8 +54,8 @@ func TestPostDownLinesGolden(t *testing.T) {
 // two tunnels fight over the same policy route.
 func TestIPv4OnlyAndNamespacing(t *testing.T) {
 	lines := PostUpLines(wgParams())
-	if len(lines) != 4 {
-		t.Fatalf("v4-only tunnel emitted %d rules, want 4: %v", len(lines), lines)
+	if len(lines) != 5 {
+		t.Fatalf("v4-only tunnel emitted %d rules, want 5: %v", len(lines), lines)
 	}
 	joined := strings.Join(lines, "\n")
 	for _, forbidden := range []string{"ip -6", "ip6tables", "::1"} {
@@ -89,6 +91,34 @@ func assertLines(t *testing.T, got, want []string) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("rule %d:\n got: %s\nwant: %s", i, got[i], want[i])
+		}
+	}
+}
+
+// TestPostUpIsIdempotent is the fix for a live failure: `ip route add` returns
+// EEXIST when the route is already there, PostUp runs under `set -e`, and
+// wg-quick answers a single "RTNETLINK answers: File exists" by tearing the
+// whole interface down. The route survives a PostDown that did not finish, and
+// the healing job puts it back on its own — so "already there" is the normal
+// case, not the exception.
+//
+// `ip rule add` has the opposite fault: it never fails, so repeated bring-ups
+// pile up identical rules. Three had accumulated on the server where this was
+// found.
+func TestPostUpIsIdempotent(t *testing.T) {
+	for _, p := range []Params{awgParams(), wgParams()} {
+		for _, line := range PostUpLines(p) {
+			if strings.HasPrefix(line, "ip route add") || strings.HasPrefix(line, "ip -6 route add") {
+				t.Errorf("%q fails with EEXIST on a second bring-up; use replace", line)
+			}
+		}
+		joined := strings.Join(PostUpLines(p), "\n")
+		// Every add of a policy rule has to be preceded by a drain of the same
+		// rule, or the duplicates come back.
+		adds := strings.Count(joined, "rule add fwmark")
+		drains := strings.Count(joined, "rule del fwmark")
+		if adds != drains {
+			t.Errorf("%d policy-rule adds against %d drains:\n%s", adds, drains, joined)
 		}
 	}
 }
