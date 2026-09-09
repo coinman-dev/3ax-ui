@@ -204,6 +204,7 @@ func TestStockTemplateIsFlagged(t *testing.T) {
 	if flagged(warnings) {
 		t.Errorf("an edited page was still called stock: %+v", warnings)
 	}
+
 }
 
 // TestBuiltInTemplatesAreSelfContained: a cover page that fetches a font from
@@ -464,8 +465,8 @@ func TestActivateTemplateReusesAPageAlreadySaved(t *testing.T) {
 		t.Fatalf("the default install left %d pages, want one", len(before))
 	}
 
-	if err := s.ActivateTemplate("studio"); err != nil {
-		t.Fatalf("ActivateTemplate studio: %v", err)
+	if err := s.ActivateTemplate("tetris"); err != nil {
+		t.Fatalf("ActivateTemplate tetris: %v", err)
 	}
 	if err := s.ActivateTemplate(DefaultTemplateKey); err != nil {
 		t.Fatalf("ActivateTemplate back: %v", err)
@@ -493,5 +494,62 @@ func TestActivateTemplateRefusesOneThatDoesNotExist(t *testing.T) {
 	sites, _ := s.GetSites()
 	if len(sites) != 0 {
 		t.Errorf("a rejected key still left %d pages behind", len(sites))
+	}
+}
+
+// TestStockPagesUpgradeInPlace: a cover page picked from the gallery is stock
+// markup sitting on somebody's server, and they are not reading release notes
+// for a reason to pick the same tile again. So an untouched stock page becomes
+// the template that replaced it, on disk as well as in the list — while a page
+// whose bytes no longer match is the operator's own work and stays as it is.
+func TestStockPagesUpgradeInPlace(t *testing.T) {
+	s := newStubTestService(t)
+
+	var snake StubTemplate
+	for _, tpl := range s.Templates() {
+		if tpl.Key == "snake" {
+			snake = tpl
+		}
+	}
+	if snake.Key == "" {
+		t.Fatal("there is no snake template to upgrade to")
+	}
+
+	db := database.GetDB()
+	head := "<!doctype html><title>Snake</title>"
+	stale := head + strings.Repeat("x", 28519-len(head))
+	old := &model.StubSite{Name: "Snake", Html: stale, Size: len(stale), Active: true, CreatedAt: 1, UpdatedAt: 1}
+	if err := db.Create(old).Error; err != nil {
+		t.Fatalf("save the old stock page: %v", err)
+	}
+	mine := &model.StubSite{Name: "Snake", Html: "<p>my own snake", Size: 15, CreatedAt: 1, UpdatedAt: 1}
+	if err := db.Create(mine).Error; err != nil {
+		t.Fatalf("save the edited page: %v", err)
+	}
+
+	if _, err := s.GetSites(); err != nil {
+		t.Fatalf("GetSites: %v", err)
+	}
+
+	upgraded, err := s.GetSite(old.Id)
+	if err != nil {
+		t.Fatalf("read the upgraded page: %v", err)
+	}
+	if upgraded.Html != snake.Html {
+		t.Error("the stock page was not replaced by the current template")
+	}
+	if upgraded.Size != snake.Size {
+		t.Errorf("the size still says %d, want %d", upgraded.Size, snake.Size)
+	}
+	if got := nginx.StubOnDisk(); got != snake.Html {
+		t.Error("the upgraded page is active but nginx is still serving the old one")
+	}
+
+	untouched, err := s.GetSite(mine.Id)
+	if err != nil {
+		t.Fatalf("read the edited page: %v", err)
+	}
+	if untouched.Html != mine.Html {
+		t.Error("a page of the operator's own was overwritten by the upgrade")
 	}
 }

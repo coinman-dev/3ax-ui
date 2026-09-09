@@ -44,9 +44,71 @@ type StubService struct{}
 // want it, so the panel says so and saves the page.
 var externalResource = regexp.MustCompile(`(?i)(?:src|href)\s*=\s*["']\s*(?://|https?://)([^"'/\s]+)`)
 
+// stockUpgrade is a cover page an earlier build installed and the template
+// that has since taken its place. The size is the guard: a row only matches
+// while it is still byte for byte what the panel wrote, so a page somebody has
+// edited is theirs and is left alone.
+type stockUpgrade struct {
+	name string
+	size int
+	key  string
+}
+
+var stockUpgrades = []stockUpgrade{
+	{"Personal page", 1909, "snake"},
+	{"Small studio", 3028, "tetris"},
+	// The first cut of the two games, before the boards were redrawn.
+	{"Snake", 28519, "snake"},
+	{"Tetris", 30921, "tetris"},
+}
+
+// migrateLegacyStockSites brings those pages up to date in place. Whoever
+// picked a stock page is not reading release notes for a reason to pick it
+// again, so the panel does it for them; anything they wrote themselves is
+// never touched.
+func (s *StubService) migrateLegacyStockSites() {
+	db := database.GetDB()
+	if db == nil {
+		return
+	}
+	byKey := map[string]StubTemplate{}
+	for _, tpl := range s.Templates() {
+		byKey[tpl.Key] = tpl
+	}
+
+	var sites []model.StubSite
+	if err := db.Model(model.StubSite{}).Select("id", "name", "active", "size").Find(&sites).Error; err != nil {
+		return
+	}
+
+	for _, site := range sites {
+		for _, up := range stockUpgrades {
+			if site.Name != up.name || site.Size != up.size {
+				continue
+			}
+			tpl, ok := byKey[up.key]
+			if !ok || tpl.Size == up.size {
+				break
+			}
+			now := time.Now().Unix()
+			err := db.Model(&model.StubSite{}).Where("id = ?", site.Id).Updates(map[string]any{
+				"name":       tpl.Name,
+				"html":       tpl.Html,
+				"size":       tpl.Size,
+				"updated_at": now,
+			}).Error
+			if err == nil && site.Active {
+				_ = nginx.WriteStub(tpl.Html)
+			}
+			break
+		}
+	}
+}
+
 // GetSites returns every page, newest first, without the markup — the list only
 // needs names and sizes, and the pages themselves can be large.
 func (s *StubService) GetSites() ([]model.StubSite, error) {
+	s.migrateLegacyStockSites()
 	var sites []model.StubSite
 	err := database.GetDB().Model(model.StubSite{}).
 		Select("id", "name", "active", "size", "created_at", "updated_at").
@@ -176,6 +238,7 @@ func (s *StubService) ActiveSite() *model.StubSite {
 // an ordinary site. The page is created as a normal row, so it shows up in the
 // list and can be edited or replaced like any other.
 func (s *StubService) SyncToDisk() error {
+	s.migrateLegacyStockSites()
 	site := s.ActiveSite()
 	if site == nil {
 		var err error
@@ -221,8 +284,8 @@ func (s *StubService) installDefaultSite() (*model.StubSite, error) {
 func (s *StubService) Templates() []StubTemplate {
 	defs := []struct{ key, name, file string }{
 		{"construction", "Site under construction", "stubs/construction.html"},
-		{"personal", "Personal page", "stubs/personal.html"},
-		{"studio", "Small studio", "stubs/studio.html"},
+		{"snake", "Snake", "stubs/snake.html"},
+		{"tetris", "Tetris", "stubs/tetris.html"},
 	}
 	out := make([]StubTemplate, 0, len(defs))
 	for _, d := range defs {
@@ -292,10 +355,11 @@ type StubCard struct {
 	Name   string `json:"name"`
 	Size   int    `json:"size"`
 	Active bool   `json:"active"`
-	// Html is filled in for the built-in templates only — they are two or three
-	// kilobytes each. A saved page can be half a megabyte, and carrying every
-	// one of them on every load of the settings page to draw a thumbnail would
-	// be a poor trade; the panel fetches those one tile at a time.
+	// Html is filled in for the built-in templates only — tens of kilobytes for
+	// the whole shipped set. A saved page can be half a megabyte on its own,
+	// and carrying every one of them on every load of the settings page to draw
+	// a thumbnail would be a poor trade; the panel fetches those one tile at a
+	// time.
 	Html string `json:"html,omitempty"`
 }
 
