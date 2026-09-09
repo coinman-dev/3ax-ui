@@ -112,6 +112,57 @@ func TestDeleteRefusesTheActiveSite(t *testing.T) {
 	}
 }
 
+// TestDeleteRefusesAPageThePanelShips: every built-in page has a tile in the
+// gallery, and the tile is the row in the database. Delete the row and the
+// tile comes back empty — the operator has thrown away one of the choices the
+// panel offers. Editing it is the way out, and then it is theirs.
+func TestDeleteRefusesAPageThePanelShips(t *testing.T) {
+	s := newStubTestService(t)
+	if err := s.SyncToDisk(); err != nil {
+		t.Fatalf("SyncToDisk: %v", err)
+	}
+	if err := s.ActivateTemplate("snake"); err != nil {
+		t.Fatalf("ActivateTemplate snake: %v", err)
+	}
+	// Something else has to be active, or the refusal would be about that.
+	if err := s.ActivateTemplate(DefaultTemplateKey); err != nil {
+		t.Fatalf("ActivateTemplate back: %v", err)
+	}
+
+	var snake model.StubSite
+	sites, err := s.GetSites()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range sites {
+		if site.Name == "Snake" {
+			snake = site
+		}
+	}
+	if snake.Id == 0 {
+		t.Fatal("the snake page was not saved")
+	}
+
+	if err := s.DeleteSite(snake.Id); err == nil {
+		t.Fatal("a page the panel ships was deleted")
+	} else if !strings.Contains(err.Error(), "ships") {
+		t.Errorf("unhelpful error: %v", err)
+	}
+
+	// Once it is edited it is no longer the template, and it goes.
+	full, err := s.GetSite(snake.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full.Html += "\n<!-- mine now -->"
+	if _, err := s.SaveSite(full); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSite(snake.Id); err != nil {
+		t.Errorf("an edited page was still treated as ours: %v", err)
+	}
+}
+
 func TestSaveValidation(t *testing.T) {
 	s := newStubTestService(t)
 	cases := []struct {
@@ -195,6 +246,18 @@ func TestStockTemplateIsFlagged(t *testing.T) {
 		t.Errorf("an unchanged stock page was not flagged: %+v", warnings)
 	}
 
+	// The warning has to say which page it is talking about — «the built-in
+	// one» is not something the operator can go and look for in the gallery.
+	named := false
+	for _, w := range warnings {
+		if w.Code == "stockCoverPage" && len(w.Params) == 1 && w.Params[0] == templates[0].Name {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("the warning does not name the page: %+v", warnings)
+	}
+
 	// A page the operator actually edited must not be nagged about.
 	edited := &model.StubSite{Name: "edited", Html: templates[0].Html + "\n<!-- ours -->"}
 	warnings, err = s.SaveSite(edited)
@@ -205,6 +268,22 @@ func TestStockTemplateIsFlagged(t *testing.T) {
 		t.Errorf("an edited page was still called stock: %+v", warnings)
 	}
 
+	// Nor must a page picked out of the gallery: choosing one of the games is
+	// a decision, and the panel does not argue with it. Only the page it put
+	// there itself is worth a word.
+	for _, tpl := range templates {
+		if tpl.Key == DefaultTemplateKey {
+			continue
+		}
+		picked := &model.StubSite{Name: tpl.Name, Html: tpl.Html}
+		warnings, err = s.SaveSite(picked)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if flagged(warnings) {
+			t.Errorf("«%s» was picked on purpose and still got nagged about: %+v", tpl.Name, warnings)
+		}
+	}
 }
 
 // TestBuiltInTemplatesAreSelfContained: a cover page that fetches a font from

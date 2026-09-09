@@ -187,6 +187,13 @@ func (s *StubService) DeleteSite(id int) error {
 	if site.Active {
 		return fmt.Errorf("«%s» is the active page — make another one active first", site.Name)
 	}
+	// The gallery is built out of the pages the panel ships: delete the row
+	// holding one and its tile would go with it. Editing the page is the way
+	// out — a page that is no longer the template byte for byte is the
+	// operator's own and can go.
+	if tpl, ok := s.templateHeldBy(site); ok {
+		return fmt.Errorf("«%s» is one of the pages the panel ships — edit it first and it is yours to delete", tpl.Name)
+	}
 	return database.GetDB().Where("id = ?", id).Delete(model.StubSite{}).Error
 }
 
@@ -280,6 +287,28 @@ func (s *StubService) installDefaultSite() (*model.StubSite, error) {
 	return site, nil
 }
 
+// DefaultTemplate is the page the panel installs on a server where nobody has
+// set one up.
+func (s *StubService) DefaultTemplate() (StubTemplate, bool) {
+	for _, t := range s.Templates() {
+		if t.Key == DefaultTemplateKey {
+			return t, true
+		}
+	}
+	return StubTemplate{}, false
+}
+
+// templateHeldBy returns the built-in page a saved page still is, byte for
+// byte. An edit of any size makes it the operator's own.
+func (s *StubService) templateHeldBy(site *model.StubSite) (StubTemplate, bool) {
+	for _, t := range s.Templates() {
+		if site.Html == t.Html {
+			return t, true
+		}
+	}
+	return StubTemplate{}, false
+}
+
 // Templates returns the starter pages shipped with the panel.
 func (s *StubService) Templates() []StubTemplate {
 	defs := []struct{ key, name, file string }{
@@ -308,14 +337,12 @@ func (s *StubService) Templates() []StubTemplate {
 func (s *StubService) warnings(html string) []NginxWarning {
 	out := StubWarnings(html)
 
-	// A page shipped with the panel, served unchanged, is a fingerprint: the
-	// same bytes on every 3AX-UI server anywhere. The whole point of the cover
-	// page is to look like one particular site, so say this out loud.
-	for _, t := range s.Templates() {
-		if strings.TrimSpace(html) == strings.TrimSpace(t.Html) {
-			out = append(out, warn("stockCoverPage"))
-			break
-		}
+	// The page the panel installs by itself, served unchanged, is a
+	// fingerprint: the same bytes on every 3AX-UI server anywhere. Only that
+	// one is worth saying out loud — the other built-in pages are there to be
+	// picked, and nagging somebody about a choice they just made is noise.
+	if tpl, ok := s.DefaultTemplate(); ok && strings.TrimSpace(html) == strings.TrimSpace(tpl.Html) {
+		out = append(out, warn("stockCoverPage", tpl.Name))
 	}
 	return out
 }

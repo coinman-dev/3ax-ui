@@ -282,12 +282,11 @@ func (s *NginxService) GetStatus() NginxStatus {
 		} else if active := s.stubService.ActiveSite(); active != nil {
 			// The panel installs its built-in page rather than leave the
 			// domain empty, but serving it unchanged is a fingerprint: the
-			// same bytes on every 3AX-UI server anywhere.
-			for _, tpl := range s.stubService.Templates() {
-				if strings.TrimSpace(active.Html) == strings.TrimSpace(tpl.Html) {
-					st.Warnings = append(st.Warnings, warn("stockCoverPage"))
-					break
-				}
+			// same bytes on every 3AX-UI server anywhere. Nobody picked that
+			// page, which is what makes it worth a word; a page chosen out of
+			// the gallery or written by hand is a decision, not an oversight.
+			if tpl, ok := s.stubService.DefaultTemplate(); ok && strings.TrimSpace(active.Html) == strings.TrimSpace(tpl.Html) {
+				st.Warnings = append(st.Warnings, warn("stockCoverPage", tpl.Name))
 			}
 		}
 	}

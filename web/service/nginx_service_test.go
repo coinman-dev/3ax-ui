@@ -593,6 +593,15 @@ func TestStatusWarnsWhenTheDomainHasNothingBehindIt(t *testing.T) {
 		t.Errorf("an unedited built-in page was not reported: %v", got)
 	}
 
+	// Picking one of the other built-in pages is a decision somebody made, not
+	// the default nobody chose, and the panel does not argue with it.
+	if err := stubs.ActivateTemplate("snake"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetStatus().Warnings; mentions(got, "stockCoverPage") {
+		t.Errorf("a page picked out of the gallery was reported as stock: %v", got)
+	}
+
 	// Once the operator has written their own, the nagging stops.
 	own := &model.StubSite{Name: "mine", Html: "<!doctype html><title>mine</title><p>ours"}
 	if _, err := stubs.SaveSite(own); err != nil {

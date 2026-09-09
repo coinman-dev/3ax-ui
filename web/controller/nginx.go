@@ -36,6 +36,7 @@ func (a *NginxController) initRouter(g *gin.RouterGroup) {
 	g.GET("/stubs", a.stubs)
 	g.GET("/stub/:id", a.stub)
 	g.GET("/stub/:id/preview", a.stubPreview)
+	g.GET("/stub-open", a.stubOpen)
 	g.GET("/stub-templates", a.stubTemplates)
 	g.POST("/stub/save", a.saveStub)
 	g.POST("/stub/del/:id", a.deleteStub)
@@ -92,6 +93,47 @@ func (a *NginxController) stubPreview(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cache-Control", "no-store")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(site.Html))
+}
+
+// stubOpen serves one page the way a visitor would meet it, for the tab the
+// gallery's open button spawns. A thumbnail is enough to recognise a page but
+// not to try one: the built-in games do nothing at all until their scripts run.
+//
+// So scripts run here — under «sandbox allow-scripts» and nothing else. The
+// document lands in an origin of its own, with no way back to the session it
+// was opened from: markup somebody uploaded cannot read the panel's cookies or
+// call its API. Storage is gone with the origin, so a page that keeps a score
+// will not remember one; that is the price of opening it safely.
+func (a *NginxController) stubOpen(c *gin.Context) {
+	var html string
+	if key := c.Query("key"); key != "" {
+		for _, tpl := range a.stubService.Templates() {
+			if tpl.Key == key {
+				html = tpl.Html
+				break
+			}
+		}
+		if html == "" {
+			c.String(http.StatusNotFound, "there is no built-in page called %q", key)
+			return
+		}
+	} else {
+		id, err := strconv.Atoi(c.Query("id"))
+		if err != nil {
+			c.String(http.StatusBadRequest, "no page was asked for")
+			return
+		}
+		site, err := a.stubService.GetSite(id)
+		if err != nil {
+			c.String(http.StatusNotFound, "there is no page with that id")
+			return
+		}
+		html = site.Html
+	}
+	c.Header("Content-Security-Policy", "sandbox allow-scripts")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
 }
 
 func (a *NginxController) stubTemplates(c *gin.Context) {

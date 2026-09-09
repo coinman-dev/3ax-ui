@@ -135,6 +135,12 @@
     opacity: 0;
     transition: opacity .15s;
   }
+  /* The button that only opens a page sits away from the two that change or
+     destroy it: three in a row and the wrong one gets clicked. */
+  .stub-tools-left {
+    right: auto;
+    left: 8px;
+  }
   .stub-card:hover .stub-tools,
   .stub-card:focus-within .stub-tools {
     opacity: 1;
@@ -393,9 +399,20 @@
                               <a-icon type="check-circle" theme="filled"></a-icon>
                             </div>
                             <div v-else class="stub-hint">{{ i18n "pages.nginx.stubChoose" }}</div>
+                            <div class="stub-tools stub-tools-left" @click.stop>
+                              <a-button size="small" icon="export"
+                                title='{{ i18n "pages.nginx.stubOpenTab" }}'
+                                @click="openStub(card)"></a-button>
+                            </div>
                             <div class="stub-tools" @click.stop>
-                              <a-button size="small" icon="edit" @click="editStub(card)"></a-button>
-                              <a-popconfirm v-if="card.id && !card.active"
+                              <a-button size="small" icon="edit"
+                                title='{{ i18n "pages.nginx.stubEdit" }}'
+                                @click="editStub(card)"></a-button>
+                              <!-- The pages the panel ships have no delete: the
+                                   gallery is built out of them, and a tile that
+                                   can be thrown away is a tile that comes back
+                                   empty. Edit one and it is yours to remove. -->
+                              <a-popconfirm v-if="card.id && !card.active && !card.key"
                                 title='{{ i18n "pages.nginx.stubDeleteAsk" }}'
                                 ok-text='{{ i18n "sure" }}' cancel-text='{{ i18n "cancel" }}'
                                 @confirm="deleteStub(card)">
@@ -906,6 +923,14 @@
       // time, for the same reason the gallery leaves the markup out.
       stubPreviewUrl(card) {
         return `${basePath}panel/api/nginx/stub/${card.id}/preview`;
+      },
+      // The thumbnails have their scripts switched off, so a page that is a
+      // game or an animation is a dead rectangle in the gallery. This opens it
+      // in a tab where it actually runs — in an origin of its own, never the
+      // panel's.
+      openStub(card) {
+        const query = card.id ? `id=${card.id}` : `key=${encodeURIComponent(card.key)}`;
+        window.open(`${basePath}panel/api/nginx/stub-open?${query}`, '_blank', 'noopener');
       },
       applyStubTemplate(key) {
         const tpl = this.stubTemplates.find(t => t.key === key);
