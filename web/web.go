@@ -96,6 +96,7 @@ func EmbeddedAssets() embed.FS {
 type Server struct {
 	httpServer *http.Server
 	listener   net.Listener
+	listener6  net.Listener
 
 	index *controller.IndexController
 	panel *controller.XUIController
@@ -368,6 +369,10 @@ func (s *Server) startTask() {
 		s.addJob("@every 10s", job.NewWgTrafficJob())
 		// Reconcile mtproto (mtg) sidecars + scrape their traffic every 10 seconds
 		s.addJob("@every 10s", job.NewMtprotoJob())
+		// Keep the nginx front-end in step with the inbounds. Half a minute is
+		// often enough for a config that only changes when someone edits an
+		// inbound, and rare enough not to churn nginx reloads.
+		s.addJob("@every 30s", job.NewNginxJob())
 	}()
 
 	// check client ips from log file every 10 sec
@@ -479,36 +484,75 @@ func (s *Server) Start() (err error) {
 	if err != nil {
 		return err
 	}
-	listenAddr := net.JoinHostPort(listen, strconv.Itoa(port))
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return err
-	}
+	// The TLS wrapping has to be a function rather than a step: when the panel
+	// listens on all interfaces it opens two sockets, and each needs its own
+	// wrapper.
+	var tlsConfig *tls.Config
 	if certFile != "" || keyFile != "" {
 		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err == nil {
-			c := &tls.Config{
-				Certificates: []tls.Certificate{cert},
-			}
-			listener = network.NewAutoHttpsListener(listener)
-			listener = tls.NewListener(listener, c)
-			logger.Info("Web server running HTTPS on", listener.Addr())
+			tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
 		} else {
 			logger.Error("Error loading certificates:", err)
-			logger.Info("Web server running HTTP on", listener.Addr())
+		}
+	}
+	scheme := "HTTP"
+	if tlsConfig != nil {
+		scheme = "HTTPS"
+	}
+	wrapListener := func(l net.Listener) net.Listener {
+		if tlsConfig == nil {
+			return l
+		}
+		return tls.NewListener(network.NewAutoHttpsListener(l), tlsConfig)
+	}
+
+	if listen == "" {
+		// Bind IPv4 and IPv6 separately instead of relying on one dual-stack
+		// socket.
+		//
+		// net.Listen("tcp", ":port") gives a [::] socket that carries IPv4 only
+		// where the kernel maps it in, and even where it does, anything that
+		// looks for an IPv4 listener does not see the panel at all — WSL2's
+		// localhost forwarder among them, which is how this surfaced. The
+		// subscription server already binds this way for the same reason.
+		l4, err := net.Listen("tcp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(port)))
+		if err != nil {
+			return err
+		}
+		s.listener = wrapListener(l4)
+		logger.Info("Web server running "+scheme+" on", l4.Addr())
+
+		// Go sets IPV6_V6ONLY on a tcp6 listener, so this does not collide with
+		// the IPv4 socket above. A host without IPv6 is not an error.
+		if l6, err6 := net.Listen("tcp6", net.JoinHostPort("::", strconv.Itoa(port))); err6 == nil {
+			s.listener6 = wrapListener(l6)
+			logger.Info("Web server running "+scheme+" on", l6.Addr())
+		} else {
+			logger.Warning("Web server: could not bind IPv6:", err6)
 		}
 	} else {
-		logger.Info("Web server running HTTP on", listener.Addr())
+		listenAddr := net.JoinHostPort(listen, strconv.Itoa(port))
+		l, err := net.Listen("tcp", listenAddr)
+		if err != nil {
+			return err
+		}
+		s.listener = wrapListener(l)
+		logger.Info("Web server running "+scheme+" on", l.Addr())
 	}
-	s.listener = listener
 
 	s.httpServer = &http.Server{
 		Handler: engine,
 	}
 
 	go func() {
-		s.httpServer.Serve(listener)
+		s.httpServer.Serve(s.listener)
 	}()
+	if s.listener6 != nil {
+		go func() {
+			s.httpServer.Serve(s.listener6)
+		}()
+	}
 
 	s.startTask()
 
@@ -557,7 +601,11 @@ func (s *Server) Stop() error {
 	if s.listener != nil {
 		err2 = s.listener.Close()
 	}
-	return common.Combine(err1, err2)
+	var err3 error
+	if s.listener6 != nil {
+		err3 = s.listener6.Close()
+	}
+	return common.Combine(err1, err2, err3)
 }
 
 // GetCtx returns the server's context for cancellation and deadline management.

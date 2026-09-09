@@ -87,6 +87,7 @@ var defaultValueMap = map[string]string{
 	"externalTrafficInformURI":    "",
 	"restartXrayOnClientDisable":  "true",
 	"xrayOutboundTestUrl":         "https://www.google.com/generate_204",
+	"xrayHiddifyCompat":           "false",
 
 	// LDAP defaults
 	"ldapEnable":            "false",
@@ -109,6 +110,27 @@ var defaultValueMap = map[string]string{
 	"ldapDefaultTotalGB":    "0",
 	"ldapDefaultExpiryDays": "0",
 	"ldapDefaultLimitIP":    "0",
+
+	// Nginx front-end defaults. An upgrade must land on "off": the panel has
+	// no way to know whether the operator already has something on 443, and
+	// turning it on unasked would take every protocol down at once.
+	"nginxMode":            "off",
+	"nginxDomain":          "",
+	"nginxStubSiteId":      "0",
+	"nginxSubsBehind443":   "false",
+	"nginxPanelBehind443":  "false",
+	"nginxManageFirewall":  "false",
+	"nginxFirewallExtra":   "",
+	"nginxConfirmDeadline": "0",
+	"nginxConfirmFallback": "",
+	"nginxRealityPort":     "8443",
+	// 0 means "pick one". The port is chosen once, from a range above the
+	// well-known ports, and then kept: a fixed default would sooner or later
+	// land on a port something else already has.
+	"nginxHttpPort": "0",
+	// Where the inbounds the front-end took over came from, so they can be put
+	// back on their own ports when it is switched off again.
+	"nginxRelocated": "",
 }
 
 // SettingService provides business logic for application settings management.
@@ -199,9 +221,18 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 	return allSetting, nil
 }
 
+// ResetSettings clears the settings table, apart from the keys that describe
+// where the inbounds physically are.
+//
+// nginxMode says whether nginx is in front of port 443 and nginxRelocated
+// remembers the ports the inbounds came from. Those are not preferences to be
+// restored to a default — deleting them while nginx is still serving 443 would
+// leave every inbound on the loopback with nothing that remembers where they
+// belong, and no way back short of editing the database by hand.
 func (s *SettingService) ResetSettings() error {
 	db := database.GetDB()
-	err := db.Where("1 = 1").Delete(model.Setting{}).Error
+	keep := []string{"nginxMode", "nginxRelocated", "nginxRealityPort", "nginxDomain"}
+	err := db.Where("key NOT IN ?", keep).Delete(model.Setting{}).Error
 	if err != nil {
 		return err
 	}
@@ -287,6 +318,14 @@ func (s *SettingService) GetXrayOutboundTestUrl() (string, error) {
 
 func (s *SettingService) SetXrayOutboundTestUrl(url string) error {
 	return s.setString("xrayOutboundTestUrl", url)
+}
+
+func (s *SettingService) GetXrayHiddifyCompat() (bool, error) {
+	return s.getBool("xrayHiddifyCompat")
+}
+
+func (s *SettingService) SetXrayHiddifyCompat(compat bool) error {
+	return s.setBool("xrayHiddifyCompat", compat)
 }
 
 func (s *SettingService) GetListen() (string, error) {
@@ -816,6 +855,7 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 		"remarkModel":    func() (any, error) { return s.GetRemarkModel() },
 		"datepicker":     func() (any, error) { return s.GetDatepicker() },
 		"ipLimitEnable":  func() (any, error) { return s.GetIpLimitEnable() },
+		"hiddifyCompat":  func() (any, error) { return s.GetXrayHiddifyCompat() },
 	}
 
 	result := make(map[string]any)
@@ -862,20 +902,26 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 		if len(subDomain) > 1 && subDomain[0] == '[' && subDomain[len(subDomain)-1] == ']' {
 			subDomain = subDomain[1 : len(subDomain)-1]
 		}
-		if subTLS {
-			subURI = "https://"
+		if scheme, host, ok := PublicSubBase(); ok {
+			// nginx answers for the subscriptions on the public port, so the
+			// address is the site's domain and no port at all.
+			subURI = scheme + "://" + host
 		} else {
-			subURI = "http://"
-		}
-		if (subPort == 443 && subTLS) || (subPort == 80 && !subTLS) {
-			// For bare host in URL: IPv6 needs brackets, hostname/IPv4 does not.
-			if ip := net.ParseIP(subDomain); ip != nil && ip.To4() == nil {
-				subURI += "[" + subDomain + "]"
+			if subTLS {
+				subURI = "https://"
 			} else {
-				subURI += subDomain
+				subURI = "http://"
 			}
-		} else {
-			subURI += net.JoinHostPort(subDomain, strconv.Itoa(subPort))
+			if (subPort == 443 && subTLS) || (subPort == 80 && !subTLS) {
+				// For bare host in URL: IPv6 needs brackets, hostname/IPv4 does not.
+				if ip := net.ParseIP(subDomain); ip != nil && ip.To4() == nil {
+					subURI += "[" + subDomain + "]"
+				} else {
+					subURI += subDomain
+				}
+			} else {
+				subURI += net.JoinHostPort(subDomain, strconv.Itoa(subPort))
+			}
 		}
 		if subEnable && result["subURI"].(string) == "" {
 			result["subURI"] = subURI + subPath

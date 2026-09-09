@@ -15,6 +15,9 @@ class DBInbound {
 
         this.listen = "";
         this.port = 0;
+        // Set by the nginx front-end when the inbound is published on another
+        // port than it listens on; 0 means the two are the same.
+        this.publicPort = 0;
         this.protocol = "";
         this.settings = "";
         this.streamSettings = "";
@@ -111,6 +114,16 @@ class DBInbound {
         return this.expiryTime < new Date().getTime();
     }
 
+    // The port shown to clients. Differs from `port` only while the inbound is
+    // behind the nginx front-end.
+    get linkPort() {
+        return this.publicPort > 0 ? this.publicPort : this.port;
+    }
+
+    get isRelocated() {
+        return this.publicPort > 0 && this.publicPort !== this.port;
+    }
+
     invalidateCache() {
         this._cachedInbound = null;
         this._clientStatsMap = null;
@@ -138,6 +151,7 @@ class DBInbound {
 
         const config = {
             port: this.port,
+            publicPort: this.publicPort,
             listen: this.listen,
             protocol: this.protocol,
             settings: settings,

@@ -73,7 +73,13 @@ func writeObfuscation(b *strings.Builder, k Kind, server *Server) {
 			fmt.Fprintf(b, "I%d = %s\n", i+1, v)
 		}
 	}
-	writeObfuscation30(b, server)
+	// Only when the kernel will take them. They are kept in the record either
+	// way, so upgrading the module brings them back without the operator
+	// having to set anything up again — but writing keys this module refuses
+	// costs the whole interface, not just the feature.
+	if SupportsV3(k) {
+		writeObfuscation30(b, server)
+	}
 }
 
 // writeObfuscation30 appends the AmneziaWG 3.0 parameters. Each one is skipped
@@ -297,7 +303,10 @@ func GenerateDefaultPostUp(k Kind, server *Server, clients []Client) string {
 		for _, c := range clients {
 			if c.Enable && c.IPv6Address != "" {
 				parts = append(parts,
-					fmt.Sprintf("ip -6 neigh add proxy %s dev %s", ipam.StripMask(c.IPv6Address), iface6),
+					// replace, not add: an entry left over from a bring-up
+					// that failed later would make this one fail with "File
+					// exists", and PostUp stops at the first error.
+					fmt.Sprintf("ip -6 neigh replace proxy %s dev %s", ipam.StripMask(c.IPv6Address), iface6),
 				)
 			}
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/coinman-dev/3ax-ui/v2/database/model"
 	"github.com/coinman-dev/3ax-ui/v2/logger"
 	"github.com/coinman-dev/3ax-ui/v2/mtproto"
+	"github.com/coinman-dev/3ax-ui/v2/nginx"
 	"github.com/coinman-dev/3ax-ui/v2/util/common"
 	"github.com/coinman-dev/3ax-ui/v2/xray"
 	"github.com/google/uuid"
@@ -142,7 +143,21 @@ func (s *InboundService) checkPortExist(listen string, port int, ignoreId int) (
 	if _, taken := s.mtprotoReservedPorts(ignoreId)[port]; taken {
 		return true, nil
 	}
+
+	// While the nginx front-end is on, the public port belongs to nginx and no
+	// inbound is in the table holding it. An inbound created there would fail
+	// to bind and take every protocol behind 443 down with it.
+	if port == PublicPort && nginxOwnsPublicPort() {
+		return true, nil
+	}
 	return false, nil
+}
+
+// nginxOwnsPublicPort reports whether the front-end is switched on.
+func nginxOwnsPublicPort() bool {
+	var setting SettingService
+	mode, err := setting.getString("nginxMode")
+	return err == nil && mode != "" && mode != string(nginx.ModeOff)
 }
 
 // clientsArray reads settings["clients"] defensively. Inbound settings are

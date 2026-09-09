@@ -351,7 +351,12 @@
                         <template #description>
                           <span>{{ i18n "pages.awg.obfHint" }}</span>
                           <span v-if="!awgStatus.supportsV3" style="color: var(--color-error, #e53e3e)">
-                            <br>{{ i18n "pages.awg.awg3Unsupported" }} [[ awgStatus.awgVersion ]]
+                            <!-- Both halves: the tools can be current while the
+                                 kernel module is a generation behind, and it is
+                                 the module that refuses the parameters. Naming
+                                 only the tools sends the operator to upgrade
+                                 something that is already up to date. -->
+                            <br>{{ i18n "pages.awg.awg3Unsupported" }} [[ awgVersionsLabel ]]
                           </span>
                         </template>
                         <template #control>
@@ -916,7 +921,7 @@
       awgActivePanel: ['network'],
       awgServer: new AwgServer(),
       awgNetworkInterfaces: [],
-      awgStatus: { running: false, awgInstalled: false, awgVersion: 'unknown', supportsV3: false },
+      awgStatus: { running: false, awgInstalled: false, awgVersion: 'unknown', awgModuleVersion: '', supportsV3: false },
       generating: false,
       // Which generation "Generate" produces. Starts at 2 and switches itself to
       // 3 when the loaded server already carries 3.0 parameters.
@@ -939,6 +944,14 @@
       await this.loadAllData();
     },
     computed: {
+      // "tools X, module Y" — or just the one number when they agree, which is
+      // the ordinary case and does not need spelling out.
+      awgVersionsLabel() {
+        const tools = this.awgStatus.awgVersion || '';
+        const mod = this.awgStatus.awgModuleVersion || '';
+        if (!mod || tools.replace(/^v/, '') === mod) return tools;
+        return `${tools} (tools), ${mod} (kernel module)`;
+      },
       // True while the form carries any 3.0 value, which is what decides whether
       // "clear 3.0" has anything to do and which generation the selector opens on.
       hasObfuscation3() {

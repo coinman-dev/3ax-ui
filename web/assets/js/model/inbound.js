@@ -1549,6 +1549,7 @@ class Inbound extends XrayCommonClass {
         tag = '',
         sniffing = new Sniffing(),
         clientStats = '',
+        publicPort = 0,
     ) {
         super();
         this.port = port;
@@ -1559,9 +1560,42 @@ class Inbound extends XrayCommonClass {
         this.tag = tag;
         this.sniffing = sniffing;
         this.clientStats = clientStats;
+        this.publicPort = publicPort;
     }
     getClientStats() {
         return this.clientStats;
+    }
+
+    // The port a client must dial, which is not always the port the inbound
+    // listens on: behind the nginx front-end the inbound moves to a loopback
+    // port while its links keep pointing at the public one. Set by the panel,
+    // never by this form — see model.Inbound.PublicPort.
+    get linkPort() {
+        return this.publicPort > 0 ? this.publicPort : this.port;
+    }
+
+    // isRelocated reports whether this inbound is published on a different port
+    // than it listens on, so the UI can say so instead of showing two numbers
+    // that look like a bug.
+    get isRelocated() {
+        return this.publicPort > 0 && this.publicPort !== this.port;
+    }
+
+    // The address a client should dial.
+    //
+    // `listen` is where the inbound binds, which is only sometimes a usable
+    // public address: a wildcard means "wherever this panel is reached", and a
+    // loopback address means the inbound is behind something else — nginx, in
+    // the front-end modes — and is not reachable at 127.0.0.1 from anywhere but
+    // the server itself. Putting either into a link hands out something that
+    // cannot possibly connect.
+    get linkAddress() {
+        const listen = this.listen;
+        if (ObjectUtil.isEmpty(listen)) return location.hostname;
+        if (["0.0.0.0", "::", "::0", "127.0.0.1", "::1", "localhost"].includes(listen)) {
+            return location.hostname;
+        }
+        return listen;
     }
 
     // Copy the xPadding* settings into the query-string of a vless/trojan/ss
@@ -1836,7 +1870,7 @@ class Inbound extends XrayCommonClass {
         this.sniffing = new Sniffing();
     }
 
-    genVmessLink(address = '', port = this.port, forceTls, remark = '', clientId, security) {
+    genVmessLink(address = '', port = this.linkPort, forceTls, remark = '', clientId, security) {
         if (this.protocol !== Protocols.VMESS) {
             return '';
         }
@@ -1904,7 +1938,7 @@ class Inbound extends XrayCommonClass {
         return 'vmess://' + Base64.encode(JSON.stringify(obj, null, 2));
     }
 
-    genVLESSLink(address = '', port = this.port, forceTls, remark = '', clientId, flow) {
+    genVLESSLink(address = '', port = this.linkPort, forceTls, remark = '', clientId, flow) {
         const uuid = clientId;
         const type = this.stream.network;
         const security = forceTls == 'same' ? this.stream.security : forceTls;
@@ -1995,6 +2029,9 @@ class Inbound extends XrayCommonClass {
             if (type == 'tcp' && !ObjectUtil.isEmpty(flow)) {
                 params.set("flow", flow);
             }
+            if ((window.hiddifyCompat ?? false) && (type === 'xhttp' || type === 'grpc')) {
+                params.set("alpn", "h2");
+            }
         }
 
         else {
@@ -2010,7 +2047,7 @@ class Inbound extends XrayCommonClass {
         return url.toString();
     }
 
-    genSSLink(address = '', port = this.port, forceTls, remark = '', clientPassword) {
+    genSSLink(address = '', port = this.linkPort, forceTls, remark = '', clientPassword) {
         let settings = this.settings;
         const type = this.stream.network;
         const security = forceTls == 'same' ? this.stream.security : forceTls;
@@ -2092,7 +2129,7 @@ class Inbound extends XrayCommonClass {
         return url.toString();
     }
 
-    genTrojanLink(address = '', port = this.port, forceTls, remark = '', clientPassword) {
+    genTrojanLink(address = '', port = this.linkPort, forceTls, remark = '', clientPassword) {
         const security = forceTls == 'same' ? this.stream.security : forceTls;
         const type = this.stream.network;
         const params = new Map();
@@ -2175,6 +2212,9 @@ class Inbound extends XrayCommonClass {
             if (!ObjectUtil.isEmpty(this.stream.reality.settings.mldsa65Verify)) {
                 params.set("pqv", this.stream.reality.settings.mldsa65Verify);
             }
+            if ((window.hiddifyCompat ?? false) && (type === 'xhttp' || type === 'grpc')) {
+                params.set("alpn", "h2");
+            }
         }
 
         else {
@@ -2190,7 +2230,7 @@ class Inbound extends XrayCommonClass {
         return url.toString();
     }
 
-    genHysteriaLink(address = '', port = this.port, remark = '', clientAuth) {
+    genHysteriaLink(address = '', port = this.linkPort, remark = '', clientAuth) {
         const protocol = this.settings.version == 2 ? "hysteria2" : "hysteria";
         const link = `${protocol}://${clientAuth}@${address}:${port}`;
 
@@ -2267,26 +2307,26 @@ class Inbound extends XrayCommonClass {
     }
 
     genWireguardLinks(remark = '', remarkModel = '-ieo') {
-        const addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        const addr = this.linkAddress;
         const separationChar = remarkModel.charAt(0);
         let links = [];
         this.settings.peers.forEach((p, index) => {
-            links.push(this.getWireguardLink(addr, this.port, remark + separationChar + (index + 1), index));
+            links.push(this.getWireguardLink(addr, this.linkPort, remark + separationChar + (index + 1), index));
         });
         return links.join('\r\n');
     }
 
     genWireguardConfigs(remark = '', remarkModel = '-ieo') {
-        const addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        const addr = this.linkAddress;
         const separationChar = remarkModel.charAt(0);
         let links = [];
         this.settings.peers.forEach((p, index) => {
-            links.push(this.getWireguardTxt(addr, this.port, remark + separationChar + (index + 1), index));
+            links.push(this.getWireguardTxt(addr, this.linkPort, remark + separationChar + (index + 1), index));
         });
         return links.join('\r\n');
     }
 
-    genLink(address = '', port = this.port, forceTls = 'same', remark = '', client) {
+    genLink(address = '', port = this.linkPort, forceTls = 'same', remark = '', client) {
         switch (this.protocol) {
             case Protocols.VMESS:
                 return this.genVmessLink(address, port, forceTls, remark, client.id, client.security);
@@ -2314,10 +2354,10 @@ class Inbound extends XrayCommonClass {
     // directly, instead of opening the t.me web page first. Works the same in a
     // QR code (the camera / Telegram scanner offers "Open in Telegram"). Telegram
     // accepts the hex secret as-is.
-    genMtprotoLink(address = '', port = this.port, remark = '', client) {
+    genMtprotoLink(address = '', port = this.linkPort, remark = '', client) {
         let addr = address;
         if (ObjectUtil.isEmpty(addr)) {
-            addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+            addr = this.linkAddress;
         }
         const secret = (client && client.secret) ? client.secret : '';
         return `tg://proxy?server=${MtprotoLinkHost.pick(addr)}&port=${port}&secret=${secret}`;
@@ -2328,10 +2368,10 @@ class Inbound extends XrayCommonClass {
     // Hiddify). The userinfo is the base64 of "user:pass" with the client email
     // as the username; clients that don't authenticate still parse the host:port
     // and #remark fragment.
-    genProxyLink(scheme, address = '', port = this.port, remark = '', client) {
+    genProxyLink(scheme, address = '', port = this.linkPort, remark = '', client) {
         let addr = address;
         if (ObjectUtil.isEmpty(addr)) {
-            addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+            addr = this.linkAddress;
         }
         let userinfo = '';
         if (client && client.email) {
@@ -2344,8 +2384,8 @@ class Inbound extends XrayCommonClass {
     genAllLinks(remark = '', remarkModel = '-ieo', client) {
         let result = [];
         let email = client ? client.email : '';
-        let addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
-        let port = this.port;
+        let addr = this.linkAddress;
+        let port = this.linkPort;
         const separationChar = remarkModel.charAt(0);
         const orderChars = remarkModel.slice(1);
         let orders = {
@@ -2373,7 +2413,7 @@ class Inbound extends XrayCommonClass {
     }
 
     genInboundLinks(remark = '', remarkModel = '-ieo') {
-        let addr = !ObjectUtil.isEmpty(this.listen) && this.listen !== "0.0.0.0" ? this.listen : location.hostname;
+        let addr = this.linkAddress;
         if (this.clients) {
             let links = [];
             this.clients.forEach((client) => {
@@ -2383,7 +2423,7 @@ class Inbound extends XrayCommonClass {
             });
             return links.join('\r\n');
         } else {
-            if (this.protocol == Protocols.SHADOWSOCKS && !this.isSSMultiUser) return this.genSSLink(addr, this.port, 'same', remark);
+            if (this.protocol == Protocols.SHADOWSOCKS && !this.isSSMultiUser) return this.genSSLink(addr, this.linkPort, 'same', remark);
             if (this.protocol == Protocols.WIREGUARD) {
                 return this.genWireguardConfigs(remark, remarkModel);
             }
@@ -2400,7 +2440,8 @@ class Inbound extends XrayCommonClass {
             StreamSettings.fromJson(json.streamSettings),
             json.tag,
             Sniffing.fromJson(json.sniffing),
-            json.clientStats
+            json.clientStats,
+            json.publicPort
         )
     }
 

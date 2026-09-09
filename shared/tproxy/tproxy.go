@@ -36,20 +36,43 @@ func (p Params) port() int {
 func PostUpLines(p Params) []string {
 	port, fwmark, table := p.port(), p.Fwmark, p.Table
 	lines := []string{
+		// Drain before adding, and replace rather than add. PostUp runs under
+		// `set -e`, so one "RTNETLINK answers: File exists" aborts it and takes
+		// the whole interface down with it — which is what happens whenever a
+		// previous PostDown did not run to the end, or the healing job put the
+		// routing back while the interface was down. `ip rule add` does not
+		// even complain: it just adds another copy, and they pile up.
+		drainRule(false, fwmark, table),
 		fmt.Sprintf("ip rule add fwmark %s/%s lookup %s", fwmark, fwmark, table),
-		fmt.Sprintf("ip route add local default dev lo table %s", table),
+		fmt.Sprintf("ip route replace local default dev lo table %s", table),
 		fmt.Sprintf("iptables -t mangle -A PREROUTING -i %s -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 		fmt.Sprintf("iptables -t mangle -A PREROUTING -i %s -p udp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 	}
 	if p.IPv6 {
 		lines = append(lines,
+			drainRule(true, fwmark, table),
 			fmt.Sprintf("ip -6 rule add fwmark %s/%s lookup %s", fwmark, fwmark, table),
-			fmt.Sprintf("ip -6 route add local default dev lo table %s", table),
+			fmt.Sprintf("ip -6 route replace local default dev lo table %s", table),
 			fmt.Sprintf("ip6tables -t mangle -A PREROUTING -i %s -p tcp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 			fmt.Sprintf("ip6tables -t mangle -A PREROUTING -i %s -p udp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 		)
 	}
 	return lines
+}
+
+// drainRule removes every copy of the policy rule, not just the first.
+//
+// `ip rule del` takes one match at a time, so a single call leaves duplicates
+// behind — and duplicates are exactly what an `ip rule add` that never fails
+// produces. The loop condition failing is not an error under `set -e`, and it
+// terminates because each pass removes one rule.
+func drainRule(v6 bool, fwmark, table string) string {
+	six := ""
+	if v6 {
+		six = "-6 "
+	}
+	return fmt.Sprintf("while ip %srule del fwmark %s/%s lookup %s 2>/dev/null; do :; done",
+		six, fwmark, fwmark, table)
 }
 
 // PostDownLines mirrors PostUpLines with delete (-D) rules. The order is the
@@ -61,14 +84,14 @@ func PostDownLines(p Params) []string {
 		fmt.Sprintf("iptables -t mangle -D PREROUTING -i %s -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 		fmt.Sprintf("iptables -t mangle -D PREROUTING -i %s -p udp -j TPROXY --on-ip 127.0.0.1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 		fmt.Sprintf("ip route del local default dev lo table %s", table),
-		fmt.Sprintf("ip rule del fwmark %s/%s lookup %s", fwmark, fwmark, table),
+		drainRule(false, fwmark, table),
 	}
 	if p.IPv6 {
 		lines = append(lines,
 			fmt.Sprintf("ip6tables -t mangle -D PREROUTING -i %s -p tcp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 			fmt.Sprintf("ip6tables -t mangle -D PREROUTING -i %s -p udp -j TPROXY --on-ip ::1 --on-port %d --tproxy-mark %s/%s", p.Interface, port, fwmark, fwmark),
 			fmt.Sprintf("ip -6 route del local default dev lo table %s", table),
-			fmt.Sprintf("ip -6 rule del fwmark %s/%s lookup %s", fwmark, fwmark, table),
+			drainRule(true, fwmark, table),
 		)
 	}
 	return lines

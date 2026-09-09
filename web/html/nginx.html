@@ -1,0 +1,1070 @@
+{{ template "page/head_start" .}}
+<style>
+  .dark .ant-alert,
+  .ultra-dark .ant-alert,
+  .dark .ant-alert-with-description,
+  .ultra-dark .ant-alert-with-description {
+    color: var(--dark-color-text-primary);
+  }
+  .dark .ant-alert-message,
+  .ultra-dark .ant-alert-message,
+  .dark .ant-alert-with-description .ant-alert-message,
+  .ultra-dark .ant-alert-with-description .ant-alert-message {
+    color: #fff;
+  }
+  .dark .ant-alert-description,
+  .ultra-dark .ant-alert-description,
+  .dark .ant-alert-with-description .ant-alert-description,
+  .ultra-dark .ant-alert-with-description .ant-alert-description {
+    color: var(--dark-color-text-primary);
+  }
+  .dark .ant-alert-info .ant-alert-message,
+  .ultra-dark .ant-alert-info .ant-alert-message {
+    color: #fff;
+  }
+  .dark .ant-alert-info .ant-alert-description,
+  .ultra-dark .ant-alert-info .ant-alert-description {
+    color: var(--dark-color-text-primary);
+  }
+  .dark .ant-alert-warning .ant-alert-message,
+  .ultra-dark .ant-alert-warning .ant-alert-message {
+    color: var(--dark-color-tag-orange-color);
+  }
+  .dark .ant-alert-warning .ant-alert-description,
+  .ultra-dark .ant-alert-warning .ant-alert-description {
+    color: var(--dark-color-text-primary);
+  }
+
+  /* The cover-page gallery. A tile is the page itself: a full 1280x720 render
+     scaled down, so what the operator sees is what a visitor gets. The scale
+     factor is set from JS — CSS cannot divide a width by a number. */
+  /* Four to a row on a wide screen, and never wider than 420px: a tile only
+     has to show what kind of page it is, and past that size it is just the
+     gallery pushing the rest of the section off the screen. The column count
+     is stated outright rather than left to auto-fill — the section sits in a
+     layout that jumps from 672px wide at 1024 to 928 at 1280, so one minimum
+     width cannot give a sensible count at every size. */
+  .stub-gallery {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(0, 420px);
+    justify-content: start;
+  }
+  @media (min-width: 768px) {
+    .stub-gallery {
+      grid-template-columns: repeat(2, minmax(0, 420px));
+    }
+  }
+  @media (min-width: 1400px) {
+    .stub-gallery {
+      grid-template-columns: repeat(3, minmax(0, 420px));
+    }
+  }
+  @media (min-width: 1800px) {
+    .stub-gallery {
+      grid-template-columns: repeat(4, minmax(0, 420px));
+    }
+  }
+  .stub-card {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    box-shadow: 0 0 0 1px rgba(128, 128, 128, .25);
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s, border-color .15s;
+  }
+  .stub-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+  }
+  .stub-card.stub-chosen {
+    border-color: #52c41a;
+    cursor: default;
+  }
+  .stub-shot {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #fff;
+  }
+  .stub-shot iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1280px;
+    height: 720px;
+    border: 0;
+    transform-origin: top left;
+    /* The click belongs to the tile, not to the page inside it. */
+    pointer-events: none;
+  }
+  .stub-mark,
+  .stub-hint {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 2;
+    line-height: 1;
+  }
+  .stub-mark {
+    font-size: 26px;
+    color: #52c41a;
+    background: #fff;
+    border-radius: 50%;
+  }
+  .stub-hint {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+    opacity: .8;
+  }
+  .stub-card:hover .stub-hint {
+    opacity: 1;
+  }
+  .stub-tools {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  /* The button that only opens a page sits away from the two that change or
+     destroy it: three in a row and the wrong one gets clicked. */
+  .stub-tools-left {
+    right: auto;
+    left: 8px;
+  }
+  .stub-card:hover .stub-tools,
+  .stub-card:focus-within .stub-tools {
+    opacity: 1;
+  }
+  /* Nothing hovers on a touch screen, and a tile whose buttons never appear is
+     a page that cannot be edited or deleted at all. */
+  @media (hover: none) {
+    .stub-tools {
+      opacity: 1;
+    }
+  }
+  /* The page inside the tile is white, so the caption below it cannot be:
+     in the dark themes the text colour is inherited from the panel and would
+     be light on light. */
+  .stub-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    background: rgba(0, 0, 0, .05);
+  }
+  .dark .stub-bar,
+  .ultra-dark .stub-bar {
+    background: var(--dark-color-surface-100);
+    color: var(--dark-color-text-primary);
+  }
+  .stub-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stub-weight {
+    flex: none;
+    opacity: .6;
+  }
+  .stub-own {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    aspect-ratio: 16 / 9;
+    border: 2px dashed rgba(128, 128, 128, .5);
+    box-shadow: none;
+    background: transparent;
+    text-align: center;
+    padding: 12px;
+  }
+  .stub-own:hover {
+    border-color: #1890ff;
+  }
+  .stub-own .anticon {
+    font-size: 30px;
+  }
+</style>
+{{ template "page/head_end" .}}
+
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' settings-page'">
+  <a-sidebar></a-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}' size="large">
+        <transition name="list" appear>
+          <template>
+            <a-row v-if="!loadingStates.fetched">
+              <div :style="{ minHeight: 'calc(100vh - 120px)' }"></div>
+            </a-row>
+            <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-else>
+
+              <a-col :span="24">
+                <a-card hoverable>
+                  <a-row type="flex" justify="space-between" align="middle" :gutter="[16, 16]">
+                    <a-col>
+                      <a-button type="primary" :loading="planning" :disabled="!canApply" @click="openPlan">
+                        {{ i18n "pages.nginx.apply" }}
+                      </a-button>
+                    </a-col>
+                    <a-col>
+                      <!-- The state of the server in its own tinted box, using
+                           the panel's warning palette rather than a colour
+                           invented here. -->
+                      <a-alert type="warning">
+                        <template #message>
+                          <a-space direction="horizontal" :style="{ flexWrap: 'wrap' }">
+                            <a-badge v-if="status.installed" status="success"
+                              :text="'nginx ' + status.version"></a-badge>
+                            <a-badge v-else status="error" text='{{ i18n "pages.nginx.notInstalled" }}'></a-badge>
+                            <a-badge v-if="status.installed && status.running" status="processing"
+                              text='{{ i18n "pages.nginx.running" }}'></a-badge>
+                            <a-badge v-else-if="status.installed" status="default"
+                              text='{{ i18n "pages.nginx.stopped" }}'></a-badge>
+                            <a-badge v-if="status.installed && status.hasStream" status="success"
+                              text='{{ i18n "pages.nginx.streamOk" }}'></a-badge>
+                            <a-badge v-else-if="status.installed" status="error"
+                              text='{{ i18n "pages.nginx.streamMissing" }}'></a-badge>
+                            <a-badge v-if="status.firewallOn" status="success"
+                              text='{{ i18n "pages.nginx.firewallStateOn" }}'></a-badge>
+                            <a-badge v-else-if="status.mode === 'only443'" status="warning"
+                              text='{{ i18n "pages.nginx.firewallStateOff" }}'></a-badge>
+                          </a-space>
+                        </template>
+                      </a-alert>
+                    </a-col>
+                  </a-row>
+                </a-card>
+              </a-col>
+
+              <!-- Above the warnings on purpose: everything else on this page
+                   can wait two minutes, and this cannot. -->
+              <a-col :span="24" v-if="confirmLeft">
+                <a-alert type="error" show-icon
+                  message='{{ i18n "pages.nginx.confirmPendingTitle" }}'>
+                  <template #description>
+                    <p>[[ confirmBody ]]</p>
+                    <a-button type="primary" :loading="confirming" @click="confirm">
+                      {{ i18n "pages.nginx.confirmPendingButton" }}
+                    </a-button>
+                  </template>
+                </a-alert>
+              </a-col>
+
+              <a-col :span="24" v-for="(warning, i) in status.warnings" :key="'w' + i">
+                <a-alert type="warning" show-icon :message="warningText(warning)"></a-alert>
+              </a-col>
+
+              <!-- :span="24" is not decoration. This row already has two columns
+                   with a declared width, and the grid floats those; a column
+                   without one is not floated and would be laid out from the top
+                   of the row, straight over the cards above it. -->
+              <a-col :span="24">
+                <!-- The sections live inside a card of their own, the way the
+                     AWG page's do. There the surface comes from the theme
+                     styling .ant-tabs as a card; this page has no tabs, so it
+                     says so outright — same background and radius, from the
+                     same variables. -->
+                <a-card :body-style="{ padding: isMobile ? '.5rem' : '2rem' }">
+                  <a-collapse default-active-key="1">
+                    <a-collapse-panel key="1" header='{{ i18n "pages.nginx.mode" }}'>
+                      <a-alert type="info" show-icon message='{{ i18n "pages.nginx.udpNote" }}'
+                        :style="{ marginBottom: '12px' }"></a-alert>
+
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.mode" }}</template>
+                        <!-- One explanation, for the mode actually chosen. Three
+                             paragraphs at once is noise; what matters is what the
+                             selected one will do. -->
+                        <template #description>[[ modeDesc ]]</template>
+                        <template #control>
+                          <a-radio-group v-model="settings.mode" button-style="solid"
+                            :size="isMobile ? 'small' : ''">
+                            <a-radio-button value="off">{{ i18n "pages.nginx.modeOff" }}</a-radio-button>
+                            <a-tooltip title='{{ i18n "pages.nginx.modeSharedHint" }}'>
+                              <a-radio-button value="shared" :disabled="!canEnable">
+                                {{ i18n "pages.nginx.modeShared" }}</a-radio-button>
+                            </a-tooltip>
+                            <a-tooltip title='{{ i18n "pages.nginx.modeOnly443Hint" }}'>
+                              <a-radio-button value="only443" :disabled="!canEnable">
+                                {{ i18n "pages.nginx.modeOnly443" }}</a-radio-button>
+                            </a-tooltip>
+                          </a-radio-group>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-if="settings.mode !== 'off'">
+                        <template #title>{{ i18n "pages.nginx.realityPort" }}</template>
+                        <template #description>{{ i18n "pages.nginx.realityPortDesc" }}</template>
+                        <template #control>
+                          <a-input-number v-model="settings.realityPort" :min="1" :max="65535" :precision="0"></a-input-number>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
+
+                    <a-collapse-panel key="2" header='{{ i18n "pages.nginx.domain" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.domain" }}</template>
+                        <template #description>{{ i18n "pages.nginx.domainDesc" }}</template>
+                        <template #control>
+                          <a-input type="text" v-model="settings.domain" placeholder="panel.example.com"
+                            @change="checkCertificate" @blur="checkCertificate"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-if="settings.domain">
+                        <template #title>{{ i18n "pages.nginx.certificate" }}</template>
+                        <template #description>[[ cert.certFile || '—' ]]</template>
+                        <template #control>
+                          <a-badge v-if="checkingCert" status="processing" text='{{ i18n "loading"}}'></a-badge>
+                          <a-badge v-else-if="cert.certOk" status="success" :text="certLabel"></a-badge>
+                          <a-badge v-else status="warning" text='{{ i18n "pages.nginx.certMissing" }}'></a-badge>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
+
+                    <a-collapse-panel key="5" header='{{ i18n "pages.nginx.publish" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.subsPublish" }}</template>
+                        <!-- The switch is dead without a certificate: the site
+                             that would carry the subscriptions is the same one
+                             the domain's certificate is for. -->
+                        <template #description>[[ publishHint ]]</template>
+                        <template #control>
+                          <a-switch v-model="settings.subsBehind443" :disabled="!canPublish"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.panelPublish" }}</template>
+                        <!-- Only in mode 3. With the other ports still open the
+                             panel is already reachable, and putting it behind 443
+                             as well would add a second address for nothing. -->
+                        <template #description>[[ panelPublishHint ]]</template>
+                        <template #control>
+                          <a-switch v-model="settings.panelBehind443" :disabled="!canPublishPanel"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
+
+                    <a-collapse-panel key="6" header='{{ i18n "pages.nginx.firewall" }}'>
+                      <a-setting-list-item paddings="small">
+                        <template #title>{{ i18n "pages.nginx.firewallSwitch" }}</template>
+                        <template #description>[[ firewallHint ]]</template>
+                        <template #control>
+                          <a-switch v-model="settings.manageFirewall"
+                            :disabled="settings.mode !== 'only443'"></a-switch>
+                        </template>
+                      </a-setting-list-item>
+                      <a-setting-list-item paddings="small" v-if="settings.manageFirewall">
+                        <template #title>{{ i18n "pages.nginx.firewallExtra" }}</template>
+                        <template #description>{{ i18n "pages.nginx.firewallExtraDesc" }}</template>
+                        <template #control>
+                          <a-input type="text" v-model="settings.firewallExtra"
+                            placeholder="53, 8080, 9000-9100"></a-input>
+                        </template>
+                      </a-setting-list-item>
+                    </a-collapse-panel>
+
+                    <a-collapse-panel key="4" header='{{ i18n "pages.nginx.stubs" }}' force-render>
+                      <a-alert type="info" show-icon message='{{ i18n "pages.nginx.stubsDesc" }}'
+                        :style="{ marginBottom: '12px' }"></a-alert>
+                      <!-- Every tile is the page itself, drawn at full size and
+                           shrunk: a name in a list says nothing about what a
+                           visitor would be looking at. -->
+                      <div class="stub-gallery" ref="stubGallery">
+                        <div v-for="card in stubs" :key="card.key || ('own' + card.id)"
+                          class="stub-card" :class="{ 'stub-chosen': card.active }"
+                          @click="chooseStub(card)">
+                          <div class="stub-shot">
+                            <!-- No scripts, no forms, no origin: the markup is
+                                 the operator's, but this is their logged-in
+                                 session it is being drawn in. -->
+                            <iframe v-if="card.html" :srcdoc="card.html" sandbox scrolling="no"
+                              :style="stubShotStyle"></iframe>
+                            <iframe v-else :src="stubPreviewUrl(card)" sandbox scrolling="no"
+                              :style="stubShotStyle"></iframe>
+                            <div v-if="card.active" class="stub-mark">
+                              <a-icon type="check-circle" theme="filled"></a-icon>
+                            </div>
+                            <div v-else class="stub-hint">{{ i18n "pages.nginx.stubChoose" }}</div>
+                            <div class="stub-tools stub-tools-left" @click.stop>
+                              <a-button size="small" icon="export"
+                                title='{{ i18n "pages.nginx.stubOpenTab" }}'
+                                @click="openStub(card)"></a-button>
+                            </div>
+                            <div class="stub-tools" @click.stop>
+                              <a-button size="small" icon="edit"
+                                title='{{ i18n "pages.nginx.stubEdit" }}'
+                                @click="editStub(card)"></a-button>
+                              <!-- The pages the panel ships have no delete: the
+                                   gallery is built out of them, and a tile that
+                                   can be thrown away is a tile that comes back
+                                   empty. Edit one and it is yours to remove. -->
+                              <a-popconfirm v-if="card.id && !card.active && !card.key"
+                                title='{{ i18n "pages.nginx.stubDeleteAsk" }}'
+                                ok-text='{{ i18n "sure" }}' cancel-text='{{ i18n "cancel" }}'
+                                @confirm="deleteStub(card)">
+                                <a-button size="small" type="danger" icon="delete"></a-button>
+                              </a-popconfirm>
+                            </div>
+                          </div>
+                          <div class="stub-bar">
+                            <span class="stub-title">[[ card.name ]]</span>
+                            <span class="stub-weight">[[ SizeFormatter.sizeFormat(card.size) ]]</span>
+                          </div>
+                        </div>
+                        <!-- The last tile opens the editor rather than a file
+                             dialog: a page can be written there as well as
+                             uploaded, and it is the only way in now. -->
+                        <div class="stub-card stub-own" @click="newStub">
+                          <a-icon type="cloud-upload"></a-icon>
+                          <div>{{ i18n "pages.nginx.stubUploadOwn" }}</div>
+                        </div>
+                      </div>
+                    </a-collapse-panel>
+
+                    <a-collapse-panel key="3" header='{{ i18n "pages.nginx.routes" }}'>
+                      <a-alert type="info" show-icon message='{{ i18n "pages.nginx.routesDesc" }}'
+                        :style="{ marginBottom: '12px' }"></a-alert>
+                      <a-table v-if="status.routes && status.routes.length" :columns="routeColumns"
+                        :data-source="status.routes" :row-key="route => route.inboundId" :pagination="false"
+                        :scroll="isMobile ? { x: 600 } : {}" size="small">
+                        <template slot="sni" slot-scope="text, route">
+                          <a-tag v-for="sni in route.snis" :key="sni">[[ sni ]]</a-tag>
+                          <a-tag v-if="route.fallback" color="blue">{{ i18n "pages.nginx.routeFallback" }}</a-tag>
+                        </template>
+                        <template slot="internal" slot-scope="text, route">
+                          <a-tag color="purple">[[ route.listen || '0.0.0.0' ]]:[[ route.port ]]</a-tag>
+                        </template>
+                      </a-table>
+                      <a-empty v-else description='{{ i18n "pages.nginx.noRoutes" }}'></a-empty>
+                    </a-collapse-panel>
+                  </a-collapse>
+                </a-card>
+              </a-col>
+            </a-row>
+          </template>
+        </transition>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+
+  <a-modal v-model="stubModal.visible" :title="stubModal.id ? stubTitleEdit : stubTitleNew"
+    :width="isMobile ? '100%' : 900" ok-text='{{ i18n "save" }}' cancel-text='{{ i18n "cancel" }}'
+    :confirm-loading="stubModal.saving" :class="themeSwitcher.currentTheme" @ok="saveStub">
+    <a-list item-layout="horizontal" :split="false">
+      <a-setting-list-item paddings="small">
+        <template #title>{{ i18n "pages.nginx.stubName" }}</template>
+        <template #description>{{ i18n "pages.nginx.stubNameDesc" }}</template>
+        <template #control>
+          <a-input v-model="stubModal.name" placeholder="example.com"></a-input>
+        </template>
+      </a-setting-list-item>
+      <a-setting-list-item paddings="small">
+        <template #title>{{ i18n "pages.nginx.stubStartFrom" }}</template>
+        <template #description>{{ i18n "pages.nginx.stubStartFromDesc" }}</template>
+        <template #control>
+          <a-space direction="horizontal" :style="{ flexWrap: 'wrap' }">
+            <a-select :style="{ minWidth: '190px' }" v-model="stubModal.template"
+              :dropdown-class-name="themeSwitcher.currentTheme"
+              placeholder='{{ i18n "pages.nginx.stubTemplate" }}' @change="applyStubTemplate">
+              <a-select-option v-for="tpl in stubTemplates" :key="tpl.key" :value="tpl.key">
+                [[ tpl.name ]]</a-select-option>
+            </a-select>
+            <a-upload :before-upload="readStubFile" :show-upload-list="false" accept=".html,.htm">
+              <a-button icon="upload">{{ i18n "pages.nginx.stubUpload" }}</a-button>
+            </a-upload>
+          </a-space>
+        </template>
+      </a-setting-list-item>
+    </a-list>
+
+    <a-tabs default-active-key="code" :style="{ marginTop: '8px' }">
+      <a-tab-pane key="code" tab='{{ i18n "pages.nginx.stubCode" }}'>
+        <a-textarea v-model="stubModal.html" :auto-size="{ minRows: 12, maxRows: 20 }"
+          :style="{ fontFamily: 'monospace', fontSize: '13px' }"></a-textarea>
+      </a-tab-pane>
+      <a-tab-pane key="preview" tab='{{ i18n "pages.nginx.stubPreview" }}'>
+        <!-- A bare sandbox: no scripts, no forms, no access to the panel. The
+             page belongs to the operator, but it is still markup being rendered
+             inside an authenticated session. -->
+        <iframe :srcdoc="stubModal.html" sandbox
+          :style="{ width: '100%', height: '420px', border: '1px solid rgba(128,128,128,.35)', borderRadius: '6px', background: '#fff' }"></iframe>
+      </a-tab-pane>
+    </a-tabs>
+
+    <a-alert v-for="(warning, i) in stubModal.warnings" :key="'sw' + i" type="warning" show-icon
+      :message="warningText(warning)" :style="{ marginTop: '12px' }"></a-alert>
+  </a-modal>
+
+  <!-- Nothing moves until this has been read and confirmed: a link that changes
+       cannot be un-changed for the clients already holding it. -->
+  <a-modal v-model="planVisible" title='{{ i18n "pages.nginx.planTitle" }}'
+    ok-text='{{ i18n "pages.nginx.confirm" }}' cancel-text='{{ i18n "cancel" }}'
+    :confirm-loading="applying" :ok-button-props="{ props: { disabled: hasBlockers } }"
+    :class="themeSwitcher.currentTheme" @ok="apply">
+    <a-alert v-for="(blocker, i) in plan.blockers" :key="'b' + i" type="error" show-icon
+      :message="warningText(blocker)" :style="{ marginBottom: '8px' }"></a-alert>
+
+    <template v-if="!hasBlockers">
+      <a-empty v-if="!plan.changes || !plan.changes.length"
+        description='{{ i18n "pages.nginx.planEmpty" }}'></a-empty>
+      <!-- Plain rows on purpose: .ant-list resets the text colour to a
+           near-black that the dark theme never overrides, so a list here would
+           render black on black. -->
+      <div v-else>
+        <div v-for="(change, i) in plan.changes" :key="'c' + i"
+          :style="{ marginBottom: '8px', display: 'flex', alignItems: 'flex-start' }">
+          <a-icon :type="planIcon(change)" :style="{ marginInlineEnd: '8px', marginTop: '4px' }"></a-icon>
+          <span>[[ planText(change) ]]</span>
+        </div>
+      </div>
+      <a-alert v-if="hasDualChanges" type="info" show-icon
+        message='{{ i18n "pages.nginx.dualNote" }}' :style="{ marginTop: '12px' }"></a-alert>
+      <a-alert v-if="hasLinkChanges" type="warning" show-icon
+        message='{{ i18n "pages.nginx.linksWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
+      <a-alert v-if="hasSubsChanges" type="warning" show-icon
+        message='{{ i18n "pages.nginx.subsWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
+      <a-alert v-if="hasClosedChanges" type="error" show-icon
+        message='{{ i18n "pages.nginx.closedWarning" }}' :style="{ marginTop: '12px' }"></a-alert>
+    </template>
+  </a-modal>
+
+  <!-- Shown when applying changes that relocate the panel or close ports, so
+       the operator is given the new address directly rather than being left on
+       an unreachable connection. -->
+  <a-modal v-model="applyModal.visible" :title="applyModal.leaving ? '{{ i18n "pages.nginx.applyModalLeavingTitle" }}' : '{{ i18n "pages.nginx.applyModalTitle" }}'"
+    :mask-closable="false" :closable="true" :class="themeSwitcher.currentTheme">
+    <a-alert v-if="applyModal.leaving" type="info" show-icon
+      message='{{ i18n "pages.nginx.applyModalLeavingNotice" }}'
+      description='{{ i18n "pages.nginx.applyModalLeavingBody" }}' :style="{ marginBottom: '16px' }"></a-alert>
+    <a-alert v-else type="warning" show-icon :message="applyModalRemaining"
+      description='{{ i18n "pages.nginx.applyModalBody" }}' :style="{ marginBottom: '16px' }"></a-alert>
+    <div :style="{ marginBottom: '8px', fontWeight: 'bold' }">
+      {{ i18n "pages.nginx.applyModalUrlLabel" }}
+    </div>
+    <a-input :value="applyModal.url" readonly>
+      <a-icon slot="prefix" type="link"></a-icon>
+      <a-tooltip slot="suffix" title='{{ i18n "pages.nginx.applyModalCopyButton" }}'>
+        <a-icon type="copy" style="cursor: pointer;" @click="copyUrl(applyModal.url)"></a-icon>
+      </a-tooltip>
+    </a-input>
+
+    <template #footer>
+      <a-button @click="copyUrl(applyModal.url)">
+        {{ i18n "pages.nginx.applyModalCopyButton" }}
+      </a-button>
+      <a-button type="primary" icon="export" @click="goToUrl(applyModal.url)">
+        {{ i18n "pages.nginx.applyModalOpenButton" }}
+      </a-button>
+    </template>
+  </a-modal>
+</a-layout>
+
+{{template "page/body_scripts" .}}
+{{template "component/aSidebar" .}}
+{{template "component/aThemeSwitch" .}}
+{{template "component/aSettingListItem" .}}
+
+<script>
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    mixins: [MediaQueryMixin],
+    data: {
+      themeSwitcher,
+      loadingStates: {
+        fetched: false,
+        spinning: false,
+      },
+      planning: false,
+      applying: false,
+      confirming: false,
+      // Ticks once a second so the countdown in the banner moves. Set only
+      // while something is actually pending.
+      now: 0,
+      confirmTimer: null,
+      planVisible: false,
+      applyModal: {
+        visible: false,
+        url: '',
+        leaving: false,
+      },
+      settings: {
+        mode: 'off',
+        domain: '',
+        realityPort: 8443,
+        stubSiteId: 0,
+        subsBehind443: false,
+        panelBehind443: false,
+        manageFirewall: false,
+        firewallExtra: '',
+      },
+      status: {
+        installed: false,
+        running: false,
+        hasStream: false,
+        version: '',
+        routes: [],
+        warnings: [],
+        certOk: false,
+        certFile: '',
+        certExpiry: 0,
+        panelPort: 0,
+        firewallOn: false,
+        confirmDeadline: 0,
+      },
+      plan: { changes: [], blockers: [] },
+      // The certificate is checked for the domain on screen, not the one that
+      // happens to be saved.
+      cert: { certOk: false, certFile: '', certExpiry: 0 },
+      checkingCert: false,
+      SizeFormatter,
+      stubs: [],
+      stubTemplates: [],
+      stubModal: { visible: false, saving: false, id: 0, name: '', html: '', template: undefined, warnings: [] },
+      stubTitleNew: '{{ i18n "pages.nginx.stubNew" }}',
+      stubTitleEdit: '{{ i18n "pages.nginx.stubEdit" }}',
+      // How far down a full-size page is drawn to fit a tile. Measured once
+      // the gallery is on screen; the first paint uses a sensible guess.
+      stubShotScale: 0.33,
+      routeColumns: [
+        { title: '{{ i18n "pages.nginx.routeInbound" }}', dataIndex: 'remark' },
+        { title: '{{ i18n "pages.nginx.routeProtocol" }}', dataIndex: 'protocol' },
+        { title: '{{ i18n "pages.nginx.routeSni" }}', scopedSlots: { customRender: 'sni' } },
+        { title: '{{ i18n "pages.nginx.routeInternal" }}', scopedSlots: { customRender: 'internal' } },
+      ],
+    },
+    computed: {
+      stubShotStyle() {
+        return { transform: `scale(${this.stubShotScale})` };
+      },
+      // Offering a mode the server cannot deliver only produces a confusing
+      // failure later, so the choice itself stays closed until nginx can do it.
+      canEnable() {
+        return this.status.installed && this.status.hasStream;
+      },
+      modeDesc() {
+        switch (this.settings.mode) {
+          case 'shared': return '{{ i18n "pages.nginx.modeSharedDesc" }}';
+          case 'only443': return '{{ i18n "pages.nginx.modeOnly443Desc" }}';
+          default: return '{{ i18n "pages.nginx.modeOffDesc" }}';
+        }
+      },
+      canApply() {
+        return this.loadingStates.fetched && (this.settings.mode === 'off' || this.canEnable);
+      },
+      hasBlockers() {
+        return (this.plan.blockers || []).length > 0;
+      },
+      hasLinkChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'links');
+      },
+      hasDualChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'dual');
+      },
+      hasSubsChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'subs');
+      },
+      hasClosedChanges() {
+        return (this.plan.changes || []).some(change => change.kind === 'closed');
+      },
+      // Seconds left before the panel opens the ports again, or 0 when there
+      // is nothing waiting to be confirmed.
+      confirmLeft() {
+        const deadline = this.status.confirmDeadline || 0;
+        if (!deadline || !this.now) return 0;
+        return Math.max(0, Math.round((deadline - this.now) / 1000));
+      },
+      confirmBody() {
+        const left = this.confirmLeft;
+        const clock = left > 0
+          ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')
+          : '{{ i18n "pages.nginx.confirmPendingExpired" }}';
+        return '{{ i18n "pages.nginx.confirmPendingBody" }}'.replace('%s', clock);
+      },
+      applyModalRemaining() {
+        const left = this.confirmLeft;
+        if (!left || left <= 0) return '{{ i18n "pages.nginx.confirmPendingTitle" }}';
+        const clock = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+        return '{{ i18n "pages.nginx.confirmPendingTitle" }} (' + clock + ')';
+      },
+      canPublish() {
+        return this.settings.mode !== 'off' && !!this.settings.domain && !!this.cert.certOk;
+      },
+      publishHint() {
+        if (this.settings.mode === 'off') {
+          return '{{ i18n "pages.nginx.subsPublishNeedsMode" }}';
+        }
+        return (this.settings.domain && this.cert.certOk)
+          ? '{{ i18n "pages.nginx.subsPublishDesc" }}'
+          : '{{ i18n "pages.nginx.subsPublishNeedsDomain" }}';
+      },
+      canPublishPanel() {
+        return this.canPublish && this.settings.mode === 'only443';
+      },
+      panelPublishHint() {
+        return this.canPublishPanel
+          ? '{{ i18n "pages.nginx.panelPublishDesc" }}'
+          : '{{ i18n "pages.nginx.panelPublishNeedsOnly443" }}';
+      },
+      firewallHint() {
+        return this.settings.mode === 'only443'
+          ? '{{ i18n "pages.nginx.firewallDesc" }}'
+          : '{{ i18n "pages.nginx.firewallNeedsOnly443" }}';
+      },
+      certLabel() {
+        if (!this.cert.certExpiry) return '{{ i18n "pages.nginx.certOk" }}';
+        const date = new Date(this.cert.certExpiry).toISOString().slice(0, 10);
+        return '{{ i18n "pages.nginx.certExpires" }}'.replace('%s', date);
+      },
+    },
+    watch: {
+      'settings.mode'(newMode) {
+        if (newMode === 'off') {
+          this.settings.subsBehind443 = false;
+          this.settings.panelBehind443 = false;
+          this.settings.manageFirewall = false;
+        } else if (newMode === 'shared') {
+          this.settings.panelBehind443 = false;
+          this.settings.manageFirewall = false;
+        }
+      },
+    },
+    methods: {
+      async load() {
+        this.loadingStates.spinning = true;
+        try {
+          const [settings, status] = await Promise.all([
+            HttpUtil.get('panel/api/nginx/settings'),
+            HttpUtil.get('panel/api/nginx/status'),
+          ]);
+          if (settings.success) this.settings = settings.obj;
+          if (status.success) this.status = status.obj;
+          this.loadingStates.fetched = true;
+          this.watchConfirmation();
+        } finally {
+          this.loadingStates.spinning = false;
+        }
+      },
+      async checkCertificate() {
+        const domain = (this.settings.domain || '').trim();
+        if (!domain) {
+          this.cert = { certOk: false, certFile: '', certExpiry: 0 };
+          return;
+        }
+        this.checkingCert = true;
+        try {
+          const msg = await HttpUtil.get('panel/api/nginx/certificate', { domain });
+          if (msg.success && msg.obj) this.cert = msg.obj;
+        } finally {
+          this.checkingCert = false;
+        }
+      },
+      async openPlan() {
+        this.planning = true;
+        try {
+          const msg = await HttpUtil.postJson('panel/api/nginx/plan', this.settings);
+          if (!msg.success) return;
+          this.plan = msg.obj || { changes: [], blockers: [] };
+          this.planVisible = true;
+        } finally {
+          this.planning = false;
+        }
+      },
+      computePanelUrl(isLeaving) {
+        if (isLeaving) {
+          const port = this.status.panelPort || window.location.port || 33757;
+          const host = window.location.hostname;
+          const proto = window.location.protocol;
+          return `${proto}//${host}:${port}${basePath}panel/nginx`;
+        }
+        if (this.settings.mode === 'only443' && this.settings.panelBehind443) {
+          const domain = (this.settings.domain || window.location.hostname).trim();
+          const proto = 'https:';
+          return `${proto}//${domain}${basePath}panel/nginx`;
+        }
+        return window.location.href;
+      },
+      copyUrl(url) {
+        if (!url) return;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(url).then(() => this.$message.success('{{ i18n "copied" }}'));
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          this.$message.success('{{ i18n "copied" }}');
+        }
+      },
+      goToUrl(url) {
+        if (url) window.location.href = url;
+      },
+      async apply() {
+        const movesBehind443 = this.settings.mode === 'only443' && this.settings.panelBehind443;
+        const currentPort = window.location.port;
+        const currentOn443 = (currentPort === '' || currentPort === '443');
+        const entering443 = !currentOn443 && movesBehind443;
+        const leaving443 = currentOn443 && !movesBehind443;
+        const closesPorts = this.settings.mode === 'only443' && this.settings.manageFirewall;
+        const willDisruptConnection = entering443 || leaving443 || closesPorts;
+        const newUrl = this.computePanelUrl(leaving443);
+
+        this.applying = true;
+        try {
+          const msg = await HttpUtil.postJson('panel/api/nginx/apply', this.settings);
+          if (!msg.success) return;
+          this.planVisible = false;
+          if (willDisruptConnection) {
+            this.applyModal.url = newUrl;
+            this.applyModal.leaving = leaving443;
+            if (!leaving443) {
+              this.status.confirmDeadline = Date.now() + 120000;
+              this.watchConfirmation();
+            }
+            this.applyModal.visible = true;
+          }
+          if (!leaving443) {
+            try {
+              await this.load();
+            } catch (e) {
+              console.warn('Post-apply load failed (expected if port changed/closed):', e);
+            }
+          }
+        } catch (err) {
+          console.error('Apply request error:', err);
+          if (willDisruptConnection) {
+            this.planVisible = false;
+            this.applyModal.url = newUrl;
+            this.applyModal.leaving = leaving443;
+            if (!leaving443) {
+              this.status.confirmDeadline = Date.now() + 120000;
+              this.watchConfirmation();
+            }
+            this.applyModal.visible = true;
+          }
+        } finally {
+          this.applying = false;
+        }
+      },
+      async confirm() {
+        this.confirming = true;
+        try {
+          const msg = await HttpUtil.post('panel/api/nginx/confirm');
+          if (msg.success) await this.load();
+        } finally {
+          this.confirming = false;
+        }
+      },
+      // The countdown only runs while there is something to count down, so a
+      // page left open on an ordinary day does no work at all.
+      watchConfirmation() {
+        const pending = !!(this.status.confirmDeadline || 0);
+        if (pending && !this.confirmTimer) {
+          this.now = Date.now();
+          this.confirmTimer = setInterval(() => {
+            this.now = Date.now();
+            // Past the deadline the server has already put things back; ask it
+            // what the truth is rather than guessing.
+            if (this.status.confirmDeadline && this.now > this.status.confirmDeadline + 30000) {
+              this.load();
+            }
+          }, 1000);
+        } else if (!pending && this.confirmTimer) {
+          clearInterval(this.confirmTimer);
+          this.confirmTimer = null;
+        }
+      },
+      async loadStubs() {
+        const [sites, templates] = await Promise.all([
+          HttpUtil.get('panel/api/nginx/stubs'),
+          HttpUtil.get('panel/api/nginx/stub-templates'),
+        ]);
+        if (sites.success) this.stubs = sites.obj || [];
+        if (templates.success) this.stubTemplates = templates.obj || [];
+      },
+      newStub() {
+        this.stubModal = { visible: true, saving: false, id: 0, name: '', html: '', template: undefined, warnings: [] };
+      },
+      async editStub(card) {
+        // A built-in page nobody has picked yet has nothing to read back: it
+        // opens as a new page with the template already in it.
+        if (!card.id) {
+          this.newStub();
+          this.stubModal.template = card.key;
+          this.applyStubTemplate(card.key);
+          return;
+        }
+        // The gallery is fetched without the markup — it can be half a
+        // megabyte per page — so the full page is read only when one is opened.
+        const msg = await HttpUtil.get('panel/api/nginx/stub/' + card.id);
+        if (!msg.success) return;
+        this.stubModal = {
+          visible: true, saving: false, id: msg.obj.id, name: msg.obj.name,
+          html: msg.obj.html, template: undefined, warnings: [],
+        };
+      },
+      // The thumbnail of a page of the operator's own is fetched one tile at a
+      // time, for the same reason the gallery leaves the markup out.
+      stubPreviewUrl(card) {
+        return `${basePath}panel/api/nginx/stub/${card.id}/preview`;
+      },
+      // The thumbnails have their scripts switched off, so a page that is a
+      // game or an animation is a dead rectangle in the gallery. This opens it
+      // in a tab where it actually runs — in an origin of its own, never the
+      // panel's.
+      openStub(card) {
+        const query = card.id ? `id=${card.id}` : `key=${encodeURIComponent(card.key)}`;
+        window.open(`${basePath}panel/api/nginx/stub-open?${query}`, '_blank', 'noopener');
+      },
+      applyStubTemplate(key) {
+        const tpl = this.stubTemplates.find(t => t.key === key);
+        if (!tpl) return;
+        this.stubModal.html = tpl.html;
+        if (!this.stubModal.name) this.stubModal.name = tpl.name;
+      },
+      // Returning false keeps a-upload from posting the file anywhere: the
+      // page is read in the browser and travels with the save.
+      readStubFile(file) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          this.stubModal.html = e.target.result;
+          // The file name is a better first guess than nothing, and the field
+          // is right there to be corrected.
+          if (!this.stubModal.name) this.stubModal.name = file.name.replace(/\.html?$/i, '');
+        };
+        reader.readAsText(file);
+        return false;
+      },
+      // The tiles are a page drawn at full size and shrunk, and CSS cannot work
+      // out the factor on its own — it needs the width in pixels. The section
+      // is rendered even while it is folded away (`force-render`), so one
+      // observer set up at load catches all three moments that matter: the
+      // tiles arriving, the section being opened, and the window resized.
+      watchStubGallery() {
+        const gallery = this.$refs.stubGallery;
+        if (!gallery || this.stubObserver) return;
+        this.stubObserver = new ResizeObserver(() => this.measureStubShots());
+        this.stubObserver.observe(gallery);
+        this.measureStubShots();
+      },
+      measureStubShots() {
+        const gallery = this.$refs.stubGallery;
+        const shot = gallery && gallery.querySelector('.stub-shot');
+        if (shot && shot.clientWidth > 0) this.stubShotScale = shot.clientWidth / 1280;
+      },
+      async saveStub() {
+        this.stubModal.saving = true;
+        try {
+          const msg = await HttpUtil.postJson('panel/api/nginx/stub/save', {
+            id: this.stubModal.id, name: this.stubModal.name, html: this.stubModal.html,
+          });
+          if (!msg.success) return;
+          this.stubModal.warnings = (msg.obj && msg.obj.warnings) || [];
+          await this.loadStubs();
+          // Warnings are advice, not a failure — keep the editor open so they
+          // can actually be read and acted on.
+          if (!this.stubModal.warnings.length) this.stubModal.visible = false;
+          else this.stubModal.id = msg.obj.site.id;
+        } finally {
+          this.stubModal.saving = false;
+        }
+      },
+      // A tile is one click. A built-in page nobody has picked yet has no id
+      // of its own — the panel saves it on the way through, so it can be
+      // edited afterwards like any other.
+      async chooseStub(card) {
+        if (card.active) return;
+        const url = card.id
+          ? 'panel/api/nginx/stub/activate/' + card.id
+          : 'panel/api/nginx/stub/activate-template/' + card.key;
+        const msg = await HttpUtil.postJson(url, {});
+        if (msg.success) await this.loadStubs();
+      },
+      async deleteStub(card) {
+        const msg = await HttpUtil.postJson('panel/api/nginx/stub/del/' + card.id, {});
+        if (msg.success) await this.loadStubs();
+      },
+      // The service sends a code and its parameters rather than a sentence: it
+      // runs with no request and no locale, so anything it worded would arrive
+      // in English whatever the panel is set to.
+      warningText(warning) {
+        if (!warning) return '';
+        const wording = {
+          noStreamModule: '{{ i18n "pages.nginx.warnNoStreamModule" }}',
+          notInstalled: '{{ i18n "pages.nginx.notInstalled" }}',
+          noDomain: '{{ i18n "pages.nginx.warnNoDomain" }}',
+          stockCoverPage: '{{ i18n "pages.nginx.warnStockCoverPage" }}',
+          certExpiring: '{{ i18n "pages.nginx.warnCertExpiring" }}',
+          sniConflict: '{{ i18n "pages.nginx.warnSniConflict" }}',
+          sniIsOwnDomain: '{{ i18n "pages.nginx.warnSniIsOwnDomain" }}',
+          nothingToRoute: '{{ i18n "pages.nginx.warnNothingToRoute" }}',
+          noFirewall: '{{ i18n "pages.nginx.warnNoFirewall" }}',
+          certMissingFor: '{{ i18n "pages.nginx.warnCertMissingFor" }}',
+          certProblem: '{{ i18n "pages.nginx.warnCertProblem" }}',
+          stubExternal: '{{ i18n "pages.nginx.warnStubExternal" }}',
+          firewallExtraUnreadable: '{{ i18n "pages.nginx.warnFirewallExtraUnreadable" }}',
+          inboundsUnreadable: '{{ i18n "pages.nginx.warnInboundsUnreadable" }}',
+          portConflict: '{{ i18n "pages.nginx.warnPortConflict" }}',
+        };
+        let text = wording[warning.code];
+        // Codes with no wording of their own carry the message from below.
+        if (!text) return warning.text || warning.code || '';
+        (warning.params || []).forEach(p => { text = text.replace('%s', p); });
+        if (warning.text) text += ' (' + warning.text + ')';
+        return text;
+      },
+      planIcon(change) {
+        switch (change.kind) {
+          case 'links': return 'link';
+          case 'subs': return 'profile';
+          case 'closed': return 'stop';
+          case 'kept': return 'safety';
+          case 'dual': return 'fork';
+          case 'move': return 'swap';
+          default: return 'global';
+        }
+      },
+      // The plan is assembled server-side as (kind, subject, from, to) so the
+      // wording lives here, in the language the panel is showing.
+      planText(change) {
+        const templates = {
+          move: '{{ i18n "pages.nginx.planMove" }}',
+          links: '{{ i18n "pages.nginx.planLinks" }}',
+          serve: '{{ i18n "pages.nginx.planServe" }}',
+          dual: '{{ i18n "pages.nginx.planDual" }}',
+          subs: '{{ i18n "pages.nginx.planSubs" }}',
+          closed: '{{ i18n "pages.nginx.planClosed" }}',
+          kept: '{{ i18n "pages.nginx.planKept" }}',
+        };
+        const template = templates[change.kind] || '%subject%: %from% → %to%';
+        return template
+          .replace('%subject%', change.subject || '')
+          .replace('%from%', change.from || '')
+          .replace('%to%', change.to || '');
+      },
+    },
+    async mounted() {
+      await this.load();
+      await this.checkCertificate();
+      await this.loadStubs();
+      this.$nextTick(() => this.watchStubGallery());
+    },
+  });
+</script>
+{{ template "page/body_end" .}}

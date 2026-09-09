@@ -75,6 +75,11 @@ type AwgStatus struct {
 	Running      bool   `json:"running"`
 	AwgInstalled bool   `json:"awgInstalled"`
 	AwgVersion   string `json:"awgVersion"`
+	// AwgModuleVersion is the kernel module's own version, which is not always
+	// the tools' — and when they differ it is the module that decides what the
+	// interface will accept. Reported separately so «too old for 3.0» does not
+	// appear next to a tools version that is perfectly current.
+	AwgModuleVersion string `json:"awgModuleVersion"`
 	// SupportsV3 tells the panel whether this host's AmneziaWG can run the 3.0
 	// parameters; the fields are disabled when it cannot.
 	SupportsV3 bool `json:"supportsV3"`
@@ -143,24 +148,25 @@ type Release struct {
 // ServerService provides business logic for server monitoring and management.
 // It handles system status collection, IP detection, and application statistics.
 type ServerService struct {
-	xrayService        XrayService
-	inboundService     InboundService
-	cachedIPv4         string
-	cachedIPv6         string
-	noIPv6             bool
-	mu                 sync.Mutex
-	lastCPUTimes       cpu.TimesStat
-	hasLastCPUSample   bool
-	hasNativeCPUSample bool
-	emaCPU             float64
-	cpuHistory         []CPUSample
-	cachedCpuSpeedMhz  float64
-	lastCpuInfoAttempt time.Time
-	cachedAwgInstalled bool
-	cachedAwgVersion   string
-	cachedWgInstalled  bool
-	cachedWgVersion    string
-	lastTunnelMetaSync time.Time
+	xrayService            XrayService
+	inboundService         InboundService
+	cachedIPv4             string
+	cachedIPv6             string
+	noIPv6                 bool
+	mu                     sync.Mutex
+	lastCPUTimes           cpu.TimesStat
+	hasLastCPUSample       bool
+	hasNativeCPUSample     bool
+	emaCPU                 float64
+	cpuHistory             []CPUSample
+	cachedCpuSpeedMhz      float64
+	lastCpuInfoAttempt     time.Time
+	cachedAwgInstalled     bool
+	cachedAwgVersion       string
+	cachedAwgModuleVersion string
+	cachedWgInstalled      bool
+	cachedWgVersion        string
+	lastTunnelMetaSync     time.Time
 }
 
 // AggregateCpuHistory returns up to maxPoints averaged buckets of size bucketSeconds over recent data.
@@ -282,8 +288,10 @@ func (s *ServerService) refreshTunnelMetaCache(now time.Time) {
 	s.cachedAwgInstalled = tunnel.IsInstalled(tunnel.AWG)
 	if s.cachedAwgInstalled {
 		s.cachedAwgVersion = tunnel.Version(tunnel.AWG)
+		s.cachedAwgModuleVersion = tunnel.ModuleVersion(tunnel.AWG)
 	} else {
 		s.cachedAwgVersion = "unknown"
+		s.cachedAwgModuleVersion = ""
 	}
 
 	s.cachedWgInstalled = tunnel.IsInstalled(tunnel.WG)
@@ -478,6 +486,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	s.mu.Lock()
 	awgInstalled := s.cachedAwgInstalled
 	awgVersion := s.cachedAwgVersion
+	awgModuleVersion := s.cachedAwgModuleVersion
 	wgInstalled := s.cachedWgInstalled
 	wgVersion := s.cachedWgVersion
 	s.mu.Unlock()
@@ -485,6 +494,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	var awgService AwgService
 	status.Awg.AwgInstalled = awgInstalled
 	status.Awg.AwgVersion = awgVersion
+	status.Awg.AwgModuleVersion = awgModuleVersion
 	if awgServer, err := awgService.GetServer(); err == nil {
 		status.Awg.Running = tunnel.IsInterfaceUp(tunnel.AWG, awgServer.InterfaceName)
 	}

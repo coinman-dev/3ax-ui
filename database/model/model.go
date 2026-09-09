@@ -71,6 +71,43 @@ type Inbound struct {
 	StreamSettings string   `json:"streamSettings" form:"streamSettings"`
 	Tag            string   `json:"tag" form:"tag" gorm:"unique"`
 	Sniffing       string   `json:"sniffing" form:"sniffing"`
+
+	// PublicPort is the port clients are told to connect to, when that is not
+	// the port the inbound listens on. Set by the nginx front-end: once 443 is
+	// multiplexed by SNI the inbound moves to a loopback port, but its links
+	// must keep saying 443. Zero means "the same as Port".
+	//
+	// Panel-managed: the inbound update paths copy named fields onto the stored
+	// row and deliberately leave this one alone, so editing an inbound in the UI
+	// cannot silently reset it and break every link the inbound issued.
+	PublicPort int `json:"publicPort" form:"publicPort" gorm:"default:0"`
+}
+
+// LinkPort is the port to put into a client link or QR code.
+func (i *Inbound) LinkPort() int {
+	if i.PublicPort > 0 {
+		return i.PublicPort
+	}
+	return i.Port
+}
+
+// StubSite is a cover page served on the panel's own domain, so that anyone who
+// opens it in a browser finds an ordinary website rather than a blank port.
+//
+// The page is kept in the database rather than as a file: it then rides along in
+// the panel's backup and survives a reinstall, which a file under /usr/local
+// would not. Only the active one is written to disk, where nginx serves it from.
+type StubSite struct {
+	Id   int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name string `json:"name"`
+	// Html is the whole page in one file — styles and scripts inline. A page
+	// that pulls in outside files may fail to open at all, and the pattern of
+	// requests it makes is itself a give-away.
+	Html      string `json:"html"`
+	Active    bool   `json:"active"`
+	Size      int    `json:"size"` // bytes, for display
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
 }
 
 // OutboundTraffics tracks traffic statistics for Xray outbound connections.

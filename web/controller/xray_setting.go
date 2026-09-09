@@ -79,11 +79,13 @@ func (a *XraySettingController) getXraySetting(c *gin.Context) {
 	if outboundTestUrl == "" {
 		outboundTestUrl = "https://www.google.com/generate_204"
 	}
+	hiddifyCompat, _ := a.SettingService.GetXrayHiddifyCompat()
 	xrayResponse := map[string]any{
 		"xraySetting":       json.RawMessage(xraySetting),
 		"inboundTags":       json.RawMessage(inboundTags),
 		"clientReverseTags": json.RawMessage(clientReverseTags),
 		"outboundTestUrl":   outboundTestUrl,
+		"hiddifyCompat":     hiddifyCompat,
 	}
 	result, err := json.Marshal(xrayResponse)
 	if err != nil {
@@ -105,6 +107,10 @@ func (a *XraySettingController) updateSetting(c *gin.Context) {
 		outboundTestUrl = "https://www.google.com/generate_204"
 	}
 	_ = a.SettingService.SetXrayOutboundTestUrl(outboundTestUrl)
+	hiddifyCompat := c.PostForm("hiddifyCompat")
+	if hiddifyCompat != "" {
+		_ = a.SettingService.SetXrayHiddifyCompat(hiddifyCompat == "true")
+	}
 	jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), nil)
 }
 

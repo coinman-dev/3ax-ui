@@ -29,6 +29,7 @@ type SubService struct {
 	remarkModel    string
 	datepicker     string
 	subTheme       string
+	hiddifyCompat  bool
 	inboundService service.InboundService
 	settingService service.SettingService
 }
@@ -65,6 +66,7 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 
 func (s *SubService) buildSubs(subId string, host string) ([]string, int64, xray.ClientTraffic, error) {
 	s.address = host
+	s.hiddifyCompat, _ = s.settingService.GetXrayHiddifyCompat()
 	var result []string
 	var traffic xray.ClientTraffic
 	var lastOnline int64
@@ -196,7 +198,7 @@ func (s *SubService) getFallbackMaster(dest string, streamSettings string) (stri
 	stream["externalProxy"] = masterStream["externalProxy"]
 	modifiedStream, _ := json.MarshalIndent(stream, "", "  ")
 
-	return inbound.Listen, inbound.Port, string(modifiedStream), nil
+	return inbound.Listen, inbound.LinkPort(), string(modifiedStream), nil
 }
 
 func (s *SubService) getLink(inbound *model.Inbound, email string) string {
@@ -225,7 +227,7 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 	obj := map[string]any{
 		"v":    "2",
 		"add":  address,
-		"port": inbound.Port,
+		"port": inbound.LinkPort(),
 		"type": "none",
 	}
 	stream := unmarshalStreamSettings(inbound.StreamSettings)
@@ -264,7 +266,7 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
 	uuid := clients[clientIndex].ID
-	port := inbound.Port
+	port := inbound.LinkPort()
 	streamNetwork := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
@@ -289,6 +291,11 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 		}
 	case "reality":
 		applyShareRealityParams(stream, params)
+		if s.hiddifyCompat && (streamNetwork == "xhttp" || streamNetwork == "grpc") {
+			if _, ok := params["alpn"]; !ok {
+				params["alpn"] = "h2"
+			}
+		}
 		if streamNetwork == "tcp" && len(clients[clientIndex].Flow) > 0 {
 			params["flow"] = clients[clientIndex].Flow
 		}
@@ -325,7 +332,7 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 	clients, _ := s.inboundService.GetClients(inbound)
 	clientIndex := findClientIndex(clients, email)
 	password := clients[clientIndex].Password
-	port := inbound.Port
+	port := inbound.LinkPort()
 	streamNetwork := stream["network"].(string)
 	params := make(map[string]string)
 	params["type"] = streamNetwork
@@ -340,6 +347,11 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 		applyShareTLSParams(stream, params)
 	case "reality":
 		applyShareRealityParams(stream, params)
+		if s.hiddifyCompat && (streamNetwork == "xhttp" || streamNetwork == "grpc") {
+			if _, ok := params["alpn"]; !ok {
+				params["alpn"] = "h2"
+			}
+		}
 		if streamNetwork == "tcp" && len(clients[clientIndex].Flow) > 0 {
 			params["flow"] = clients[clientIndex].Flow
 		}
@@ -417,7 +429,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 		)
 	}
 
-	link := fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), wrapIPv6(address), inbound.Port)
+	link := fmt.Sprintf("ss://%s@%s:%d", base64.StdEncoding.EncodeToString([]byte(encPart)), wrapIPv6(address), inbound.LinkPort())
 	return buildLinkWithParams(link, params, s.genRemark(inbound, email, ""))
 }
 
@@ -527,7 +539,7 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	}
 
 	// No external proxy configured — fall back to the request host.
-	link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, wrapIPv6(s.address), inbound.Port)
+	link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, wrapIPv6(s.address), inbound.LinkPort())
 	url, _ := url.Parse(link)
 	q := url.Query()
 	for k, v := range params {
@@ -538,11 +550,34 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	return url.String()
 }
 
+// resolveInboundAddress returns the address a client should dial.
+//
+// inbound.Listen is where the inbound binds, which is only sometimes a usable
+// public address. A wildcard means "wherever this server is reached". A
+// loopback address means the inbound sits behind something else — nginx, in the
+// front-end modes — and is reachable at 127.0.0.1 from nowhere but the server
+// itself, so putting it in a link hands out something that cannot connect.
 func (s *SubService) resolveInboundAddress(inbound *model.Inbound) string {
-	if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+	if isPublicListenAddress(inbound.Listen) {
+		return inbound.Listen
+	}
+	if s.address != "" && isPublicListenAddress(s.address) {
 		return s.address
 	}
-	return inbound.Listen
+	if _, pubHost, ok := service.PublicSubBase(); ok && pubHost != "" {
+		return pubHost
+	}
+	return s.address
+}
+
+// isPublicListenAddress reports whether a listen address is one a client
+// outside the server could actually dial.
+func isPublicListenAddress(listen string) bool {
+	switch strings.TrimSpace(listen) {
+	case "", "0.0.0.0", "::", "::0", "127.0.0.1", "::1", "localhost":
+		return false
+	}
+	return true
 }
 
 func findClientIndex(clients []model.Client, email string) int {
@@ -1371,13 +1406,15 @@ func (s *SubService) ResolveRequest(c *gin.Context) (scheme string, host string,
 		host = h
 	}
 	if host == "" {
-		host = c.GetHeader("X-Real-IP")
-	}
-	if host == "" {
 		var err error
 		host, _, err = net.SplitHostPort(c.Request.Host)
 		if err != nil {
 			host = c.Request.Host
+		}
+	}
+	if host == "" || !isPublicListenAddress(host) {
+		if _, pubHost, ok := service.PublicSubBase(); ok && pubHost != "" {
+			host = pubHost
 		}
 	}
 
@@ -1393,7 +1430,7 @@ func (s *SubService) ResolveRequest(c *gin.Context) (scheme string, host string,
 	// header display host
 	hostHeader = c.GetHeader("X-Forwarded-Host")
 	if hostHeader == "" {
-		hostHeader = c.GetHeader("X-Real-IP")
+		hostHeader = c.Request.Host
 	}
 	if hostHeader == "" {
 		hostHeader = host
@@ -1426,6 +1463,13 @@ func (s *SubService) BuildURLs(scheme, hostWithPort, subPath, subJsonPath, subCl
 
 // getBaseSchemeAndHost determines the base scheme and host from settings or falls back to request values
 func (s *SubService) getBaseSchemeAndHost(requestScheme, requestHostWithPort string) (string, string) {
+	// The front-end comes first: when nginx publishes the subscriptions under
+	// the site's domain, that is the only address a client outside can be sure
+	// of reaching, whatever port the subscription server itself is on.
+	if scheme, host, ok := service.PublicSubBase(); ok {
+		return scheme, host
+	}
+
 	subDomain, err := s.settingService.GetSubDomain()
 	if err != nil || subDomain == "" {
 		return requestScheme, requestHostWithPort

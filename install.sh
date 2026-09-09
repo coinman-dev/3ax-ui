@@ -999,6 +999,112 @@ config_after_install() {
     ${xui_folder}/x-ui migrate
 }
 
+# ensure_amneziawg_current upgrades the AmneziaWG packages and says so when the
+# kernel module and the userspace tools disagree about their generation.
+#
+# The two halves come from one PPA but not always from one upstream commit: in
+# August 2026 the tools shipped 3.1 while the module was still 3.0. The panel
+# asks the tools what generation the host supports, wrote the 3.0 parameters
+# they advertise, and the module refused them — «awg setconf: Unable to modify
+# interface: Invalid argument», with the tunnel down and nothing in the log
+# naming the cause. Keeping both current is the only state that is coherent,
+# and when they still differ the operator needs to be told in words.
+#
+# Nothing here is fatal. A server whose PPA is unreachable keeps the AmneziaWG
+# it already has.
+ensure_amneziawg_current() {
+    command -v awg &>/dev/null || return 0
+    case "${release}" in
+        ubuntu | debian | armbian) ;;
+        *) return 0 ;;
+    esac
+
+    local pkgs=() p
+    for p in amneziawg amneziawg-dkms amneziawg-tools; do
+        dpkg -s "$p" &>/dev/null && pkgs+=("$p")
+    done
+    [[ ${#pkgs[@]} -gt 0 ]] || return 0
+
+    echo -e "${green}Checking AmneziaWG for updates...${plain}"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -q &>/dev/null || true
+    # All of them in one transaction: upgrading the tools without the module is
+    # exactly the split this function exists to prevent.
+    apt-get install -y -q --only-upgrade "${pkgs[@]}" &>/dev/null || true
+
+    reload_amneziawg_module
+    warn_amneziawg_version_split
+}
+
+# reload_amneziawg_module swaps in a freshly built module without a reboot.
+#
+# A DKMS build lands on disk, but the running kernel goes on using the module it
+# already loaded — so an upgrade appears to do nothing until the machine is
+# restarted. Reloading is only safe while nothing is using it; when a tunnel is
+# up we say what is needed instead of tearing it down underneath the operator.
+reload_amneziawg_module() {
+    local users
+    users=$(lsmod 2>/dev/null | awk '$1 == "amneziawg" {print $3}')
+    [[ -n "$users" ]] || { modprobe amneziawg &>/dev/null || true; return 0; }
+
+    if [[ "$users" == "0" ]]; then
+        modprobe -r amneziawg &>/dev/null && modprobe amneziawg &>/dev/null || true
+        return 0
+    fi
+    echo -e "${yellow}The AmneziaWG module is in use, so the running kernel keeps the old one.${plain}"
+    echo -e "${yellow}It is picked up on the next reboot, or after: awg-quick down awg0 && modprobe -r amneziawg && modprobe amneziawg${plain}"
+}
+
+# warn_amneziawg_version_split reports a module and tools that are not the same
+# generation, which the panel cannot tell from the outside.
+warn_amneziawg_version_split() {
+    local mod tools mod_gen tools_gen
+    mod=$(cat /sys/module/amneziawg/version 2>/dev/null ||
+        modinfo -F version amneziawg 2>/dev/null)
+    tools=$(awg --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+    [[ -n "$mod" && -n "$tools" ]] || return 0
+
+    # Compare major.minor only: the trailing build date moves on its own.
+    mod_gen=$(echo "$mod" | cut -d. -f1,2)
+    tools_gen=$(echo "$tools" | cut -d. -f1,2)
+    [[ "$mod_gen" == "$tools_gen" ]] && return 0
+
+    echo -e "${yellow}AmneziaWG halves are out of step: kernel module ${mod}, tools ${tools}.${plain}"
+    echo -e "${yellow}The panel offers whatever the older half supports, so the tunnel keeps working —${plain}"
+    echo -e "${yellow}but the newer features stay off until both are on the same generation.${plain}"
+}
+
+# prune_stale_amneziawg_dkms drops every amneziawg build in the DKMS tree except
+# the newest one.
+#
+# Upgrading the package normally removes its own predecessor, but a version left
+# behind by an interrupted upgrade — or a module someone built by hand before
+# the panel was installed — stays in the tree, gets rebuilt for every new kernel
+# from then on, and leaves two amneziawg.ko for depmod to choose between. The
+# symptom is a tunnel that works until a kernel update and then loads the wrong
+# module.
+prune_stale_amneziawg_dkms() {
+    command -v dkms &>/dev/null || return 0
+
+    local versions count newest
+    # dkms 2.x prints "amneziawg, 1.0.0, <kernel>, ..."; 3.x prints
+    # "amneziawg/1.0.0, <kernel>, ...". Both reduce to the version alone.
+    versions=$(dkms status amneziawg 2>/dev/null |
+        sed -E 's#^amneziawg[/,][[:space:]]*([^,]+),.*#\1#' | sort -Vu)
+    count=$(echo "$versions" | grep -c '[^[:space:]]')
+    [[ "$count" -gt 1 ]] || return 0
+
+    newest=$(echo "$versions" | tail -n1)
+    echo -e "${yellow}Several amneziawg versions found in the DKMS tree, keeping ${newest}:${plain}"
+    while read -r v; do
+        [[ -n "$v" && "$v" != "$newest" ]] || continue
+        echo -e "${yellow}  removing amneziawg/${v}${plain}"
+        dkms remove "amneziawg/${v}" --all &>/dev/null ||
+            dkms remove -m amneziawg -v "${v}" --all &>/dev/null || true
+    done <<<"$versions"
+    depmod -a &>/dev/null || true
+}
+
 install_amneziawg() {
     echo -e "${green}Installing AmneziaWG...${plain}"
 
@@ -1076,7 +1182,10 @@ install_amneziawg() {
             modprobe amneziawg 2>/dev/null || true
         else
             echo -e "${green}AmneziaWG (awg) already installed.${plain}"
-            modprobe amneziawg 2>/dev/null || true
+            # Already installed is not the same as up to date. Skipping here is
+            # how a server sat for a month on a kernel module older than its own
+            # tools, with the tunnel refusing to come up.
+            ensure_amneziawg_current
         fi
         install_ndppd
     # Method 2: other distros — try to install wireguard as fallback
@@ -1111,6 +1220,7 @@ install_amneziawg() {
         echo -e "${yellow}See: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
     fi
 
+    prune_stale_amneziawg_dkms
     enable_ipv6_forwarding
 }
 
@@ -1594,6 +1704,88 @@ print(str(first) + '/' + str(net.prefixlen))
 
 # Translates the panel's arch label to xray-core's release naming so we can
 # fetch the right Xray-linux-{ARCH}.zip from XTLS/Xray-core releases.
+# install_nginx puts nginx on the server so the panel can consolidate every TLS
+# protocol onto port 443. It is installed unconditionally, before the panel, for
+# the same reason AmneziaWG is: the panel decides on first start what it can
+# offer, and a front-end that appears only after the next update is a front-end
+# nobody finds.
+#
+# Nothing here fails the installation. A server without nginx keeps working
+# exactly as before — it simply cannot hide its protocols behind one port.
+install_nginx() {
+    if command -v nginx &>/dev/null; then
+        echo -e "${green}nginx already installed: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
+    else
+        echo -e "${green}Installing nginx...${plain}"
+        case "${release}" in
+            ubuntu | debian | armbian)
+                # On Debian and its derivatives the stream module is a separate
+                # package, and without it nginx cannot split 443 by SNI at all.
+                apt-get install -y -q nginx libnginx-mod-stream 2>/dev/null ||
+                    apt-get install -y -q nginx 2>/dev/null || true
+                ;;
+            fedora | amzn | rhel | almalinux | rocky | ol | centos)
+                dnf install -y nginx nginx-mod-stream 2>/dev/null ||
+                    dnf install -y nginx 2>/dev/null ||
+                    yum install -y nginx 2>/dev/null || true
+                ;;
+            arch | manjaro | parch)
+                pacman -Syu --noconfirm nginx 2>/dev/null || true
+                ;;
+            alpine)
+                apk add nginx nginx-mod-stream 2>/dev/null || apk add nginx 2>/dev/null || true
+                ;;
+            *)
+                echo -e "${yellow}Unknown OS — install nginx by hand to use the «everything on 443» modes.${plain}"
+                ;;
+        esac
+    fi
+
+    if ! command -v nginx &>/dev/null; then
+        echo -e "${yellow}nginx was not installed. The panel works as before; the Nginx page will${plain}"
+        echo -e "${yellow}stay unavailable until nginx is installed.${plain}"
+        return
+    fi
+
+    # The panel owns this directory: a distro's nginx.conf includes conf.d from
+    # inside http {}, where a stream block is a syntax error, so the stream part
+    # of the config needs a home of its own.
+    mkdir -p /etc/nginx/stream-enabled /usr/local/x-ui/www
+
+    if ! nginx -V 2>&1 | grep -q -- '--with-stream' &&
+        ! ls /etc/nginx/modules-enabled/*stream*.conf &>/dev/null; then
+        echo -e "${yellow}This nginx has no stream module, so port 443 cannot be split by server name.${plain}"
+        case "${release}" in
+            ubuntu | debian | armbian) echo -e "${yellow}  Fix: apt-get install -y libnginx-mod-stream${plain}" ;;
+            alpine) echo -e "${yellow}  Fix: apk add nginx-mod-stream${plain}" ;;
+            *) echo -e "${yellow}  Install the nginx stream module for your distribution.${plain}" ;;
+        esac
+    fi
+
+    # A configuration the panel generated earlier may not be accepted by a newer
+    # nginx. Saying so here is the difference between a five-minute fix and a
+    # server where 443 is quietly down after an update.
+    if ! nginx -t &>/dev/null; then
+        echo -e "${red}nginx refuses the current configuration:${plain}"
+        nginx -t 2>&1 | sed 's/^/    /'
+        echo -e "${yellow}Port 443 stays down until this is fixed. The panel rewrites its own part${plain}"
+        echo -e "${yellow}of the config from the Nginx page — reapplying the mode there is usually enough.${plain}"
+        return
+    fi
+
+    # A server that reboots without nginx comes back with 443 shut and every
+    # protocol behind it unreachable.
+    if command -v systemctl &>/dev/null; then
+        systemctl enable nginx &>/dev/null || true
+        systemctl start nginx &>/dev/null || systemctl reload nginx &>/dev/null || true
+    elif command -v rc-update &>/dev/null; then
+        rc-update add nginx default &>/dev/null || true
+        rc-service nginx start &>/dev/null || true
+    fi
+
+    echo -e "${green}nginx: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
+}
+
 xray_release_arch() {
     case "$(arch)" in
         amd64) echo "64" ;;
@@ -1623,6 +1815,60 @@ xray_panel_arch() {
 
 # Pinned mtg (MTProto FakeTLS sidecar, github.com/9seconds/mtg) version.
 MTG_VER="2.2.8"
+
+# Pinned xray-core (github.com/XTLS/Xray-core) version. One source of truth:
+# it builds the download URL and decides whether the copy already on disk is
+# worth replacing.
+XRAY_VER="26.3.27"
+
+# installed_xray_version prints the version of the xray binary at $1, or
+# nothing when there is no binary to ask.
+installed_xray_version() {
+    local bin="$1"
+    [[ -x "$bin" ]] || return 1
+    "$bin" -version 2>/dev/null | head -n1 | awk '{print $2}'
+}
+
+# xray_is_current reports whether the binary at $1 is already the pinned
+# release or newer. Newer counts: an operator who upgraded xray by hand is not
+# asking for it to be put back.
+xray_is_current() {
+    local have
+    have=$(installed_xray_version "$1") || return 1
+    [[ -n "$have" ]] || return 1
+    [[ "$(printf '%s\n%s\n' "$XRAY_VER" "$have" | sort -V | head -n1)" == "$XRAY_VER" ]]
+}
+
+# fetch_geo_file refreshes one geo-data file, and only when the server has
+# something newer. The six of them come to about 145 MB, which used to be
+# downloaded again on every single update.
+#
+# `-z` sends If-Modified-Since from the file's timestamp and `-R` sets that
+# timestamp from the server's Last-Modified — the two are a pair, and without
+# the second the first has nothing to ask about. A 304 leaves the file on disk
+# untouched.
+#
+# The reachability prompt is only for a file we do not have. Once there is a
+# usable copy, a server that cannot be reached is not worth stopping an update
+# over.
+fetch_geo_file() {
+    local dest="$1" url="$2" label="$3" code
+    if [[ ! -f "$dest" ]]; then
+        check_url_or_skip "$url" "$label" || return 0
+        if ${curl_bin:-curl} -4sfLRo "$dest" "$url"; then
+            echo -e "  ${label}: downloaded"
+        else
+            echo -e "  ${yellow}${label}: could not be downloaded${plain}"
+        fi
+        return 0
+    fi
+    code=$(${curl_bin:-curl} -4sfLR -z "$dest" -o "$dest" -w '%{http_code}' "$url" 2>/dev/null)
+    case "$code" in
+        304) echo -e "  ${label}: up to date" ;;
+        200) echo -e "  ${green}${label}: updated${plain}" ;;
+        *)   echo -e "  ${yellow}${label}: kept the copy on disk (HTTP ${code:-none})${plain}" ;;
+    esac
+}
 
 # Translates the panel's arch label to mtg's release-asset arch
 # (mtg-${MTG_VER}-linux-{ARCH}.tar.gz). Empty when 9seconds/mtg ships no
@@ -1790,55 +2036,65 @@ download_xray_and_geo() {
 
     mkdir -p "$target_bin_dir"
     local tmp_zip="/tmp/xray-core.$$.zip"
-    xray_url="https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-${xray_arch}.zip"
+    local xray_bin="$target_bin_dir/xray-linux-${xray_fname}"
+    xray_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VER}/Xray-linux-${xray_arch}.zip"
 
-    # xray binary is mandatory — without it the panel can't run any
-    # protocol. Probe the URL up-front so the user gets a clean prompt
-    # instead of waiting through curl's full retry loop on a dead host.
-    if ! check_url_or_skip "$xray_url" "xray-core binary"; then
-        echo -e "${red}Cannot proceed without xray-core — aborting xray bundle download.${plain}"
-        return 1
-    fi
-    echo -e "${green}Downloading xray-core ${xray_url}...${plain}"
-    if ! curl -4fLRo "$tmp_zip" "$xray_url"; then
+    # Twenty megabytes for a binary that is very often already there, and on
+    # the local-source path it used to be thrown away straight afterwards by
+    # the restore of the preserved copy.
+    if xray_is_current "$xray_bin"; then
+        echo -e "${green}xray-core $(installed_xray_version "$xray_bin") already installed, not downloading it again.${plain}"
+    else
+        # xray binary is mandatory — without it the panel can't run any
+        # protocol. Probe the URL up-front so the user gets a clean prompt
+        # instead of waiting through curl's full retry loop on a dead host.
+        if ! check_url_or_skip "$xray_url" "xray-core binary"; then
+            echo -e "${red}Cannot proceed without xray-core — aborting xray bundle download.${plain}"
+            return 1
+        fi
+        echo -e "${green}Downloading xray-core ${xray_url}...${plain}"
+        if ! curl -4fLRo "$tmp_zip" "$xray_url"; then
+            rm -f "$tmp_zip"
+            echo -e "${red}Failed to download xray-core.${plain}"
+            return 1
+        fi
+        (cd "$target_bin_dir" && unzip -o "$tmp_zip" >/dev/null) || {
+            rm -f "$tmp_zip"
+            echo -e "${red}Failed to unzip xray-core.${plain}"
+            return 1
+        }
         rm -f "$tmp_zip"
-        echo -e "${red}Failed to download xray-core.${plain}"
-        return 1
-    fi
-    (cd "$target_bin_dir" && unzip -o "$tmp_zip" >/dev/null) || {
-        rm -f "$tmp_zip"
-        echo -e "${red}Failed to unzip xray-core.${plain}"
-        return 1
-    }
-    rm -f "$tmp_zip"
-    rm -f "$target_bin_dir/geoip.dat" "$target_bin_dir/geosite.dat"
-    if [[ -f "$target_bin_dir/xray" ]]; then
-        mv -f "$target_bin_dir/xray" "$target_bin_dir/xray-linux-${xray_fname}"
-        chmod +x "$target_bin_dir/xray-linux-${xray_fname}"
+        # The zip carries its own geo files, which are the ones we replace
+        # below. Only worth removing when there has actually been a zip —
+        # doing it unconditionally would force a fresh 145 MB every run.
+        rm -f "$target_bin_dir/geoip.dat" "$target_bin_dir/geosite.dat"
+        if [[ -f "$target_bin_dir/xray" ]]; then
+            mv -f "$target_bin_dir/xray" "$xray_bin"
+            chmod +x "$xray_bin"
+        fi
     fi
 
     # Geo data files are optional — panel boots fine without them, just
     # falls back to no-routing-rules. Probe each before fetching.
-    echo -e "${green}Downloading geo data...${plain}"
-    local geo_url
-    geo_url="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
-    check_url_or_skip "$geo_url" "geoip.dat (Loyalsoldier)" && \
-        curl -4sfLRo "$target_bin_dir/geoip.dat" "$geo_url"
-    geo_url="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
-    check_url_or_skip "$geo_url" "geosite.dat (Loyalsoldier)" && \
-        curl -4sfLRo "$target_bin_dir/geosite.dat" "$geo_url"
-    geo_url="https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat"
-    check_url_or_skip "$geo_url" "geoip_IR.dat (Iran rules)" && \
-        curl -4sfLRo "$target_bin_dir/geoip_IR.dat" "$geo_url"
-    geo_url="https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat"
-    check_url_or_skip "$geo_url" "geosite_IR.dat (Iran rules)" && \
-        curl -4sfLRo "$target_bin_dir/geosite_IR.dat" "$geo_url"
-    geo_url="https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"
-    check_url_or_skip "$geo_url" "geoip_RU.dat (Russia rules)" && \
-        curl -4sfLRo "$target_bin_dir/geoip_RU.dat" "$geo_url"
-    geo_url="https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"
-    check_url_or_skip "$geo_url" "geosite_RU.dat (Russia rules)" && \
-        curl -4sfLRo "$target_bin_dir/geosite_RU.dat" "$geo_url"
+    echo -e "${green}Checking geo data...${plain}"
+    fetch_geo_file "$target_bin_dir/geoip.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" \
+        "geoip.dat (Loyalsoldier)"
+    fetch_geo_file "$target_bin_dir/geosite.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" \
+        "geosite.dat (Loyalsoldier)"
+    fetch_geo_file "$target_bin_dir/geoip_IR.dat" \
+        "https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat" \
+        "geoip_IR.dat (Iran rules)"
+    fetch_geo_file "$target_bin_dir/geosite_IR.dat" \
+        "https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat" \
+        "geosite_IR.dat (Iran rules)"
+    fetch_geo_file "$target_bin_dir/geoip_RU.dat" \
+        "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat" \
+        "geoip_RU.dat (Russia rules)"
+    fetch_geo_file "$target_bin_dir/geosite_RU.dat" \
+        "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat" \
+        "geosite_RU.dat (Russia rules)"
     return 0
 }
 
@@ -2206,10 +2462,13 @@ install_x-ui() {
     else
         tag_version=$1
         tag_version_numeric=${tag_version#v}
-        min_version="2.3.5"
+        # This fork's own releases start at v1.0.0. The 2.3.5 floor inherited
+        # from upstream 3x-ui belongs to its numbering, not ours, and made
+        # installing any released version of 3AX-UI by tag impossible.
+        min_version="1.0.0"
 
         if [[ "$(printf '%s\n' "$min_version" "$tag_version_numeric" | sort -V | head -n1)" != "$min_version" ]]; then
-            echo -e "${red}Please use a newer version (at least v2.3.5). Exiting installation.${plain}"
+            echo -e "${red}Please use a newer version (at least v${min_version}). Exiting installation.${plain}"
             exit 1
         fi
 
@@ -2322,10 +2581,13 @@ check_existing_install() {
                 ;;
             *)
                 echo -e "${green}Switching to the update script...${plain}"
+                # Hand the arguments over. Without this --beta is dropped here
+                # and the update quietly installs the latest stable release
+                # instead of the pre-release that was asked for.
                 if is_local_source_install && [[ -f ./update.sh ]]; then
-                    bash ./update.sh
+                    bash ./update.sh "$@"
                 else
-                    bash <(curl -Ls "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH:-main}/update.sh")
+                    bash <(curl -Ls "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH:-main}/update.sh") "$@"
                 fi
                 exit $?
                 ;;
@@ -2334,11 +2596,12 @@ check_existing_install() {
 }
 
 echo -e "${green}Running...${plain}"
-check_existing_install
+check_existing_install "$@"
 prompt_debug_mode
 install_base
 install_amneziawg
 install_wireguard_native
+install_nginx
 install_x-ui $1
 
 # Secure Boot warning

@@ -603,6 +603,25 @@
                                                 </a-menu>
                                             </a-dropdown>
                                         </template>
+                                        <!-- An inbound behind the nginx front-end
+                                             listens on the loopback but is
+                                             published on 443. Showing only one
+                                             of the two numbers reads as a bug. -->
+                                        <template
+                                            slot="port"
+                                            slot-scope="text, dbInbound"
+                                        >
+                                            <a-tooltip
+                                                v-if="nginxPortLabel(dbInbound)"
+                                                :title="nginxPortHint(dbInbound)"
+                                            >
+                                                <a-tag color="blue"
+                                                    >[[ nginxPortLabel(dbInbound)
+                                                    ]]</a-tag
+                                                >
+                                            </a-tooltip>
+                                            <span v-else>[[ dbInbound.port ]]</span>
+                                        </template>
                                         <template
                                             slot="protocol"
                                             slot-scope="text, dbInbound"
@@ -1007,7 +1026,17 @@
                                                                 }}
                                                             </td>
                                                             <td>
-                                                                <a-tag
+                                                                <a-tooltip
+                                                                    v-if="nginxPortLabel(dbInbound)"
+                                                                    :title="nginxPortHint(dbInbound)"
+                                                                >
+                                                                    <a-tag color="blue"
+                                                                        >[[
+                                                                        nginxPortLabel(dbInbound)
+                                                                        ]]</a-tag
+                                                                    >
+                                                                </a-tooltip>
+                                                                <a-tag v-else
                                                                     >[[
                                                                     dbInbound.port
                                                                     ]]</a-tag
@@ -1430,8 +1459,8 @@
         {
             title: '{{ i18n "pages.inbounds.port" }}',
             align: "center",
-            dataIndex: "port",
             width: 40,
+            scopedSlots: { customRender: "port" },
         },
         {
             title: '{{ i18n "pages.inbounds.protocol" }}',
@@ -1698,7 +1727,13 @@
                 subJsonURI: "",
                 subJsonEnable: false,
             },
+            hiddifyCompat: false,
             remarkModel: "-ieo",
+            // Что фронтенд nginx делает с каждым инбаундом: колонка порта
+            // должна показывать доступность, а её из самого инбаунда не видно.
+            nginxMode: "off",
+            nginxPublicPort: 443,
+            nginxRoutes: {},
             datepicker: "gregorian",
             tgBotEnable: false,
             showAlert: false,
@@ -1730,6 +1765,7 @@
 
                 await this.getLastOnlineMap();
                 await this.getOnlineUsers();
+                await this.getNginxRoutes();
 
                 // Enrich amneziawg inbounds with AWG client data
                 await this.enrichAwgInbounds(msg.obj);
@@ -1744,6 +1780,42 @@
                 setTimeout(() => {
                     this.refreshing = false;
                 }, 500);
+            },
+            // The port column has to say where an inbound can actually be
+            // reached, and that depends on what the nginx front-end is doing
+            // with it — which the inbound row itself does not know.
+            async getNginxRoutes() {
+                const msg = await HttpUtil.get("/panel/api/nginx/status");
+                if (!msg.success || !msg.obj) return;
+                this.nginxMode = msg.obj.mode || "off";
+                this.nginxPublicPort = msg.obj.publicPort || 443;
+                const routes = {};
+                (msg.obj.routes || []).forEach((r) => {
+                    routes[r.inboundId] = r;
+                });
+                this.nginxRoutes = routes;
+            },
+            // nginxPortLabel returns "443 <-> 4343" for an inbound that kept
+            // its own port and can be reached either way, and "443 <- 8443"
+            // for one that gave the public port up and is now reachable only
+            // through nginx. Null when the front-end is off or does not route
+            // this inbound at all.
+            nginxPortLabel(dbInbound) {
+                if (this.nginxMode === "off") return null;
+                const route = this.nginxRoutes[dbInbound.id];
+                if (!route) return null;
+                const arrow = route.dual ? "↔" : "←";
+                return this.nginxPublicPort + " " + arrow + " " + route.port;
+            },
+            nginxPortHint(dbInbound) {
+                const route = this.nginxRoutes[dbInbound.id];
+                if (!route) return "";
+                const template = route.dual
+                    ? '{{ i18n "pages.inbounds.portBoth" }}'
+                    : '{{ i18n "pages.inbounds.portViaOnly" }}';
+                return template
+                    .replace("%s", this.nginxPublicPort)
+                    .replace("%s", route.port);
             },
             async enrichNativewgInbounds(inbounds) {
                 for (const inbound of inbounds) {
@@ -2033,6 +2105,8 @@
                     this.remarkModel = remarkModel;
                     this.datepicker = datepicker;
                     this.ipLimitEnable = ipLimitEnable;
+                    this.hiddifyCompat = hiddifyCompat !== undefined ? hiddifyCompat : false;
+                    window.hiddifyCompat = this.hiddifyCompat;
                 }
             },
             setInbounds(dbInbounds) {

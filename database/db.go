@@ -53,17 +53,11 @@ func initModels() error {
 		&model.TunnelServer{},
 		&model.TunnelClient{},
 		&model.CustomGeoResource{},
+		&model.StubSite{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {
-			// SQLite keeps index names in one namespace for the whole database,
-			// and gorm only looks for an index on the table it is migrating. If
-			// the name is taken elsewhere — a leftover from the table rebuild
-			// the driver performs when adding a column, or from a second x-ui
-			// process migrating at the same time — CreateIndex fails. Losing an
-			// index is a performance problem; failing InitDB takes the panel
-			// down, so this is logged and skipped rather than returned.
-			if strings.Contains(err.Error(), "already exists") {
+			if isAlreadyThere(err) {
 				xuilogger.Warningf("auto migration skipped an existing object: %v", err)
 				continue
 			}
@@ -72,6 +66,29 @@ func initModels() error {
 		}
 	}
 	return nil
+}
+
+// isAlreadyThere reports whether a migration error only means "somebody got
+// there first".
+//
+// SQLite keeps index names in one namespace for the whole database, and gorm
+// only looks for an index on the table it is migrating; if the name is taken
+// elsewhere CreateIndex fails. A column has the same problem from the other
+// direction: the driver rebuilds the table when adding one, and an ADD COLUMN
+// that arrives twice — from that rebuild, or from a second x-ui process
+// migrating at the same moment, which is exactly what the update script does
+// when it starts the service and runs `x-ui setting` together — is refused.
+//
+// SQLite words the two cases differently ("index ... already exists" versus
+// "duplicate column name"), and matching only the first is what let an upgrade
+// abort with "Database initialization failed". Losing an index is a
+// performance problem; failing InitDB takes the panel down.
+func isAlreadyThere(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists") || strings.Contains(msg, "duplicate column name")
 }
 
 // namedIndexes maps every index this schema declares by name to the table it
@@ -311,6 +328,11 @@ func InitDB(dbPath string) error {
 	// while also rebuilding awg_servers for the H1-H4 int→string type change.
 	preMigrateAwgWgColumns()
 
+	// Same treatment for the inbound column the nginx front-end writes: adding
+	// it here means AutoMigrate never has to, and cannot collide with another
+	// process doing it at the same time.
+	preMigrateInboundColumns()
+
 	dropStrayNamedIndexes(db)
 
 	if err := initModels(); err != nil {
@@ -352,7 +374,33 @@ func InitDB(dbPath string) error {
 	// upload/download accumulate (instead of holding the bounce-resettable kernel
 	// counter). Runs after runSeeders so it can't disturb its empty-table check.
 	migrateAwgWgPeerBaseline()
+
+	// A brand-new server starts with the nginx front-end switched on: it has no
+	// clients whose links could break, and the point of the feature is that the
+	// server looks like an ordinary website from the first day. An upgrade keeps
+	// whatever it has — the default in defaultValueMap is "off", and turning it
+	// on unasked could take every existing protocol down at once.
+	seedNginxMode(isUsersEmpty)
 	return nil
+}
+
+// seedNginxMode writes the front-end mode a fresh install starts on. It is a
+// no-op on an upgrade, and on any database where the key already exists.
+func seedNginxMode(isFreshInstall bool) {
+	if !isFreshInstall {
+		return
+	}
+	var count int64
+	if err := db.Model(&model.Setting{}).Where("key = ?", "nginxMode").Count(&count).Error; err != nil {
+		xuilogger.Warning("could not check the nginx mode setting:", err)
+		return
+	}
+	if count > 0 {
+		return
+	}
+	if err := db.Create(&model.Setting{Key: "nginxMode", Value: "shared"}).Error; err != nil {
+		xuilogger.Warning("could not seed the nginx mode setting:", err)
+	}
 }
 
 // migrateAwgWgPeerBaseline runs once after AWG/WG upload/download became lifetime
@@ -469,14 +517,7 @@ func columnExists(table, col string) bool {
 // fail with "duplicate column name". No-op on fresh installs (the tables don't
 // exist yet — AutoMigrate then creates them with the full schema).
 func preMigrateAwgWgColumns() {
-	add := func(table, col, ddl string) {
-		if !tableExists(table) || columnExists(table, col) {
-			return
-		}
-		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, ddl)).Error; err != nil {
-			log.Printf("preMigrateAwgWgColumns: add %s.%s failed: %v", table, col, err)
-		}
-	}
+	add := addColumn
 	for _, t := range []string{"awg_servers", "wg_servers"} {
 		add(t, "dns_ipv4", "text DEFAULT '1.1.1.1'")
 		add(t, "dns_ipv6", "text DEFAULT '2606:4700:4700::1111'")
@@ -485,6 +526,24 @@ func preMigrateAwgWgColumns() {
 	add("awg_servers", "s3", "integer DEFAULT 0")
 	add("awg_servers", "s4", "integer DEFAULT 0")
 	add("awg_servers", "i1", "text DEFAULT ''")
+}
+
+// preMigrateInboundColumns adds the columns the panel put on inbounds after the
+// table was first created.
+func preMigrateInboundColumns() {
+	addColumn("inbounds", "public_port", "integer DEFAULT 0")
+}
+
+// addColumn adds a column when the table exists and the column does not. A
+// failure is logged rather than returned: AutoMigrate will try again, and the
+// point of doing it here is only to keep it from having to.
+func addColumn(table, col, ddl string) {
+	if !tableExists(table) || columnExists(table, col) {
+		return
+	}
+	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, ddl)).Error; err != nil {
+		log.Printf("pre-migration: add %s.%s failed: %v", table, col, err)
+	}
 }
 
 // splitDnsByFamily splits a comma-separated DNS list into IPv4 and IPv6 groups
