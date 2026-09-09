@@ -105,7 +105,7 @@ func (a *InboundController) getInbounds(c *gin.Context) {
 func (a *InboundController) getInbound(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		jsonMsg(c, I18nWeb(c, "get"), err)
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
 	inbound, err := a.inboundService.GetInbound(id)

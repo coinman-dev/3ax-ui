@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"io/fs"
 	"maps"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -57,17 +58,9 @@ var i18nCall = regexp.MustCompile(`i18n\s+"([^"]+)"`)
 // a key missing there is a hole with nothing behind it, while a key missing from
 // a translation is merely untranslated.
 func TestTemplateTranslationKeysExist(t *testing.T) {
-	var bundle map[string]any
-	raw, err := i18nFS.ReadFile("translation/translate.en_US.toml")
-	if err != nil {
-		t.Fatalf("read the en_US bundle: %v", err)
-	}
-	if err := toml.Unmarshal(raw, &bundle); err != nil {
-		t.Fatalf("parse the en_US bundle: %v", err)
-	}
-	known := flattenKeys(bundle, "")
+	known := englishKeys(t)
 
-	err = fs.WalkDir(htmlFS, "html", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(htmlFS, "html", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".html") {
 			return err
 		}
@@ -87,6 +80,65 @@ func TestTemplateTranslationKeysExist(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walk the template tree: %v", err)
+	}
+}
+
+// englishKeys is every key the bundle every other language falls back to has.
+func englishKeys(t *testing.T) map[string]bool {
+	t.Helper()
+	var bundle map[string]any
+	raw, err := i18nFS.ReadFile("translation/translate.en_US.toml")
+	if err != nil {
+		t.Fatalf("read the en_US bundle: %v", err)
+	}
+	if err := toml.Unmarshal(raw, &bundle); err != nil {
+		t.Fatalf("parse the en_US bundle: %v", err)
+	}
+	return flattenKeys(bundle, "")
+}
+
+// i18nGoCall matches I18nWeb(c, "some.key") and I18nBot("some.key"). Only keys
+// written out in full: one glued together from pieces cannot be checked here.
+var i18nGoCall = regexp.MustCompile(`I18n(?:Web|Bot)\(\s*(?:c,\s*)?"([^"]+)"\s*[,)]`)
+
+// TestGoTranslationKeysExist is the same net as the one over the templates,
+// held under the other half of the panel. A missing key is worse here: a
+// template renders the key itself, which at least looks wrong, while I18nWeb
+// and I18nBot hand back an empty string. The toast arrives blank and the bot
+// sends a bare error with nothing in front of it, and a running panel says
+// nothing about why.
+func TestGoTranslationKeysExist(t *testing.T) {
+	known := englishKeys(t)
+	root := os.DirFS("..")
+
+	err := fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "assets", "bin":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		// A test may name a key that is deliberately not there.
+		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+			return nil
+		}
+		body, err := fs.ReadFile(root, p)
+		if err != nil {
+			return err
+		}
+		for _, match := range i18nGoCall.FindAllStringSubmatch(string(body), -1) {
+			if !known[match[1]] {
+				t.Errorf("%s asks for the translation key %q, which is not in translate.en_US.toml", p, match[1])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the source tree: %v", err)
 	}
 }
 
