@@ -537,11 +537,18 @@ func preMigrateInboundColumns() {
 // addColumn adds a column when the table exists and the column does not. A
 // failure is logged rather than returned: AutoMigrate will try again, and the
 // point of doing it here is only to keep it from having to.
+//
+// The check and the statement are not one step, and during an upgrade they do
+// not have the database to themselves: the update script starts the panel and
+// then runs `x-ui setting -show`, so two processes look at a column neither has
+// yet and both go to add it. SQLite tells the loser the column is already
+// there — which is the outcome that was wanted — and saying so on the console
+// reads as a failed upgrade to whoever is watching the installer scroll past.
 func addColumn(table, col, ddl string) {
 	if !tableExists(table) || columnExists(table, col) {
 		return
 	}
-	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, ddl)).Error; err != nil {
+	if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col, ddl)).Error; err != nil && !isAlreadyThere(err) {
 		log.Printf("pre-migration: add %s.%s failed: %v", table, col, err)
 	}
 }

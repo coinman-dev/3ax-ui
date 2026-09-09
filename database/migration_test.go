@@ -1,7 +1,10 @@
 package database
 
 import (
+	"bytes"
 	"errors"
+	"log"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -61,5 +64,43 @@ func TestUpgradeAddsPublicPortColumn(t *testing.T) {
 	}
 	if !columnExists("inbounds", "public_port") {
 		t.Error("public_port is missing after the upgrade")
+	}
+}
+
+// TestAddColumnIsQuietWhenTheColumnArrivedFirst: during an upgrade the panel
+// and the installer have the database open together — the update script starts
+// the service and then runs `x-ui setting -show` — so both can look at a column
+// neither has yet and both go to add it. SQLite tells the loser the column is
+// already there, which is the outcome that was wanted; printed on the console
+// in the middle of the installer's output, it reads as a failed upgrade.
+//
+// The race itself needs two processes. The branch it lands in does not: SQLite
+// compares column names case-insensitively while pragma_table_info compares
+// them case-sensitively, so asking for a column that is already there under
+// another case takes exactly the same path — the check says it is missing, the
+// statement says it is already there.
+func TestAddColumnIsQuietWhenTheColumnArrivedFirst(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x-ui.db")
+	if err := InitDB(path); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if !columnExists("inbounds", "public_port") {
+		t.Fatal("the column this test races for is not there to begin with")
+	}
+
+	var said bytes.Buffer
+	log.SetOutput(&said)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	addColumn("inbounds", "PUBLIC_PORT", "integer DEFAULT 0")
+	if said.Len() > 0 {
+		t.Errorf("a column another process had already added was reported as a failure: %s", said.String())
+	}
+
+	// Anything that is not that must still be heard.
+	said.Reset()
+	addColumn("inbounds", "unbuildable", "integer DEFAULT")
+	if said.Len() == 0 {
+		t.Error("a column that genuinely could not be added went by in silence")
 	}
 }
