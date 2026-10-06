@@ -1,11 +1,15 @@
+# Manual recovery only. Normal cache eviction and artifact retention are handled by GitHub.
 name: Cleanup Caches
 on:
-  schedule:
-    - cron: '0 3 * * *'   # every day at 03:00 UTC
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   cleanup:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       actions: write
