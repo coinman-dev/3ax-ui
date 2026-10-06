@@ -5,10 +5,12 @@ on:
     push:
         tags:
             - "v*"
-    pull_request:
-
 env:
     FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
     analyze:
@@ -25,7 +27,7 @@ jobs:
               uses: actions/setup-go@v6
               with:
                   go-version-file: go.mod
-                  cache: false
+                  cache: true
 
             - name: Check formatting
               run: |
@@ -46,6 +48,7 @@ jobs:
               run: go test -race -shuffle=on ./...
 
     build:
+        timeout-minutes: 90
         needs: analyze
         if: startsWith(github.ref, 'refs/tags/')
         permissions:
@@ -241,6 +244,7 @@ jobs:
     #  Windows Build
     # =================================
     build-windows:
+        timeout-minutes: 90
         name: Build for Windows
         needs: analyze
         if: startsWith(github.ref, 'refs/tags/')

@@ -10,8 +10,13 @@ on:
         tags:
             - "v*.*.*"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
     build:
+        timeout-minutes: 90
         runs-on: ubuntu-latest
 
         steps:
@@ -47,6 +52,8 @@ jobs:
               with:
                   context: .
                   push: true
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
                   platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/arm/v6,linux/386
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
