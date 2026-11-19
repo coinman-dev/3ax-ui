@@ -122,7 +122,6 @@
     "outbounds": "Вихідні",
     "apiDocs": "Документація API",
     "donate": "Підтримати",
-    "sponsors": "Спонсори",
     "hosts": "Хости",
     "docs": "Документація",
     "openMenu": "Відкрити меню",
@@ -160,7 +159,7 @@
       "xrayUpdates": "Оновлення Xray",
       "xraySwitchClickDesk": "Вибирайте уважно, оскільки старіші версії можуть бути несумісними з поточними конфігураціями.",
       "updatePanel": "Оновити панель",
-      "panelUpdateDesc": "Це оновить 3X-UI до останнього релізу та перезапустить сервіс панелі.",
+      "panelUpdateDesc": "Це оновить 3AX-UI до останнього релізу та перезапустить сервіс панелі.",
       "currentPanelVersion": "Поточна версія панелі",
       "latestPanelVersion": "Остання версія панелі",
       "panelUpToDate": "Панель оновлено",
@@ -224,7 +223,7 @@
       "xraySwitchVersionDialogDesc": "Це змінить версію Xray на #version#.",
       "xraySwitchVersionPopover": "Xray успішно оновлено",
       "panelUpdateDialog": "Ви дійсно хочете оновити панель?",
-      "panelUpdateDialogDesc": "Це оновить 3X-UI до #version# та перезапустить сервіс панелі.",
+      "panelUpdateDialogDesc": "Це оновить 3AX-UI до #version# та перезапустить сервіс панелі.",
       "panelUpdateStartedPopover": "Розпочато оновлення панелі",
       "panelUpdateFailedTitle": "Не вдалося оновити панель",
       "panelUpdateFailedDesc": "Оновлення не завершилося успішно. Перевірте журнали сервера або виконайте 'x-ui update' у командному рядку.",
@@ -2513,15 +2512,6 @@
         "badVlessRoute": "Введіть одне число від 0 до 65535"
       },
       "dragToReorder": "Перетягніть, щоб змінити порядок {name}"
-    },
-    "sponsors": {
-      "title": "Спонсори",
-      "intro": "Компанії, що підтримують розробку 3X-UI. Спонсорські посилання відкриваються в новій вкладці.",
-      "become": "Стати спонсором",
-      "tag": "Спонсор",
-      "visit": "Перейти",
-      "yourBrand": "Тут може бути ваш бренд",
-      "yourBrandText": "Покажіть свою компанію тисячам адміністраторів серверів, які щодня відкривають 3X-UI."
     }
   },
   "tgbot": {
@@ -2565,7 +2555,7 @@
       "report": "🕰 Заплановані звіти: {{ .RunTime }}\r\n",
       "datetime": "⏰ Дата й час: {{ .DateTime }}\r\n",
       "hostname": "💻 Хост: {{ .Hostname }}\r\n",
-      "version": "🚀 3X-UI Версія: {{ .Version }}\r\n",
+      "version": "🚀 3AX-UI Версія: {{ .Version }}\r\n",
       "xrayVersion": "📡 Xray Версія: {{ .XrayVersion }}\r\n",
       "ipv6": "🌐 IPv6: {{ .IPv6 }}\r\n",
       "ipv4": "🌐 IPv4: {{ .IPv4 }}\r\n",
@@ -2772,10 +2762,10 @@
   },
   "discord": {
     "test": {
-      "title": "Тестове сповіщення Discord від 3x-ui",
+      "title": "Тестове сповіщення Discord від 3AX-UI",
       "body": "Це тестове сповіщення підтверджує, що сповіщення Discord налаштовано правильно."
     },
-    "footer": "Панель 3x-ui",
+    "footer": "Панель 3AX-UI",
     "fields": {
       "panelVersion": "Версія панелі",
       "xrayCore": "Ядро Xray",
@@ -2810,13 +2800,13 @@
       "loginFailed": "Невдалий вхід"
     },
     "report": {
-      "title": "📊 Звіт про стан 3x-ui",
+      "title": "📊 Звіт про стан 3AX-UI",
       "summary": "Періодичний звіт про стан сервера та проксі для **{{ .Host }}**",
-      "footer": "Плановий звіт 3x-ui • Розклад: {{ .RunTime }}"
+      "footer": "Плановий звіт 3AX-UI • Розклад: {{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 Команди Discord-бота 3x-ui",
-      "helpDescription": "Доступні команди для моніторингу та керування сервером 3x-ui:",
+      "helpTitle": "🤖 Команди Discord-бота 3AX-UI",
+      "helpDescription": "Доступні команди для моніторингу та керування сервером 3AX-UI:",
       "helpStatus": "Показати навантаження системи, RAM, CPU, з'єднання та користувачів онлайн",
       "helpReport": "Сформувати повний звіт про стан (з резервною копією БД, якщо увімкнено)",
       "helpBackup": "Негайно надіслати файл резервної копії бази даних",
@@ -2824,10 +2814,10 @@
       "helpInbounds": "Список усіх налаштованих вхідних підключень із портами та статистикою клієнтів",
       "helpRestart": "Перезапустити ядро Xray",
       "helpHelp": "Показати цей список команд",
-      "statusTitle": "⚡ Стан сервера 3x-ui",
+      "statusTitle": "⚡ Стан сервера 3AX-UI",
       "statusDescription": "Поточні робочі показники **{{ .Host }}**",
       "backupTitle": "🗄️ Резервна копія бази даних",
-      "backupDescription": "Резервну копію 3x-ui створено `{{ .Time }}`",
+      "backupDescription": "Резервну копію 3AX-UI створено `{{ .Time }}`",
       "backupUnavailable": "❌ Служба резервного копіювання недоступна",
       "backupFailed": "❌ Не вдалося прочитати резервну копію бази даних: {{ .Error }}",
       "usageHint": "⚠️ Використання: `!usage <email>` або `/usage <email>`",

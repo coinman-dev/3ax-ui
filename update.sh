@@ -508,7 +508,7 @@ require_repo_files() {
     shift
     [[ "${ref}" == "main" ]] && return 0
     for name in "$@"; do
-        status=$(${curl_bin} -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/MHSanaei/3x-ui/${ref}/${name}")
+        status=$(${curl_bin} -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${ref}/${name}")
         if [[ "${status}" != "200" ]]; then
             _fail "ERROR: ${name} is not available for ${ref} (HTTP ${status}). Update to a release that ships it, or to 'dev-latest'. The current installation is untouched."
         fi
@@ -535,7 +535,7 @@ update_x-ui() {
         tag_version="${XUI_UPDATE_TAG}"
         echo -e "${green}Using update tag: ${tag_version}${plain}"
     else
-        tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/coinman-dev/3ax-ui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$tag_version" ]]; then
             _fail "ERROR: Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later"
         fi
@@ -550,7 +550,7 @@ update_x-ui() {
     # The unit files are only fetched when the release tarball lacks them, so
     # they are checked at that point instead of here.
     [[ $release == "alpine" ]] && require_repo_files "${script_ref}" "x-ui.rc"
-    ${curl_bin} -fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
+    ${curl_bin} -fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
     if [[ $? -ne 0 ]]; then
         _fail "ERROR: Failed to download x-ui, please be sure that your server can access GitHub"
     fi
@@ -563,7 +563,7 @@ update_x-ui() {
     # predating the sidecar) is tolerated with a warning.
     archive="${xui_folder}-linux-$(arch).tar.gz"
     rm -f "${archive}.sha256"
-    sidecar_code=$(${curl_bin} -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${archive}.sha256" -w '%{http_code}' "https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz.sha256" 2> /dev/null)
+    sidecar_code=$(${curl_bin} -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${archive}.sha256" -w '%{http_code}' "https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz.sha256" 2> /dev/null)
     if [[ "${sidecar_code}" == "200" ]]; then
         expected_sha256=$(awk 'NR == 1 {print $1}' "${archive}.sha256")
         actual_sha256=$(sha256sum "${archive}" | awk '{print $1}')
@@ -587,7 +587,7 @@ update_x-ui() {
         echo -e "${green}Downloading startup unit x-ui.rc...${plain}"
         xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
         rm -f "${xui_rc_temp}"
-        ${curl_bin} -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.rc" > /dev/null 2>&1
+        ${curl_bin} -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.rc" > /dev/null 2>&1
         if [[ $? -ne 0 ]]; then
             rm -f "${xui_rc_temp}" "${archive}"
             _fail "ERROR: Failed to download startup unit x-ui.rc, please be sure that your server can access GitHub"
@@ -759,13 +759,13 @@ update_x-ui() {
                 echo -e "${yellow}Service files not found in tar.gz, downloading from GitHub...${plain}"
                 case "${release}" in
                     ubuntu | debian | armbian)
-                        service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.debian"
+                        service_unit_url="https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.service.debian"
                         ;;
                     arch | manjaro | parch)
-                        service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.arch"
+                        service_unit_url="https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.service.arch"
                         ;;
                     *)
-                        service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.rhel"
+                        service_unit_url="https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.service.rhel"
                         ;;
                 esac
 

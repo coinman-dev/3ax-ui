@@ -122,7 +122,6 @@
     "outbounds": "アウトバウンド",
     "apiDocs": "API ドキュメント",
     "donate": "寄付",
-    "sponsors": "スポンサー",
     "hosts": "ホスト",
     "docs": "ドキュメント",
     "openMenu": "メニューを開く",
@@ -2513,15 +2512,6 @@
         "badVlessRoute": "0〜65535 の単一の数値を入力してください"
       },
       "dragToReorder": "ドラッグして {name} を並べ替え"
-    },
-    "sponsors": {
-      "title": "スポンサー",
-      "intro": "3X-UI の開発を支援している企業です。スポンサーリンクは新しいタブで開きます。",
-      "become": "スポンサーになる",
-      "tag": "スポンサー",
-      "visit": "訪問",
-      "yourBrand": "ここにあなたのブランドを",
-      "yourBrandText": "毎日 3X-UI を開く何千人ものサーバー管理者に御社をアピールできます。"
     }
   },
   "tgbot": {
@@ -2772,10 +2762,10 @@
   },
   "discord": {
     "test": {
-      "title": "3x-ui Discord通知テスト",
+      "title": "3AX-UI Discord通知テスト",
       "body": "これはDiscord通知が正しく設定されていることを確認するためのテスト通知です。"
     },
-    "footer": "3x-ui パネル",
+    "footer": "3AX-UI パネル",
     "fields": {
       "panelVersion": "パネルバージョン",
       "xrayCore": "Xray コア",
@@ -2810,13 +2800,13 @@
       "loginFailed": "ログイン失敗"
     },
     "report": {
-      "title": "📊 3x-ui ステータスレポート",
+      "title": "📊 3AX-UI ステータスレポート",
       "summary": "**{{ .Host }}** のサーバーとプロキシの定期ステータスレポート",
-      "footer": "3x-ui 定期レポート • スケジュール: {{ .RunTime }}"
+      "footer": "3AX-UI 定期レポート • スケジュール: {{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 3x-ui Discord Bot コマンド",
-      "helpDescription": "3x-ui サーバーの監視と管理に使えるコマンド:",
+      "helpTitle": "🤖 3AX-UI Discord Bot コマンド",
+      "helpDescription": "3AX-UI サーバーの監視と管理に使えるコマンド:",
       "helpStatus": "システム負荷、RAM、CPU、接続数、オンラインユーザーを表示",
       "helpReport": "完全なステータスレポートを生成（設定されていればDBバックアップ付き）",
       "helpBackup": "データベースのバックアップファイルを今すぐ送信",
@@ -2824,10 +2814,10 @@
       "helpInbounds": "設定済みのすべてのインバウンドをポートとクライアント統計付きで一覧表示",
       "helpRestart": "Xray コアを再起動",
       "helpHelp": "このコマンド一覧を表示",
-      "statusTitle": "⚡ 3x-ui サーバーステータス",
+      "statusTitle": "⚡ 3AX-UI サーバーステータス",
       "statusDescription": "**{{ .Host }}** の現在の稼働メトリクス",
       "backupTitle": "🗄️ データベースバックアップ",
-      "backupDescription": "`{{ .Time }}` に生成された 3x-ui のバックアップ",
+      "backupDescription": "`{{ .Time }}` に生成された 3AX-UI のバックアップ",
       "backupUnavailable": "❌ バックアップサービスを利用できません",
       "backupFailed": "❌ データベースのバックアップを読み込めませんでした: {{ .Error }}",
       "usageHint": "⚠️ 使い方: `!usage <email>` または `/usage <email>`",

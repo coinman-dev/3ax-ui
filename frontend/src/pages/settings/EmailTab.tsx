@@ -151,7 +151,7 @@ export default function EmailTab({ allSetting, updateSetting }: EmailTabProps) {
               >
                 <Input
                   value={allSetting.smtpFromName}
-                  placeholder="3x-ui"
+                  placeholder="3AX-UI"
                   onChange={(e) => updateSetting({ smtpFromName: e.target.value })}
                 />
               </SettingListItem>

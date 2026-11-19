@@ -74,7 +74,7 @@ body:
   - type: input
     id: xui-version
     attributes:
-      label: 3x-ui version
+      label: 3AX-UI version
       description: Shown at the top of the panel sidebar.
       placeholder: 3.1.0
     validations:
@@ -92,7 +92,7 @@ body:
   - type: dropdown
     id: install-method
     attributes:
-      label: How did you install 3x-ui?
+      label: How did you install 3AX-UI?
       options:
         - install.sh script
         - Docker / Docker Compose
@@ -159,7 +159,7 @@ body:
       options:
         - label: I searched [existing issues](../issues?q=is%3Aissue) and this bug has not been reported.
           required: true
-        - label: I am running the latest released version of 3x-ui (or have verified the bug still exists on it).
+        - label: I am running the latest released version of 3AX-UI (or have verified the bug still exists on it).
           required: true
         - label: This bug report is written in English.
           required: true

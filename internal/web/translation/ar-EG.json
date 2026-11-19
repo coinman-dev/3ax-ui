@@ -122,7 +122,6 @@
     "outbounds": "الصادرات",
     "apiDocs": "توثيق API",
     "donate": "تبرع",
-    "sponsors": "الرعاة",
     "hosts": "المضيفات",
     "docs": "التوثيق",
     "openMenu": "فتح القائمة",
@@ -160,7 +159,7 @@
       "xrayUpdates": "تحديثات Xray",
       "xraySwitchClickDesk": "اختار بحذر، النسخ القديمة ممكن ما تتوافقش مع الإعدادات الحالية.",
       "updatePanel": "تحديث البانل",
-      "panelUpdateDesc": "ده هيحدث 3X-UI لآخر إصدار وهيعيد تشغيل خدمة البانل.",
+      "panelUpdateDesc": "ده هيحدث 3AX-UI لآخر إصدار وهيعيد تشغيل خدمة البانل.",
       "currentPanelVersion": "إصدار البانل الحالي",
       "latestPanelVersion": "أحدث إصدار للبانل",
       "panelUpToDate": "البانل محدث لآخر إصدار",
@@ -224,7 +223,7 @@
       "xraySwitchVersionDialogDesc": "سيؤدي هذا إلى تغيير إصدار Xray إلى #version#.",
       "xraySwitchVersionPopover": "تم تحديث Xray بنجاح",
       "panelUpdateDialog": "هل فعلاً عايز تحدث البانل؟",
-      "panelUpdateDialogDesc": "ده هيحدث 3X-UI للإصدار #version# وهيعيد تشغيل البانل.",
+      "panelUpdateDialogDesc": "ده هيحدث 3AX-UI للإصدار #version# وهيعيد تشغيل البانل.",
       "panelUpdateStartedPopover": "بدأ تحديث البانل",
       "panelUpdateFailedTitle": "فشل تحديث البانل",
       "panelUpdateFailedDesc": "لم يكتمل التحديث بنجاح. تحقق من سجلات الخادم، أو نفّذ الأمر «x-ui update» من سطر الأوامر.",
@@ -2513,15 +2512,6 @@
         "badVlessRoute": "أدخل رقماً واحداً بين 0 و65535"
       },
       "dragToReorder": "اسحب لتغيير ترتيب {name}"
-    },
-    "sponsors": {
-      "title": "الرعاة",
-      "intro": "شركات تدعم تطوير 3X-UI. تُفتح روابط الرعاة في علامة تبويب جديدة.",
-      "become": "كن راعيًا",
-      "tag": "راعٍ",
-      "visit": "زيارة",
-      "yourBrand": "علامتك التجارية هنا",
-      "yourBrandText": "ضع شركتك أمام آلاف مسؤولي الخوادم الذين يفتحون 3X-UI كل يوم."
     }
   },
   "tgbot": {
@@ -2565,7 +2555,7 @@
       "report": "🕰 التقارير المجدولة: {{ .RunTime }}\r\n",
       "datetime": "⏰ التاريخ والوقت: {{ .DateTime }}\r\n",
       "hostname": "💻 المضيف: {{ .Hostname }}\r\n",
-      "version": "🚀 نسخة 3X-UI: {{ .Version }}\r\n",
+      "version": "🚀 نسخة 3AX-UI: {{ .Version }}\r\n",
       "xrayVersion": "📡 نسخة Xray: {{ .XrayVersion }}\r\n",
       "ipv6": "🌐 IPv6: {{ .IPv6 }}\r\n",
       "ipv4": "🌐 IPv4: {{ .IPv4 }}\r\n",
@@ -2772,10 +2762,10 @@
   },
   "discord": {
     "test": {
-      "title": "اختبار إشعارات Discord في 3x-ui",
+      "title": "اختبار إشعارات Discord في 3AX-UI",
       "body": "هذا إشعار تجريبي يؤكد أن إشعارات Discord مُعدّة بشكل صحيح."
     },
-    "footer": "لوحة 3x-ui",
+    "footer": "لوحة 3AX-UI",
     "fields": {
       "panelVersion": "إصدار اللوحة",
       "xrayCore": "نواة Xray",
@@ -2810,13 +2800,13 @@
       "loginFailed": "فشل تسجيل الدخول"
     },
     "report": {
-      "title": "📊 تقرير حالة 3x-ui",
+      "title": "📊 تقرير حالة 3AX-UI",
       "summary": "تقرير دوري عن حالة الخادم والوكيل لـ **{{ .Host }}**",
-      "footer": "تقرير 3x-ui المجدول • الجدول: {{ .RunTime }}"
+      "footer": "تقرير 3AX-UI المجدول • الجدول: {{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 أوامر بوت Discord في 3x-ui",
-      "helpDescription": "الأوامر المتاحة لمراقبة خادم 3x-ui وإدارته:",
+      "helpTitle": "🤖 أوامر بوت Discord في 3AX-UI",
+      "helpDescription": "الأوامر المتاحة لمراقبة خادم 3AX-UI وإدارته:",
       "helpStatus": "عرض حمل النظام والذاكرة والمعالج والاتصالات والمستخدمين المتصلين",
       "helpReport": "إنشاء تقرير حالة كامل (مع نسخة احتياطية لقاعدة البيانات إن كانت مفعّلة)",
       "helpBackup": "إرسال ملف النسخة الاحتياطية لقاعدة البيانات فورًا",
@@ -2824,10 +2814,10 @@
       "helpInbounds": "عرض كل الواردات المُعدّة مع المنافذ وإحصاءات العملاء",
       "helpRestart": "إعادة تشغيل نواة Xray",
       "helpHelp": "عرض قائمة الأوامر المتاحة هذه",
-      "statusTitle": "⚡ حالة خادم 3x-ui",
+      "statusTitle": "⚡ حالة خادم 3AX-UI",
       "statusDescription": "مقاييس التشغيل الحالية لـ **{{ .Host }}**",
       "backupTitle": "🗄️ نسخة احتياطية لقاعدة البيانات",
-      "backupDescription": "أرشيف النسخة الاحتياطية لـ 3x-ui أُنشئ في `{{ .Time }}`",
+      "backupDescription": "أرشيف النسخة الاحتياطية لـ 3AX-UI أُنشئ في `{{ .Time }}`",
       "backupUnavailable": "❌ خدمة النسخ الاحتياطي غير متاحة",
       "backupFailed": "❌ تعذّرت قراءة النسخة الاحتياطية لقاعدة البيانات: {{ .Error }}",
       "usageHint": "⚠️ الاستخدام: `!usage <email>` أو `/usage <email>`",

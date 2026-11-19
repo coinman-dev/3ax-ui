@@ -83,7 +83,6 @@ export const PALETTE_KEYWORDS: Record<string, string[]> = {
   '/settings': ['settings', 'config', 'port', 'password', 'ssl', 'telegram'],
   '/xray': ['xray', 'templates', 'balancer', 'dns'],
   '/api-docs': ['api', 'api docs', 'swagger', 'rest api', 'endpoints'],
-  '/sponsors': ['sponsors', 'sponsor', 'partners'],
 };
 
 export default function CommandPalette() {
@@ -757,7 +756,7 @@ export default function CommandPalette() {
                 {t('close')}
               </span>
             </div>
-            <span>3x-ui Command Palette</span>
+            <span>3AX-UI Command Palette</span>
           </div>
         </div>
       </div>

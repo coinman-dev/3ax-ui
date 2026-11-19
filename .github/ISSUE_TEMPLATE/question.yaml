@@ -1,5 +1,5 @@
 name: Question
-description: Ask how to do something with 3x-ui
+description: Ask how to do something with 3AX-UI
 title: "[Question]: "
 labels: ["question"]
 
@@ -9,7 +9,7 @@ body:
       value: |
         Before opening a question, please:
 
-        - Read the [project Wiki](https://github.com/MHSanaei/3x-ui/wiki) —
+        - Read the [README](https://github.com/coinman-dev/3ax-ui#readme) —
           most setup, install, and "how do I …" answers live there.
         - Search [existing issues](../issues?q=is%3Aissue) — the question
           may already have been asked.
@@ -33,9 +33,9 @@ body:
     id: tried
     attributes:
       label: What have you already tried?
-      description: Pages of the Wiki you read, settings you toggled, commands you ran.
+      description: Sections of the README you read, settings you toggled, commands you ran.
       placeholder: |
-        - Read the `Reverse Proxy` page of the Wiki
+        - Read the `Nginx camouflage` section of the README
         - Tried setting `xrayBasePath` to `/proxy` — got 404
     validations:
       required: false
@@ -43,7 +43,7 @@ body:
   - type: input
     id: xui-version
     attributes:
-      label: 3x-ui version
+      label: 3AX-UI version
       description: Shown at the top of the panel sidebar.
       placeholder: 3.1.0
     validations:
@@ -52,7 +52,7 @@ body:
   - type: dropdown
     id: install-method
     attributes:
-      label: How did you install 3x-ui?
+      label: How did you install 3AX-UI?
       options:
         - install.sh script
         - Docker / Docker Compose
@@ -85,7 +85,7 @@ body:
     attributes:
       label: Before submitting
       options:
-        - label: I read the [Wiki](https://github.com/MHSanaei/3x-ui/wiki) and searched [existing issues](../issues?q=is%3Aissue).
+        - label: I read the [README](https://github.com/coinman-dev/3ax-ui#readme) and searched [existing issues](../issues?q=is%3Aissue).
           required: true
         - label: This is a usage question, not a bug report.
           required: true

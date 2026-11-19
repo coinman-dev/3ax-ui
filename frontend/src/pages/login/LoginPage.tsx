@@ -26,7 +26,6 @@ import { FormProvider, useForm } from 'react-hook-form';
 import { HttpUtil, LanguageManager } from '@/utils';
 import { FormField, rhfZodValidate } from '@/components/form/rhf';
 import { setMessageInstance } from '@/utils/messageBus';
-import SponsorSlot from '@/components/sponsor/SponsorSlot';
 import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
 import { LoginFormSchema, TwoFactorCodeSchema, type LoginFormValues } from '@/schemas/login';
 import './LoginPage.css';
@@ -186,7 +185,7 @@ export default function LoginPage() {
             ) : (
               <div className="login-card">
                 <div className="brand">
-                  <span className="brand-name">3X-UI</span>
+                  <span className="brand-name">3AX-UI</span>
                   <span className="brand-accent" aria-hidden="true" />
                 </div>
                 <h2 className="welcome">
@@ -254,7 +253,6 @@ export default function LoginPage() {
                     </Form.Item>
                   </Form>
                 </FormProvider>
-                <SponsorSlot slot="login" variant="compact" className="login-sponsor" />
               </div>
             )}
           </div>

@@ -153,7 +153,7 @@ func (s *Subscriber) FormatEmbed(e eventbus.Event) (Embed, bool) {
 	}
 
 	footer := &EmbedFooter{
-		Text: truncateUnits("3x-ui • "+h, 2048),
+		Text: truncateUnits("3AX-UI • "+h, 2048),
 	}
 	tr := translator(s.settingService)
 

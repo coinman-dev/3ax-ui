@@ -122,7 +122,6 @@
     "outbounds": "Giden Bağlantılar",
     "apiDocs": "API Belgeleri",
     "donate": "Bağış Yap",
-    "sponsors": "Sponsorlar",
     "hosts": "Host'lar",
     "docs": "Belgeler",
     "openMenu": "Menüyü aç",
@@ -160,7 +159,7 @@
       "xrayUpdates": "Xray Güncellemeleri",
       "xraySwitchClickDesk": "Dikkatli seçin, eski sürümler mevcut yapılandırmalarla uyumlu olmayabilir.",
       "updatePanel": "Paneli Güncelle",
-      "panelUpdateDesc": "Bu işlem 3X-UI'yi en son sürüme güncelleyecek ve panel servisini yeniden başlatacaktır.",
+      "panelUpdateDesc": "Bu işlem 3AX-UI'yi en son sürüme güncelleyecek ve panel servisini yeniden başlatacaktır.",
       "currentPanelVersion": "Mevcut panel sürümü",
       "latestPanelVersion": "Panelin en son sürümü",
       "panelUpToDate": "Panel güncel",
@@ -224,7 +223,7 @@
       "xraySwitchVersionDialogDesc": "Bu işlem Xray sürümünü #version# olarak değiştirecektir.",
       "xraySwitchVersionPopover": "Xray başarıyla güncellendi",
       "panelUpdateDialog": "Gerçekten paneli güncellemek istiyor musunuz?",
-      "panelUpdateDialogDesc": "Bu işlem 3X-UI'yi #version# sürümüne güncelleyecek ve panel servisini yeniden başlatacaktır.",
+      "panelUpdateDialogDesc": "Bu işlem 3AX-UI'yi #version# sürümüne güncelleyecek ve panel servisini yeniden başlatacaktır.",
       "panelUpdateStartedPopover": "Panel güncellemesi başlatıldı",
       "panelUpdateFailedTitle": "Panel güncellemesi başarısız oldu",
       "panelUpdateFailedDesc": "Güncelleme başarıyla tamamlanamadı. Sunucu günlüklerini kontrol edin veya komut satırından 'x-ui update' çalıştırın.",
@@ -2513,15 +2512,6 @@
         "badVlessRoute": "0 ile 65535 arasında tek bir sayı girin"
       },
       "dragToReorder": "{name} öğesini yeniden sıralamak için sürükleyin"
-    },
-    "sponsors": {
-      "title": "Sponsorlar",
-      "intro": "3X-UI geliştirmesini destekleyen şirketler. Sponsor bağlantıları yeni sekmede açılır.",
-      "become": "Sponsor ol",
-      "tag": "Sponsor",
-      "visit": "Ziyaret et",
-      "yourBrand": "Markanız burada",
-      "yourBrandText": "Şirketinizi her gün 3X-UI açan binlerce sunucu yöneticisinin önüne çıkarın."
     }
   },
   "tgbot": {
@@ -2565,7 +2555,7 @@
       "report": "🕰 Planlanmış Raporlar: {{ .RunTime }}\r\n",
       "datetime": "⏰ Tarih ve Saat: {{ .DateTime }}\r\n",
       "hostname": "💻 Sunucu: {{ .Hostname }}",
-      "version": "🚀 3X-UI Sürümü: {{ .Version }}\r\n",
+      "version": "🚀 3AX-UI Sürümü: {{ .Version }}\r\n",
       "xrayVersion": "📡 Xray Sürümü: {{ .XrayVersion }}\r\n",
       "ipv6": "🌐 IPv6: {{ .IPv6 }}",
       "ipv4": "🌐 IPv4: {{ .IPv4 }}",
@@ -2772,10 +2762,10 @@
   },
   "discord": {
     "test": {
-      "title": "3x-ui Discord Bildirim Testi",
+      "title": "3AX-UI Discord Bildirim Testi",
       "body": "Bu, Discord bildirimlerinin doğru yapılandırıldığını doğrulayan bir test bildirimidir."
     },
-    "footer": "3x-ui Paneli",
+    "footer": "3AX-UI Paneli",
     "fields": {
       "panelVersion": "Panel Sürümü",
       "xrayCore": "Xray Çekirdeği",
@@ -2810,13 +2800,13 @@
       "loginFailed": "Giriş Başarısız"
     },
     "report": {
-      "title": "📊 3x-ui Durum Raporu",
+      "title": "📊 3AX-UI Durum Raporu",
       "summary": "**{{ .Host }}** için periyodik sunucu ve proxy durum raporu",
-      "footer": "3x-ui Zamanlanmış Rapor • Zamanlama: {{ .RunTime }}"
+      "footer": "3AX-UI Zamanlanmış Rapor • Zamanlama: {{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 3x-ui Discord Bot Komutları",
-      "helpDescription": "3x-ui sunucusunu izlemek ve yönetmek için kullanılabilir komutlar:",
+      "helpTitle": "🤖 3AX-UI Discord Bot Komutları",
+      "helpDescription": "3AX-UI sunucusunu izlemek ve yönetmek için kullanılabilir komutlar:",
       "helpStatus": "Sistem yükünü, RAM'i, CPU'yu, bağlantıları ve çevrimiçi kullanıcıları gösterir",
       "helpReport": "Tam durum raporu oluşturur (yapılandırıldıysa veritabanı yedeğiyle)",
       "helpBackup": "Veritabanı yedek dosyasını hemen gönderir",
@@ -2824,10 +2814,10 @@
       "helpInbounds": "Yapılandırılmış tüm gelen bağlantıları portları ve istemci istatistikleriyle listeler",
       "helpRestart": "Xray çekirdeğini yeniden başlatır",
       "helpHelp": "Bu komut listesini gösterir",
-      "statusTitle": "⚡ 3x-ui Sunucu Durumu",
+      "statusTitle": "⚡ 3AX-UI Sunucu Durumu",
       "statusDescription": "**{{ .Host }}** için güncel çalışma metrikleri",
       "backupTitle": "🗄️ Veritabanı Yedeği",
-      "backupDescription": "`{{ .Time }}` tarihinde oluşturulan 3x-ui yedek arşivi",
+      "backupDescription": "`{{ .Time }}` tarihinde oluşturulan 3AX-UI yedek arşivi",
       "backupUnavailable": "❌ Yedekleme hizmeti kullanılamıyor",
       "backupFailed": "❌ Veritabanı yedeği okunamadı: {{ .Error }}",
       "usageHint": "⚠️ Kullanım: `!usage <email>` veya `/usage <email>`",

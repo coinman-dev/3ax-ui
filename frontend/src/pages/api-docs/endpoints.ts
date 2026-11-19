@@ -237,13 +237,6 @@ export const sections: readonly Section[] = [
         response: '{\n  "success": true,\n  "obj": "csrf-token-string"\n}',
       },
       {
-        method: 'GET',
-        path: '/sponsors',
-        summary:
-          'Public. Active paid sponsor placements read from the project sponsors.json (cached for 1h); entries outside their from/until window are dropped. Logos are proxied by the panel at /sponsors/logo/{name}. Used by the login page and panel sponsor slots.',
-        responseSchema: 'SponsorList',
-      },
-      {
         method: 'POST',
         path: '/getTwoFactorEnable',
         summary:
@@ -563,7 +556,7 @@ export const sections: readonly Section[] = [
       {
         method: 'GET',
         path: '/panel/api/server/getPanelUpdateInfo',
-        summary: 'Check whether a newer 3x-ui release is available on GitHub.',
+        summary: 'Check whether a newer 3AX-UI release is available on GitHub.',
       },
       {
         method: 'GET',
@@ -1746,7 +1739,7 @@ export const sections: readonly Section[] = [
     id: 'nodes',
     title: 'Nodes',
     description:
-      'Manage remote 3x-ui panels acting as nodes for a central panel. All endpoints under /panel/api/nodes.',
+      'Manage remote 3AX-UI panels acting as nodes for a central panel. All endpoints under /panel/api/nodes.',
     endpoints: [
       {
         method: 'GET',
@@ -2056,7 +2049,7 @@ export const sections: readonly Section[] = [
         method: 'POST',
         path: '/panel/api/setting/restartPanel',
         summary:
-          'Restart the entire 3x-ui process after a 3-second grace period. The connection drops immediately; the panel comes back online ~5-10 seconds later.',
+          'Restart the entire 3AX-UI process after a 3-second grace period. The connection drops immediately; the panel comes back online ~5-10 seconds later.',
       },
       {
         method: 'POST',

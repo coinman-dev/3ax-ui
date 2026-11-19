@@ -122,7 +122,6 @@
     "outbounds": "出站",
     "apiDocs": "API 文件",
     "donate": "捐贈",
-    "sponsors": "贊助商",
     "hosts": "主機",
     "docs": "文件",
     "openMenu": "開啟選單",
@@ -160,7 +159,7 @@
       "xrayUpdates": "Xray 更新",
       "xraySwitchClickDesk": "請謹慎選擇，因為較舊版本可能與當前配置不相容",
       "updatePanel": "更新面板",
-      "panelUpdateDesc": "這將把 3X-UI 更新到最新版本並重新啟動面板服務。",
+      "panelUpdateDesc": "這將把 3AX-UI 更新到最新版本並重新啟動面板服務。",
       "currentPanelVersion": "目前面板版本",
       "latestPanelVersion": "最新面板版本",
       "panelUpToDate": "面板已是最新",
@@ -224,7 +223,7 @@
       "xraySwitchVersionDialogDesc": "這將會把 Xray 版本變更為 #version#。",
       "xraySwitchVersionPopover": "Xray 更新成功",
       "panelUpdateDialog": "您確定要更新面板嗎？",
-      "panelUpdateDialogDesc": "這將把 3X-UI 更新到 #version# 並重新啟動面板服務。",
+      "panelUpdateDialogDesc": "這將把 3AX-UI 更新到 #version# 並重新啟動面板服務。",
       "panelUpdateStartedPopover": "面板更新已開始",
       "panelUpdateFailedTitle": "面板更新失敗",
       "panelUpdateFailedDesc": "更新未成功完成。請檢查伺服器日誌，或在命令列執行「x-ui update」。",
@@ -2513,15 +2512,6 @@
         "badVlessRoute": "請輸入 0 到 65535 之間的單一數字"
       },
       "dragToReorder": "拖曳以重新排列 {name}"
-    },
-    "sponsors": {
-      "title": "贊助商",
-      "intro": "支持 3X-UI 開發的公司。贊助連結將在新分頁中開啟。",
-      "become": "成為贊助商",
-      "tag": "贊助",
-      "visit": "造訪",
-      "yourBrand": "您的品牌展示位",
-      "yourBrandText": "讓每天打開 3X-UI 的數千名伺服器管理員看到您的公司。"
     }
   },
   "tgbot": {
@@ -2772,10 +2762,10 @@
   },
   "discord": {
     "test": {
-      "title": "3x-ui Discord 通知測試",
+      "title": "3AX-UI Discord 通知測試",
       "body": "這是一則測試通知，確認 Discord 通知已正確設定。"
     },
-    "footer": "3x-ui 面板",
+    "footer": "3AX-UI 面板",
     "fields": {
       "panelVersion": "面板版本",
       "xrayCore": "Xray 核心",
@@ -2810,13 +2800,13 @@
       "loginFailed": "登入失敗"
     },
     "report": {
-      "title": "📊 3x-ui 狀態報告",
+      "title": "📊 3AX-UI 狀態報告",
       "summary": "**{{ .Host }}** 的伺服器與代理定期狀態報告",
-      "footer": "3x-ui 排程報告 • 排程：{{ .RunTime }}"
+      "footer": "3AX-UI 排程報告 • 排程：{{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 3x-ui Discord 機器人指令",
-      "helpDescription": "用於監控和管理 3x-ui 伺服器的可用指令：",
+      "helpTitle": "🤖 3AX-UI Discord 機器人指令",
+      "helpDescription": "用於監控和管理 3AX-UI 伺服器的可用指令：",
       "helpStatus": "顯示系統負載、記憶體、CPU、連線數和線上使用者",
       "helpReport": "產生完整狀態報告（如已設定則附帶資料庫備份）",
       "helpBackup": "立即傳送資料庫備份檔案",
@@ -2824,10 +2814,10 @@
       "helpInbounds": "列出所有已設定的入站及其連接埠和用戶端統計",
       "helpRestart": "重新啟動 Xray 核心",
       "helpHelp": "顯示此可用指令清單",
-      "statusTitle": "⚡ 3x-ui 伺服器狀態",
+      "statusTitle": "⚡ 3AX-UI 伺服器狀態",
       "statusDescription": "**{{ .Host }}** 的目前運作指標",
       "backupTitle": "🗄️ 資料庫備份",
-      "backupDescription": "3x-ui 備份產生於 `{{ .Time }}`",
+      "backupDescription": "3AX-UI 備份產生於 `{{ .Time }}`",
       "backupUnavailable": "❌ 備份服務無法使用",
       "backupFailed": "❌ 讀取資料庫備份失敗：{{ .Error }}",
       "usageHint": "⚠️ 用法：`!usage <email>` 或 `/usage <email>`",

@@ -123,7 +123,6 @@
     "outbounds": "Výstupy",
     "apiDocs": "Dokumentácia API",
     "donate": "Podporiť projekt",
-    "sponsors": "Sponzori",
     "docs": "Dokumentácia",
     "openMenu": "Otvoriť menu",
     "pinSidebar": "Pripnúť bočné menu",
@@ -160,7 +159,7 @@
       "xrayUpdates": "Aktualizácie Xray",
       "xraySwitchClickDesk": "Verziu vyberajte opatrne. Staršie verzie nemusia podporovať aktuálnu konfiguráciu.",
       "updatePanel": "Aktualizovať panel",
-      "panelUpdateDesc": "Aktualizuje sa samotný 3X-UI na najnovšie vydanie a reštartuje sa služba panelu.",
+      "panelUpdateDesc": "Aktualizuje sa samotný 3AX-UI na najnovšie vydanie a reštartuje sa služba panelu.",
       "currentPanelVersion": "Aktuálna verzia panelu",
       "latestPanelVersion": "Najnovšia verzia panelu",
       "panelUpToDate": "Panel je aktuálny",
@@ -224,7 +223,7 @@
       "xraySwitchVersionDialogDesc": "Verzia Xray sa zmení na #version#.",
       "xraySwitchVersionPopover": "Xray bol úspešne aktualizovaný",
       "panelUpdateDialog": "Naozaj chcete aktualizovať panel?",
-      "panelUpdateDialogDesc": "3X-UI sa aktualizuje na #version# a reštartuje sa služba panelu.",
+      "panelUpdateDialogDesc": "3AX-UI sa aktualizuje na #version# a reštartuje sa služba panelu.",
       "panelUpdateStartedPopover": "Aktualizácia panelu sa začala",
       "panelUpdateFailedTitle": "Aktualizácia panelu zlyhala",
       "panelUpdateFailedDesc": "Aktualizácia sa nedokončila úspešne. Skontrolujte záznamy servera alebo spustite príkaz 'x-ui update'.",
@@ -2513,15 +2512,6 @@
       "routingScript": "Skript smerovania",
       "routingScriptDesc": "Cesta k súboru .lua s funkciou HandleRoute, absolútna alebo vzhľadom na priečinok bin Xray. Skript vyberá každú trasu a Xray ignoruje všetky pravidlá vrátane pravidla api panelu. Vstup api preto smerujte na výstup api, inak prestanú fungovať štatistiky spotreby aj zmeny klientov za behu. Ak súbor chýba alebo je neplatný, Xray sa nespustí.",
       "routingScriptActive": "V časti {section} je nastavený skript smerovania, preto Xray tieto pravidlá ignoruje."
-    },
-    "sponsors": {
-      "title": "Sponzori",
-      "intro": "Spoločnosti podporujúce vývoj 3X-UI. Sponzorované odkazy sa otvoria na novej karte.",
-      "become": "Stať sa sponzorom",
-      "tag": "Sponzor",
-      "visit": "Navštíviť",
-      "yourBrand": "Miesto pre vašu značku",
-      "yourBrandText": "Predstavte svoju spoločnosť tisícom správcov serverov, ktorí denne otvárajú 3X-UI."
     }
   },
   "tgbot": {
@@ -2565,7 +2555,7 @@
       "report": "🕰 Plánované správy: {{ .RunTime }}\r\n",
       "datetime": "⏰ Dátum a čas: {{ .DateTime }}\r\n",
       "hostname": "💻 Hostiteľ: {{ .Hostname }}\r\n",
-      "version": "🚀 Verzia 3X-UI: {{ .Version }}\r\n",
+      "version": "🚀 Verzia 3AX-UI: {{ .Version }}\r\n",
       "xrayVersion": "📡 Verzia Xray: {{ .XrayVersion }}\r\n",
       "ipv6": "🌐 IPv6: {{ .IPv6 }}\r\n",
       "ipv4": "🌐 IPv4: {{ .IPv4 }}\r\n",
@@ -2772,10 +2762,10 @@
   },
   "discord": {
     "test": {
-      "title": "Skúška upozornení Discordu v 3x-ui",
+      "title": "Skúška upozornení Discordu v 3AX-UI",
       "body": "Toto je skúšobné upozornenie na overenie správneho nastavenia upozornení Discordu."
     },
-    "footer": "Panel 3x-ui",
+    "footer": "Panel 3AX-UI",
     "fields": {
       "panelVersion": "Verzia panelu",
       "xrayCore": "Jadro Xray",
@@ -2810,13 +2800,13 @@
       "loginFailed": "Neúspešné prihlásenie"
     },
     "report": {
-      "title": "📊 Správa o stave 3x-ui",
+      "title": "📊 Správa o stave 3AX-UI",
       "summary": "Pravidelná správa o stave servera a proxy **{{ .Host }}**",
-      "footer": "Plánovaná správa 3x-ui • Plán: {{ .RunTime }}"
+      "footer": "Plánovaná správa 3AX-UI • Plán: {{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 Príkazy Discord bota 3x-ui",
-      "helpDescription": "Dostupné príkazy na sledovanie a správu servera 3x-ui:",
+      "helpTitle": "🤖 Príkazy Discord bota 3AX-UI",
+      "helpDescription": "Dostupné príkazy na sledovanie a správu servera 3AX-UI:",
       "helpStatus": "Zobraziť záťaž systému, RAM, CPU, spojenia a pripojených používateľov",
       "helpReport": "Vytvoriť úplnú správu o stave, prípadne aj so zálohou databázy",
       "helpBackup": "Okamžite poslať súbor so zálohou databázy",
@@ -2824,10 +2814,10 @@
       "helpInbounds": "Zobraziť všetky nastavené vstupy s portmi a štatistikami klientov",
       "helpRestart": "Reštartovať jadro Xray",
       "helpHelp": "Zobraziť tento zoznam dostupných príkazov",
-      "statusTitle": "⚡ Stav servera 3x-ui",
+      "statusTitle": "⚡ Stav servera 3AX-UI",
       "statusDescription": "Aktuálne prevádzkové údaje pre **{{ .Host }}**",
       "backupTitle": "🗄️ Záloha databázy",
-      "backupDescription": "Záloha 3x-ui vytvorená o `{{ .Time }}`",
+      "backupDescription": "Záloha 3AX-UI vytvorená o `{{ .Time }}`",
       "backupUnavailable": "❌ Služba zálohovania nie je dostupná",
       "backupFailed": "❌ Nepodarilo sa načítať zálohu databázy: {{ .Error }}",
       "usageHint": "⚠️ Použitie: `!usage <email>` alebo `/usage <email>`",
