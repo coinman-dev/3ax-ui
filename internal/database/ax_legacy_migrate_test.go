@@ -26,7 +26,7 @@ INSERT INTO inbounds (id, user_id, up, down, total, all_time, remark, enable, ex
  (1, 1, 0, 0, 0, 0, 'vless', 1, 0, 'never', '', 443, 'vless', '{"clients":[{"id":"6f1c3c5e-6c0a-4b8e-9d0c-2f3a1b2c3d4e","email":"alice","enable":true,"subId":"alicesub"}],"decryption":"none"}', '{"network":"tcp","security":"none"}', 'inbound-443', '{}', 0),
  (2, 1, 0, 0, 0, 0, 'awg', 1, 0, 'monthly', '', 40000, 'amneziawg', '{"clients":[{"id":"u-bob","email":"bob","enable":true,"_awgId":1}]}', '', 'inbound-40000', '', 0),
  (3, 1, 0, 0, 0, 0, 'wg', 1, 0, 'never', '', 51821, 'nativewg', '{"clients":[]}', '', 'inbound-51821', '', 0),
- (4, 1, 0, 0, 0, 0, 'tg', 1, 0, 'never', '', 8443, 'mtproto', '{"fakeTlsDomain":"www.cloudflare.com","routeThroughXray":false,"antiReplay":{"enabled":true}}', '', 'inbound-8443', '', 0),
+ (4, 1, 0, 0, 0, 0, 'tg', 1, 0, 'never', '', 8443, 'mtproto', '{"fakeTlsDomain":"www.cloudflare.com","routeThroughXray":false,"antiReplay":{"enabled":true},"domainFronting":{"host":"cover.example","port":8443,"proxyProtocol":false}}', '', 'inbound-8443', '', 0),
  (5, 1, 0, 0, 0, 0, 'socks', 1, 0, 'never', '', 1080, 'mixed', '{"clients":[{"email":"frank","password":"frankpass","limitIp":0,"totalGB":0,"expiryTime":0,"enable":true,"tgId":"","subId":"franksub","comment":"","reset":0}],"auth":"password","udp":false,"ip":"127.0.0.1"}', '', 'inbound-1080', '', 0);
 INSERT INTO client_traffics (inbound_id, enable, email, up, down, all_time, expiry_time, total, reset, last_online) VALUES
  (1, 1, 'alice', 5, 6, 11, 0, 0, 0, 0),
@@ -208,6 +208,10 @@ func TestAx181CollidingNamesAreRenamedNotMerged(t *testing.T) {
 	}
 	if tg["antiReplay"] == nil || tg["fakeTlsDomain"] != "www.cloudflare.com" {
 		t.Errorf("MTProto settings lost keys: %v", tg)
+	}
+	// 1.x wrote the fronting target as host; this base renders domainFronting.ip.
+	if front, _ := tg["domainFronting"].(map[string]any); front["ip"] != "cover.example" {
+		t.Errorf("fronting host not carried to domainFronting.ip: %v", tg["domainFronting"])
 	}
 	if ct := trafficByEmail(t, "dave-2"); ct.InboundId != 4 || ct.Up != 1 || ct.Down != 2 {
 		t.Errorf("dave-2 traffic = %+v", ct)

@@ -512,6 +512,12 @@ func (m *axMigration) migrateMtproto(ib model.Inbound) error {
 		}
 	}
 	delete(settings, "secret")
+	// 1.x wrote the fronting target as "host"; this base reads "ip" for it.
+	if front, ok := settings["domainFronting"].(map[string]any); ok {
+		if host, _ := front["host"].(string); host != "" && front["ip"] == nil {
+			front["ip"] = host
+		}
+	}
 	clients := make([]model.Client, 0, len(rows))
 	if err := m.tx.Where("inbound_id = ?", ib.Id).Delete(&xray.ClientTraffic{}).Error; err != nil {
 		return err

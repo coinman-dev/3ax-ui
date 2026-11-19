@@ -66,5 +66,21 @@ export const MtprotoInboundSettingsSchema = z.object({
   // middle proxy needs when clients carry ad-tags; blank = mtg auto-detects.
   publicIpv4: z.string().optional(),
   publicIpv6: z.string().optional(),
+  // 3AX-UI: mtg anti-blocking options; each is written to the mtg config only when set.
+  concurrency: z.number().int().min(0).optional(),
+  tolerateTimeSkewness: z.string().optional(),
+  dns: z.string().optional(),
+  doppelganger: z
+    .object({
+      urls: z.array(z.string()).optional(),
+      repeatsPerRaid: z.number().int().min(0).optional(),
+      raidEach: z.string().optional(),
+      drs: z.boolean().optional(),
+    })
+    .optional(),
+  antiReplay: z.object({ enabled: z.boolean().optional() }).optional(),
+  blocklist: z
+    .object({ enabled: z.boolean().optional(), urls: z.array(z.string()).optional() })
+    .optional(),
 });
 export type MtprotoInboundSettings = z.infer<typeof MtprotoInboundSettingsSchema>;

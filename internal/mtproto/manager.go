@@ -73,6 +73,9 @@ type Instance struct {
 	// the egress obeys the core's routing rules instead of going out directly.
 	RouteThroughXray bool
 	XrayRoutePort    int
+
+	// Ax carries the anti-blocking options 3AX-UI adds (ax_defense.go).
+	Ax axDefense
 }
 
 func (inst Instance) bindTo() string {
@@ -102,6 +105,7 @@ func (inst Instance) structuralFingerprint() string {
 		strconv.Itoa(inst.XrayRoutePort),
 		inst.PublicIPv4,
 		inst.PublicIPv6,
+		inst.Ax.fingerprint(),
 	}
 	return strings.Join(parts, "|")
 }
@@ -239,6 +243,7 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		XrayRoutePort:             parsed.RouteXrayPort,
 		PublicIPv4:                strings.TrimSpace(parsed.PublicIPv4),
 		PublicIPv6:                strings.TrimSpace(parsed.PublicIPv6),
+		Ax:                        parseAxDefense(settings),
 	}, true
 }
 
@@ -563,6 +568,7 @@ func renderConfig(inst Instance, apiPort int, apiToken string) string {
 	if inst.PublicIPv6 != "" {
 		fmt.Fprintf(&b, "public-ipv6 = %q\n", inst.PublicIPv6)
 	}
+	inst.Ax.writeTopLevel(&b)
 	if inst.FrontingIP != "" || inst.FrontingPort > 0 || inst.FrontingProxyProtocol {
 		b.WriteString("\n[domain-fronting]\n")
 		if inst.FrontingIP != "" {
@@ -578,8 +584,15 @@ func renderConfig(inst Instance, apiPort int, apiToken string) string {
 	// When the inbound opts into Xray routing, mtg reaches Telegram through the
 	// loopback SOCKS bridge the panel injects into the running Xray config. mtg
 	// only supports SOCKS5 upstreams, which is exactly what the bridge exposes.
-	if inst.RouteThroughXray && inst.XrayRoutePort > 0 {
-		fmt.Fprintf(&b, "\n[network]\nproxies = [\"socks5://127.0.0.1:%d\"]\n", inst.XrayRoutePort)
+	routed := inst.RouteThroughXray && inst.XrayRoutePort > 0
+	if routed || inst.Ax.DNS != "" {
+		b.WriteString("\n[network]\n")
+		if inst.Ax.DNS != "" {
+			fmt.Fprintf(&b, "dns = %q\n", inst.Ax.DNS)
+		}
+		if routed {
+			fmt.Fprintf(&b, "proxies = [\"socks5://127.0.0.1:%d\"]\n", inst.XrayRoutePort)
+		}
 	}
 	if inst.ThrottleMaxConnections > 0 {
 		fmt.Fprintf(&b, "\n[throttle]\nmax-connections = %d\n", inst.ThrottleMaxConnections)
@@ -587,6 +600,7 @@ func renderConfig(inst Instance, apiPort int, apiToken string) string {
 	if inst.PendingHandshakesMaxPerIP > 0 {
 		fmt.Fprintf(&b, "\n[defense.pending-handshakes]\nmax-per-ip = %d\n", inst.PendingHandshakesMaxPerIP)
 	}
+	inst.Ax.writeDefense(&b)
 	// Only clients present in [secrets] may appear here: mtg rejects a config
 	// whose [secret-ad-tags] names an unknown secret, so a disabled client's
 	// override must vanish together with its secret.

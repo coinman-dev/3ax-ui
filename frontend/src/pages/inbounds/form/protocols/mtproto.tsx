@@ -1,13 +1,54 @@
 import { useTranslation } from 'react-i18next';
-import { Input, InputNumber, Select, Switch } from 'antd';
+import { Button, Input, InputNumber, Select, Space, Switch } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useFormContext, useWatch } from 'react-hook-form';
+import type { TextAreaProps } from 'antd/es/input';
+import type { SwitchProps } from 'antd';
 
 import { FormField } from '@/components/form/rhf';
 import { useOutboundTags } from '@/api/queries/useOutboundTags';
 
+// One URL per line in the form, a string list in the stored settings.
+function UrlLines({
+  value,
+  onChange,
+  ...rest
+}: Omit<TextAreaProps, 'value' | 'onChange'> & {
+  value?: string[];
+  onChange?: (v: string[]) => void;
+}) {
+  return (
+    <Input.TextArea
+      {...rest}
+      autoSize={{ minRows: 2, maxRows: 6 }}
+      value={(value ?? []).join('\n')}
+      onChange={(e) =>
+        onChange?.(
+          e.target.value
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        )
+      }
+    />
+  );
+}
+
+// mtg runs anti-replay and the blocklist unless told otherwise, so unset reads as on.
+function DefaultOnSwitch({
+  value,
+  onChange,
+  ...rest
+}: Omit<SwitchProps, 'checked' | 'onChange' | 'value'> & {
+  value?: boolean;
+  onChange?: (v: boolean) => void;
+}) {
+  return <Switch {...rest} checked={value !== false} onChange={(v) => onChange?.(v)} />;
+}
+
 export default function MtprotoFields() {
   const { t } = useTranslation();
-  const { control } = useFormContext();
+  const { control, setValue, getValues } = useFormContext();
   const routeThroughXray = useWatch({ control, name: 'settings.routeThroughXray' }) as
     | boolean
     | undefined;
@@ -117,6 +158,85 @@ export default function MtprotoFields() {
         tooltip={t('pages.inbounds.form.mtgPublicIpHint')}
       >
         <Input allowClear placeholder="2001:db8::1" />
+      </FormField>
+      <FormField
+        name={['settings', 'concurrency']}
+        label={t('pages.inbounds.form.mtgConcurrency')}
+        tooltip={t('pages.inbounds.form.mtgConcurrencyHint')}
+      >
+        <InputNumber min={0} placeholder="8192" style={{ width: '100%' }} />
+      </FormField>
+      <FormField
+        name={['settings', 'tolerateTimeSkewness']}
+        label={t('pages.inbounds.form.mtgTimeSkew')}
+        tooltip={t('pages.inbounds.form.mtgTimeSkewHint')}
+      >
+        <Input allowClear placeholder="3s" />
+      </FormField>
+      <FormField
+        name={['settings', 'dns']}
+        label={t('pages.inbounds.form.mtgDns')}
+        tooltip={t('pages.inbounds.form.mtgDnsHint')}
+      >
+        <Input allowClear placeholder="https://1.1.1.1" />
+      </FormField>
+      <FormField
+        name={['settings', 'doppelganger', 'urls']}
+        label={t('pages.inbounds.form.mtgDoppelUrls')}
+        tooltip={t('pages.inbounds.form.mtgDoppelUrlsHint')}
+      >
+        <UrlLines placeholder="https://www.cloudflare.com/" />
+      </FormField>
+      <Space style={{ marginBottom: 16 }}>
+        <Button
+          icon={<ReloadOutlined aria-hidden />}
+          aria-label={t('pages.inbounds.form.mtgDoppelUrls')}
+          onClick={() => {
+            const domain = String(getValues('settings.fakeTlsDomain') || '').trim();
+            if (domain)
+              setValue('settings.doppelganger.urls', [`https://${domain}/`], { shouldDirty: true });
+          }}
+        />
+      </Space>
+      <FormField
+        name={['settings', 'doppelganger', 'repeatsPerRaid']}
+        label={t('pages.inbounds.form.mtgDoppelRepeats')}
+      >
+        <InputNumber min={0} placeholder="10" style={{ width: '100%' }} />
+      </FormField>
+      <FormField
+        name={['settings', 'doppelganger', 'raidEach']}
+        label={t('pages.inbounds.form.mtgDoppelRaidEach')}
+      >
+        <Input allowClear placeholder="6h" />
+      </FormField>
+      <FormField
+        name={['settings', 'doppelganger', 'drs']}
+        label={t('pages.inbounds.form.mtgDoppelDrs')}
+        tooltip={t('pages.inbounds.form.mtgDoppelDrsHint')}
+        valueProp="checked"
+      >
+        <Switch />
+      </FormField>
+      <FormField
+        name={['settings', 'antiReplay', 'enabled']}
+        label={t('pages.inbounds.form.mtgAntiReplay')}
+        tooltip={t('pages.inbounds.form.mtgAntiReplayHint')}
+      >
+        <DefaultOnSwitch />
+      </FormField>
+      <FormField
+        name={['settings', 'blocklist', 'enabled']}
+        label={t('pages.inbounds.form.mtgBlocklist')}
+        tooltip={t('pages.inbounds.form.mtgBlocklistHint')}
+      >
+        <DefaultOnSwitch />
+      </FormField>
+      <FormField
+        name={['settings', 'blocklist', 'urls']}
+        label={t('pages.inbounds.form.mtgBlocklistUrls')}
+      >
+        <UrlLines placeholder="https://iplists.firehol.org/files/firehol_level1.netset" />
       </FormField>
     </>
   );
