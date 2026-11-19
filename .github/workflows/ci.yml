@@ -1,7 +1,11 @@
 name: CI
 
+# Budget policy (AGENTS.md): a push to main runs only the cheap lint jobs; the
+# full gate runs on a ready (non-draft) PR, a manual dispatch, or as the
+# release gate through workflow_call.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "**.go"
       - "go.mod"
@@ -10,6 +14,8 @@ on:
       - ".nvmrc"
       - "Makefile"
       - "install.sh"
+      - "update.sh"
+      - "x-ui.sh"
       - "deploy/test/installer-panel-port.sh"
       - ".github/workflows/ci.yml"
   push:
@@ -23,30 +29,30 @@ on:
       - ".nvmrc"
       - "Makefile"
       - "install.sh"
+      - "update.sh"
+      - "x-ui.sh"
       - "deploy/test/installer-panel-port.sh"
       - ".github/workflows/ci.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      full:
+        description: Run the full gate (the caller's event is a push, which alone would skip it)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
-jobs:
-  go-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Stub internal/web/dist for go:embed
-        run: mkdir -p internal/web/dist && touch internal/web/dist/.gitkeep
-      - name: Test
-        run: |
-          go list ./... | grep -v '/frontend/node_modules/' > /tmp/go-packages.txt
-          go test -shuffle=on -count=1 $(cat /tmp/go-packages.txt)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
   postgres-durable-first:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -159,7 +165,9 @@ jobs:
   # The migration tests write and drop their own tables, so they need a
   # scratch database instead of the durable one the panel tests use.
   postgres-migration:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -206,7 +214,9 @@ jobs:
           fi
 
   codegen:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -225,7 +235,9 @@ jobs:
         run: cmp frontend/public/openapi.json docs/public/openapi.json
 
   govulncheck:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -241,7 +253,9 @@ jobs:
 
   # Race + shuffle hygiene gate: data races and order-dependent tests fail the build.
   race:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -259,7 +273,9 @@ jobs:
   # A real master and node panel, each its own process, driven through node sync.
   # A SKIP here means the binary was never handed over, so it fails the job.
   node-e2e:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -275,7 +291,9 @@ jobs:
   # Brief native-fuzz smoke on the security-/parser-critical decoders. Each runs the
   # generated corpus plus 30s of exploration; a crash here is a real input-handling bug.
   fuzz-smoke:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -290,7 +308,9 @@ jobs:
           go test -run '^$' -fuzz 'FuzzDecodeCertPin$' -fuzztime=30s ./internal/web/runtime/
 
   golangci:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -311,7 +331,9 @@ jobs:
   # and are gated on errors only; the scripts that are clean today are gated on
   # everything.
   shell-lint:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -333,7 +355,9 @@ jobs:
         run: bash deploy/test/installer-panel-port.sh
 
   frontend:
+    if: inputs.full || (github.event_name != 'push' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

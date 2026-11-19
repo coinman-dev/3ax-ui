@@ -50,8 +50,8 @@ Cross-building the Linux SQLite target from Windows (or vice versa) requires a s
 ## First-time setup
 
 ```bash
-git clone https://github.com/MHSanaei/3x-ui.git
-cd 3x-ui
+git clone https://github.com/coinman-dev/3ax-ui.git
+cd 3ax-ui
 
 cp .env.example .env
 
@@ -282,7 +282,7 @@ gremlins unleash -E 'server\.go|xray\.go|inbound\.go|client_bulk\.go|inbound_tra
 
 Treat each survivor as one of: a weak test (strengthen it), dead code (remove it), or an equivalent mutant (unkillable — leave it). Don't write a test purely to kill a mutant if it doesn't reflect real behavior.
 
-CI runs this for you nightly (and on demand) via `.github/workflows/mutation.yml` — scoped per package, results uploaded as artifacts. It is **informational**, not a gate (no thresholds), so check the reports when hardening a suite rather than waiting for a red build.
+3AX-UI does not run this in CI (see the Actions budget policy in `AGENTS.md`). It is **informational**, not a gate, so run it locally when hardening a suite.
 
 ### CI
 
@@ -321,6 +321,6 @@ must match the override, for example `XUI_PORT: "8080"` with `ports: ["8080:8080
 
 ## Issues
 
-- Bug reports and feature requests: [GitHub Issues](https://github.com/MHSanaei/3x-ui/issues)
+- Bug reports and feature requests: [GitHub Issues](https://github.com/coinman-dev/3ax-ui/issues)
 
 Before filing a bug, include the OS, Go version, panel version (`/panel/api/server/status` or the dashboard footer), and the relevant excerpt from `x-ui/3xui.log`.

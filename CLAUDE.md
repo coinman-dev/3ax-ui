@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **3AX-UI fork:** read `AGENTS.md` and `.ai/PROJECT.md` first. They override this file where they differ (CI triggers, release flow, what this fork adds).
+
 Operational guide for AI agents working in this repo. Long-form human docs:
 `CONTRIBUTING.md` (setup, testing philosophy) and `frontend/README.md`.
 Read those before large changes. This file is the short, must-follow version.

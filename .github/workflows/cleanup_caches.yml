@@ -1,12 +1,17 @@
+# Manual recovery only (AGENTS.md): deleting working caches every day costs
+# more compilation time than it saves. GitHub evicts unused caches itself.
 name: Cleanup Caches
 on:
-  schedule:
-    - cron: "0 3 * * *" # every day
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       actions: write
     steps:

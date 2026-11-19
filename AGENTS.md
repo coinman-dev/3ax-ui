@@ -1,6 +1,6 @@
 # Agent instructions
 
-Read `.ai/PROJECT.md` for the project architecture, branch/release conventions and code conventions. The Actions budget policy below supersedes its older CI trigger descriptions.
+Read `.ai/PROJECT.md` for what 3AX-UI is and how it relates to upstream, then upstream's own guides: `CLAUDE.md`, `frontend/CLAUDE.md` and, on demand, `docs/architecture.md`. They apply in full unless this file or `.ai/PROJECT.md` says otherwise. The Actions budget policy below supersedes their CI descriptions.
 
 ## GitHub Actions budget policy
 
@@ -19,7 +19,10 @@ The owner requested minimal necessary cloud work on 2026-10-06 after an Actions-
 
 ## This repository
 
-- Main: formatting; build/vet/staticcheck/deadcode/race tests on ready PR or manual dispatch.
-- CodeQL runs on ready PR/manual and its existing weekly scan.
-- Release no longer repeats analysis on every PR; all release architectures remain.
-- Cache cleanup is manual-only; no daily deletion of working build caches.
+- Fork of [MHSanaei/3x-ui](https://github.com/MHSanaei/3x-ui), rebuilt on upstream `main` on 2026-11-19 (remote `upstream`). Merge `upstream/main` into `dev` regularly; keep our code in our own files so merges stay cheap.
+- CI (`ci.yml`): a push to `main` runs only `golangci` and `shell-lint`. A ready PR, a manual dispatch or the release gate (`workflow_call`) runs the full set: race tests (they replace upstream's separate plain `go test` job), PostgreSQL, node e2e, fuzz smoke, codegen, govulncheck, frontend with Storybook and audit.
+- CodeQL runs on ready PR, manual dispatch and its weekly scan.
+- Release (`release.yml`): `v*` tags or manual dispatch only; the full `ci.yml` runs first as the gate; all Linux architectures plus Windows; a tag with `-` is a prerelease; the tag must equal `v` + `internal/config/version`. No rolling `dev-latest` build.
+- Docker: tags only, image `ghcr.io/coinman-dev/3x-ui` (the pre-rebrand name, kept for existing compose files).
+- Removed from upstream's CI: Claude issue/PR workflows, mutation testing, the docs site build and deploy. `docs/` stays untouched except `docs/public/openapi.json`, which `make verify` requires to equal `frontend/public/openapi.json`.
+- Cache cleanup is manual-only; no daily deletion of working build caches. Dependabot tracks GitHub Actions only, monthly; Go and npm updates arrive with upstream merges.
