@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,8 +28,7 @@ import (
 type PanelService struct{}
 
 // PanelUpdateInfo contains the current and latest available panel versions.
-// On the dev channel the version fields carry a "dev+<sha>" label and the commit
-// fields hold the short SHAs that drive the update-available decision.
+// The commit fields stay empty: 3AX-UI publishes no per-commit builds.
 type PanelUpdateInfo struct {
 	Channel         string `json:"channel"`
 	CurrentVersion  string `json:"currentVersion"`
@@ -44,9 +42,6 @@ const (
 	panelUpdaterURL      = "https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 	maxPanelReleaseBytes = 2 << 20
-	// devReleaseTag is the fixed-tag rolling pre-release the CI force-moves to the
-	// newest main commit; the dev update channel installs from it.
-	devReleaseTag = "dev-latest"
 
 	updateStatePending = "pending"
 	updateStateSuccess = "success"
@@ -67,8 +62,6 @@ type PanelUpdateStatus struct {
 	ExitCode   int    `json:"exitCode" example:"0"`
 	FinishedAt int64  `json:"finishedAt" example:"1735689612"`
 }
-
-var releaseCommitRegex = regexp.MustCompile(`(?i)commit=([0-9a-f]{7,40})`)
 
 // updateMu guards updateRunning/updateStarted/updateRunID/updatePID, which
 // stop a second self-update from launching while one is still in flight (two
@@ -127,12 +120,11 @@ func (s *PanelService) RestartPanel(delay time.Duration) error {
 	return nil
 }
 
-// GetUpdateInfo checks GitHub for the latest 3x-ui release. When the dev channel
-// is enabled on a dev build it compares commits against the rolling dev release;
-// otherwise it compares versions against the latest stable tag.
+// GetUpdateInfo checks GitHub for a newer panel release: the latest stable tag,
+// or with the dev (beta) channel enabled the newest release of any kind.
 func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
 	if devChannelActive() {
-		return getDevUpdateInfo()
+		return getBetaUpdateInfo()
 	}
 	latest, err := fetchLatestPanelVersion()
 	if err != nil {
@@ -147,36 +139,14 @@ func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
 	}, nil
 }
 
-// devChannelActive reports whether self-update should track the rolling dev
-// release. It is driven solely by the opt-in setting so the panel can
-// cross-grade a stable build onto the dev channel once the user enables it;
+// devChannelActive reports whether self-update should track the beta channel
+// (the "dev" setting). It is driven solely by the opt-in setting so the panel can
+// cross-grade a stable build onto the beta channel once the user enables it;
 // nothing updates without an explicit user action, so an unattended stable
 // binary with the toggle off stays on the stable channel.
 func devChannelActive() bool {
 	enabled, err := (&service.SettingService{}).GetDevChannelEnable()
 	return err == nil && enabled
-}
-
-// getDevUpdateInfo compares the running commit against the commit recorded in the
-// rolling dev release.
-func getDevUpdateInfo() (*PanelUpdateInfo, error) {
-	release, err := fetchPanelRelease(devReleaseTag)
-	if err != nil {
-		return nil, err
-	}
-	latestCommit := extractReleaseCommit(release)
-	if latestCommit == "" {
-		return nil, fmt.Errorf("dev release commit is unknown")
-	}
-	currentCommit := config.GetBuildCommit()
-	return &PanelUpdateInfo{
-		Channel:         "dev",
-		CurrentVersion:  config.GetPanelVersion(),
-		CurrentCommit:   shortCommit(currentCommit),
-		LatestCommit:    shortCommit(latestCommit),
-		LatestVersion:   "dev+" + shortCommit(latestCommit),
-		UpdateAvailable: !commitsEqual(currentCommit, latestCommit),
-	}, nil
 }
 
 // StartUpdate starts the official updater using this panel's own channel
@@ -245,7 +215,10 @@ func (s *PanelService) startUpdate(useDev bool) (int64, error) {
 	mainFolder, serviceFolder := resolveUpdateFolders()
 	updateTag := ""
 	if useDev {
-		updateTag = devReleaseTag
+		if updateTag, err = latestBetaTag(); err != nil {
+			_ = os.Remove(scriptPath)
+			return 0, fmt.Errorf("resolving the beta release: %w", err)
+		}
 	}
 	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath))
 	runIDEnv := "XUI_UPDATE_RUN_ID=" + strconv.FormatInt(runID, 10)
@@ -462,54 +435,6 @@ func fetchPanelRelease(tag string) (*service.Release, error) {
 	return &release, nil
 }
 
-// extractReleaseCommit reads the build commit recorded in the dev release: first
-// the `commit=<sha>` marker the CI writes into the body, falling back to the
-// tag's target commit.
-func extractReleaseCommit(release *service.Release) string {
-	if m := releaseCommitRegex.FindStringSubmatch(release.Body); m != nil {
-		return strings.ToLower(m[1])
-	}
-	if isCommitSHA(release.TargetCommitish) {
-		return strings.ToLower(release.TargetCommitish)
-	}
-	return ""
-}
-
-func isCommitSHA(s string) bool {
-	s = strings.TrimSpace(s)
-	if len(s) < 7 || len(s) > 40 {
-		return false
-	}
-	for _, r := range s {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
-			return false
-		}
-	}
-	return true
-}
-
-func shortCommit(sha string) string {
-	sha = strings.TrimSpace(sha)
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
-}
-
-// commitsEqual compares a short (injected) commit against a full release commit
-// by prefix, so an 8-char build stamp matches the 40-char release SHA.
-func commitsEqual(a, b string) bool {
-	a = strings.ToLower(strings.TrimSpace(a))
-	b = strings.ToLower(strings.TrimSpace(b))
-	if a == "" || b == "" {
-		return false
-	}
-	if len(a) > len(b) {
-		a, b = b, a
-	}
-	return strings.HasPrefix(b, a)
-}
-
 func resolveUpdateFolders() (string, string) {
 	mainFolder := os.Getenv("XUI_MAIN_FOLDER")
 	if mainFolder == "" {
@@ -529,7 +454,7 @@ func resolveUpdateFolders() (string, string) {
 }
 
 func isNewerVersion(latest string, current string) bool {
-	cmp, ok := version.Compare(latest, current)
+	cmp, ok := compareReleaseVersions(latest, current)
 	if !ok {
 		return version.Normalize(latest) != version.Normalize(current)
 	}

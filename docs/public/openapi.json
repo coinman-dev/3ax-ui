@@ -7339,7 +7339,7 @@
         "tags": [
           "Server"
         ],
-        "summary": "Toggle the panel update channel between stable and the rolling per-commit dev release. Only effective on dev builds.",
+        "summary": "Toggle the panel update channel between stable and beta (the newest release, pre-releases included).",
         "operationId": "post_panel_api_server_setUpdateChannel",
         "requestBody": {
           "required": true,
@@ -7350,7 +7350,7 @@
                 "properties": {
                   "dev": {
                     "type": "boolean",
-                    "description": "true = dev channel, false = stable."
+                    "description": "true = beta channel, false = stable."
                   }
                 },
                 "required": [
