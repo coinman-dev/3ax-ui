@@ -19,6 +19,26 @@ done
 cur_dir="$(cd -P "$(dirname "$b_source")" > /dev/null 2>&1 && pwd || pwd -P)"
 script_name=$(basename "$0")
 
+# 3AX-UI: run from a cloned checkout, update.sh builds that source
+# (scripts/build-local.sh) instead of downloading a release.
+is_local_source_install() {
+    [[ "${script_name}" == "update.sh" ]] || return 1
+    local f
+    for f in main.go go.mod DockerInit.sh scripts/build-local.sh internal frontend .git; do
+        [[ -e "${cur_dir}/${f}" ]] || return 1
+    done
+}
+
+# 3AX-UI beta channel: the highest version among all published releases,
+# pre-releases included; "~" makes 2.0.0-beta.2 sort below 2.0.0.
+resolve_newest_tag() {
+    ${curl_bin} -Ls "https://api.github.com/repos/coinman-dev/3ax-ui/releases?per_page=30" 2> /dev/null |
+        grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' |
+        grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' |
+        awk '{ key = $0; sub(/^v/, "", key); sub(/-/, "~", key); print key " " $0 }' |
+        sort -V -k1,1 | tail -n 1 | awk '{print $2}'
+}
+
 # Check command exist function
 _command_exists() {
     type "$1" &> /dev/null
@@ -510,7 +530,7 @@ require_repo_files() {
     for name in "$@"; do
         status=$(${curl_bin} -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${ref}/${name}")
         if [[ "${status}" != "200" ]]; then
-            _fail "ERROR: ${name} is not available for ${ref} (HTTP ${status}). Update to a release that ships it, or to 'dev-latest'. The current installation is untouched."
+            _fail "ERROR: ${name} is not available for ${ref} (HTTP ${status}). Update to a release that ships it. The current installation is untouched."
         fi
     done
 }
@@ -527,11 +547,30 @@ update_x-ui() {
         _fail "ERROR: Current x-ui version: unknown"
     fi
 
+    local local_build=false
+    archive="${xui_folder}-linux-$(arch).tar.gz"
+    if is_local_source_install; then
+        echo -e "${green}Local source detected at ${cur_dir} -- building it instead of downloading a release...${plain}"
+        if bash "${cur_dir}/scripts/build-local.sh" "${archive}" "$(arch)"; then
+            local_build=true
+            tag_version="v$(tr -d '[:space:]' < "${cur_dir}/internal/config/version") (local build)"
+        else
+            echo -e "${yellow}The local build failed -- updating from the published release instead.${plain}"
+        fi
+    fi
+
+    if [[ "$local_build" != true ]]; then
     echo -e "${green}Downloading new x-ui version...${plain}"
 
-    # XUI_UPDATE_TAG lets the panel target a specific release tag (e.g. the
-    # rolling dev-latest pre-release). Empty keeps the default latest-stable flow.
-    if [[ -n "${XUI_UPDATE_TAG}" ]]; then
+    # XUI_UPDATE_TAG lets the panel target a specific release tag; "beta" (or
+    # --beta) takes the newest release, pre-releases included. Empty is stable.
+    if [[ "${XUI_UPDATE_TAG}" == "beta" || "$1" == "--beta" ]]; then
+        tag_version=$(resolve_newest_tag)
+        if [[ -z "$tag_version" ]]; then
+            _fail "ERROR: Failed to find the newest release, it may be due to GitHub API restrictions, please try it later"
+        fi
+        echo -e "${yellow}Beta channel: newest release, pre-releases included: ${tag_version}${plain}"
+    elif [[ -n "${XUI_UPDATE_TAG}" ]]; then
         tag_version="${XUI_UPDATE_TAG}"
         echo -e "${green}Using update tag: ${tag_version}${plain}"
     else
@@ -541,12 +580,9 @@ update_x-ui() {
         fi
     fi
     echo -e "Got x-ui latest version: ${tag_version}, beginning the installation..."
-    # x-ui.rc and the unit files must come from the binary's own release; only the
-    # rolling dev build tracks main. x-ui.sh ships in the archive and needs no GitHub check.
+    # x-ui.rc and the unit files must come from the binary's own release.
+    # x-ui.sh ships in the archive and needs no GitHub check.
     script_ref="${tag_version}"
-    if [[ "${tag_version}" == "dev-latest" ]]; then
-        script_ref="main"
-    fi
     # The unit files are only fetched when the release tarball lacks them, so
     # they are checked at that point instead of here.
     [[ $release == "alpine" ]] && require_repo_files "${script_ref}" "x-ui.rc"
@@ -561,7 +597,6 @@ update_x-ui() {
     # Releases publish <asset>.sha256 next to each archive. A mismatch or a
     # failed sidecar download aborts the update; only a 404 (releases
     # predating the sidecar) is tolerated with a warning.
-    archive="${xui_folder}-linux-$(arch).tar.gz"
     rm -f "${archive}.sha256"
     sidecar_code=$(${curl_bin} -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${archive}.sha256" -w '%{http_code}' "https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz.sha256" 2> /dev/null)
     if [[ "${sidecar_code}" == "200" ]]; then
@@ -580,6 +615,7 @@ update_x-ui() {
         rm -f "${archive}.sha256" "${archive}"
         _fail "ERROR: Failed to download the checksum for x-ui-linux-$(arch).tar.gz (HTTP ${sidecar_code})"
     fi
+    fi
 
     # Download everything before x-ui stops, because its Xray and any panel egress bridge
     # stop with it. Alpine's init script is the only file the archive lacks.
@@ -587,7 +623,11 @@ update_x-ui() {
         echo -e "${green}Downloading startup unit x-ui.rc...${plain}"
         xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
         rm -f "${xui_rc_temp}"
-        ${curl_bin} -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.rc" > /dev/null 2>&1
+        if [[ "${local_build:-false}" == true ]]; then
+            cp -f "${cur_dir}/x-ui.rc" "${xui_rc_temp}"
+        else
+            ${curl_bin} -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.rc" > /dev/null 2>&1
+        fi
         if [[ $? -ne 0 ]]; then
             rm -f "${xui_rc_temp}" "${archive}"
             _fail "ERROR: Failed to download startup unit x-ui.rc, please be sure that your server can access GitHub"

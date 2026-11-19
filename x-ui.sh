@@ -156,7 +156,7 @@ update() {
 }
 
 update_dev() {
-    confirm "This will update x-ui to the latest DEV commit (the rolling 'dev-latest' build, not a stable release). Your data is preserved. Continue?" "y"
+    confirm "This will update x-ui to the beta channel: the newest release, pre-releases included, which may contain bugs. Your data is preserved. Continue?" "y"
     if [[ $? != 0 ]]; then
         LOGE "Cancelled"
         if [[ $# == 0 ]]; then
@@ -164,11 +164,11 @@ update_dev() {
         fi
         return 0
     fi
-    # XUI_UPDATE_TAG tells update.sh to install the dev-latest pre-release
-    # instead of the latest stable tag.
-    XUI_UPDATE_TAG="dev-latest" bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/update.sh)
+    # XUI_UPDATE_TAG=beta tells update.sh to take the newest release,
+    # pre-releases included, instead of the latest stable tag.
+    XUI_UPDATE_TAG="beta" bash <(curl -Ls https://raw.githubusercontent.com/coinman-dev/3ax-ui/main/update.sh)
     if [[ $? == 0 ]]; then
-        LOGI "Dev update is complete, Panel has automatically restarted "
+        LOGI "Beta update is complete, Panel has automatically restarted "
         before_show_menu
     fi
 }
@@ -243,7 +243,7 @@ update_menu() {
 }
 
 legacy_version() {
-    echo -n "Enter the panel version (like 2.4.0):"
+    echo -n "Enter the panel version (like 1.8.1):"
     read -r tag_version
 
     if [ -z "$tag_version" ]; then
@@ -1427,7 +1427,15 @@ ssl_cert_issue_main() {
                 echo "$domains"
                 read -rp "Please enter a domain from the list to renew the SSL certificate: " domain
                 if echo "$domains" | grep -qw "$domain"; then
-                    ~/.acme.sh/acme.sh --renew -d ${domain} --force
+                    # 3AX-UI: like Revoke above, the "ip" folder is tracked by acme.sh
+                    # under the address(es) themselves, so renew those.
+                    local acme_ids="${domain}"
+                    if [[ "${domain}" == "ip" ]]; then
+                        acme_ids=$(~/.acme.sh/acme.sh --list 2> /dev/null | awk 'NR>1 {print $1}' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$|:')
+                    fi
+                    for id in ${acme_ids}; do
+                        ~/.acme.sh/acme.sh --renew -d "${id}" --force
+                    done
                     LOGI "Certificate forcefully renewed for domain: $domain"
                 else
                     echo "Invalid domain entered."
@@ -1734,8 +1742,8 @@ ssl_cert_issue_for_ip() {
     local webCertFile="${certPath}/fullchain.pem"
     local webKeyFile="${certPath}/privkey.pem"
 
-    read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         if [[ -f "$webCertFile" && -f "$webKeyFile" ]]; then
             ${xui_folder}/x-ui cert -webCert "$webCertFile" -webCertKey "$webKeyFile"
             LOGI "Panel paths set for IP: $server_ip"
@@ -1952,8 +1960,8 @@ ssl_cert_issue() {
     fi
 
     # Prompt user to set panel paths after successful certificate installation
-    read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         local webCertFile="/root/cert/${domain}/fullchain.pem"
         local webKeyFile="/root/cert/${domain}/privkey.pem"
 
@@ -2101,8 +2109,8 @@ ssl_cert_issue_CF() {
         fi
 
         # Prompt user to set panel paths after successful certificate installation
-        read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
-        if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+        read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
+        if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
             local webCertFile="${certPath}/fullchain.pem"
             local webKeyFile="${certPath}/privkey.pem"
 
@@ -3491,7 +3499,7 @@ show_usage() {
 │  ${blue}x-ui log${plain}                   - Check logs                       │
 │  ${blue}x-ui banlog${plain}                - Check Fail2ban ban logs          │
 │  ${blue}x-ui update${plain}                - Update                           │
-│  ${blue}x-ui update-dev${plain}            - Update to Dev channel (latest)   │
+│  ${blue}x-ui update-beta${plain}           - Update to Beta channel           │
 │  ${blue}x-ui update-all-geofiles${plain}   - Update all geo files             │
 │  ${blue}x-ui migrateDB [file]${plain}      - Convert .db <-> .dump (SQLite)   │
 │  ${blue}x-ui pgclient [ver]${plain}        - Upgrade pg_dump/pg_restore tools │
@@ -3504,12 +3512,12 @@ show_usage() {
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
-│  ${green}3X-UI Panel Management Script${plain}                │
+│  ${green}3AX-UI Panel Management Script${plain}               │
 │  ${green}0.${plain} Exit Script                               │
 │────────────────────────────────────────────────│
 │  ${green}1.${plain} Install                                   │
 │  ${green}2.${plain} Update                                    │
-│  ${green}3.${plain} Update to Dev Channel (latest commit)     │
+│  ${green}3.${plain} Update to Beta Channel (pre-release)      │
 │  ${green}4.${plain} Update Menu                               │
 │  ${green}5.${plain} Legacy Version                            │
 │  ${green}6.${plain} Uninstall                                 │
@@ -3677,7 +3685,7 @@ if [[ $# -gt 0 ]]; then
         "update")
             check_install 0 && update 0
             ;;
-        "update-dev")
+        "update-dev" | "update-beta")
             check_install 0 && update_dev 0
             ;;
         "legacy")

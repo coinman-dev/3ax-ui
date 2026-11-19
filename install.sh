@@ -50,6 +50,44 @@ else
 fi
 export NONINTERACTIVE
 
+# 3AX-UI debug / diagnostic mode: the panel listens on 127.0.0.1 over plain HTTP
+# (reach it through an SSH tunnel), so no certificate or public URL is needed.
+# XUI_DEBUG_MODE=1 selects it without asking, XUI_DEBUG_PORT sets the port.
+XUI_DEBUG_INSTALL=0
+if [[ "${XUI_DEBUG_MODE:-}" == "1" ]]; then
+    XUI_DEBUG_INSTALL=1
+elif [[ "$NONINTERACTIVE" != "1" && -z "${XUI_DEBUG_MODE:-}" ]]; then
+    read -rp "Install the panel in debug / diagnostic mode (localhost only, plain HTTP, default port 8080)? [y/N]: " debug_answer
+    [[ "${debug_answer,,}" == "y" || "${debug_answer,,}" == "yes" ]] && XUI_DEBUG_INSTALL=1
+fi
+if [[ "$XUI_DEBUG_INSTALL" == "1" ]]; then
+    NONINTERACTIVE=1
+    export XUI_SSL_MODE=none
+    export XUI_PANEL_PORT="${XUI_DEBUG_PORT:-${XUI_PANEL_PORT:-8080}}"
+    echo -e "${yellow}Debug mode: the panel will listen on 127.0.0.1:${XUI_PANEL_PORT} over HTTP.${plain}"
+fi
+
+# 3AX-UI: run from a cloned checkout, install.sh builds the panel from that
+# source (scripts/build-local.sh) instead of downloading a release.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2> /dev/null && pwd)" || script_dir=""
+is_local_source_install() {
+    [[ "$(basename "${BASH_SOURCE[0]:-}")" == "install.sh" && -n "$script_dir" ]] || return 1
+    local f
+    for f in main.go go.mod DockerInit.sh scripts/build-local.sh internal frontend .git; do
+        [[ -e "${script_dir}/${f}" ]] || return 1
+    done
+}
+
+# 3AX-UI beta channel: the highest version among all published releases,
+# pre-releases included; "~" makes 2.0.0-beta.2 sort below 2.0.0.
+resolve_newest_tag() {
+    curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/coinman-dev/3ax-ui/releases?per_page=30" |
+        grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' |
+        grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' |
+        awk '{ key = $0; sub(/^v/, "", key); sub(/-/, "~", key); print key " " $0 }' |
+        sort -V -k1,1 | tail -n 1 | awk '{print $2}'
+}
+
 # Simple helpers
 is_ipv4() {
     [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && return 0 || return 1
@@ -911,9 +949,9 @@ ssl_cert_issue() {
     if [[ "$NONINTERACTIVE" == "1" ]]; then
         setPanel="y"
     else
-        read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
+        read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
     fi
-    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         local webCertFile="/root/cert/${domain}/fullchain.pem"
         local webKeyFile="/root/cert/${domain}/privkey.pem"
 
@@ -1776,7 +1814,7 @@ require_repo_files() {
         status=$(curl -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${ref}/${name}")
         if [[ "${status}" != "200" ]]; then
             echo -e "${red}${name} is not available for ${ref} (HTTP ${status})${plain}"
-            echo -e "${red}Install a release that ships it, or 'dev' for the rolling build. Your existing installation has not been touched.${plain}"
+            echo -e "${red}Install a release that ships it. Your existing installation has not been touched.${plain}"
             exit 1
         fi
     done
@@ -1786,7 +1824,34 @@ install_x-ui() {
     cd ${xui_folder%/x-ui}/
 
     # Download resources
-    if [ $# == 0 ]; then
+    local local_build=false
+    if is_local_source_install; then
+        echo -e "${green}Local source detected at ${script_dir} -- building it instead of downloading a release...${plain}"
+        if bash "${script_dir}/scripts/build-local.sh" "${xui_folder}-linux-$(arch).tar.gz" "$(arch)"; then
+            local_build=true
+            tag_version="v$(tr -d '[:space:]' < "${script_dir}/internal/config/version") (local build)"
+        else
+            echo -e "${yellow}The local build failed -- installing the published release instead.${plain}"
+        fi
+    fi
+    if [[ "$local_build" == true ]]; then
+        :
+    elif [[ "$1" == "--beta" || "$1" == "beta" ]]; then
+        tag_version=$(resolve_newest_tag)
+        if [[ -z "$tag_version" ]]; then
+            echo -e "${red}Failed to find the newest release, it may be due to GitHub API restrictions, please try it later${plain}"
+            exit 1
+        fi
+        echo -e "${yellow}Beta channel: installing the newest release, pre-releases included: ${tag_version}${plain}"
+        url="https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz"
+        curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 --speed-limit 1 --speed-time 300 -o ${xui_folder}-linux-$(arch).tar.gz ${url}
+        if [[ $? -ne 0 || ! -s ${xui_folder}-linux-$(arch).tar.gz ]]; then
+            rm ${xui_folder}-linux-$(arch).tar.gz -f
+            echo -e "${red}Downloading x-ui ${tag_version} failed, please be sure that your server can access GitHub ${plain}"
+            exit 1
+        fi
+        verify_release_checksum "${url}" "${xui_folder}-linux-$(arch).tar.gz"
+    elif [ $# == 0 ]; then
         tag_version=$(resolve_latest_tag)
         if [[ ! -n "$tag_version" ]]; then
             echo -e "${red}Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later${plain}"
@@ -1806,20 +1871,13 @@ install_x-ui() {
         verify_release_checksum "https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz" "${xui_folder}-linux-$(arch).tar.gz"
     else
         tag_version=$1
-        # The rolling dev channel ships under a fixed, non-semver tag that is
-        # force-moved to the latest main commit on every push. Accept `dev` as a
-        # convenient alias and skip the numeric floor check for it.
-        if [[ "$tag_version" == "dev" || "$tag_version" == "dev-latest" ]]; then
-            tag_version="dev-latest"
-            echo -e "${yellow}Installing the rolling dev build (tag: dev-latest). This is a per-commit pre-release, not a stable version.${plain}"
-        else
-            tag_version_numeric=${tag_version#v}
-            min_version="2.3.5"
-
-            if [[ "$(printf '%s\n' "$min_version" "$tag_version_numeric" | sort -V | head -n1)" != "$min_version" ]]; then
-                echo -e "${red}Please use a newer version (at least v2.3.5). Exiting installation.${plain}"
-                exit 1
-            fi
+        # 3AX-UI 2.0.0 is the first release on this installer's layout; older
+        # tags install with their own install.sh (x-ui legacy).
+        tag_version_numeric=${tag_version#v}
+        min_version="2.0.0"
+        if [[ "$(printf '%s\n' "$min_version" "${tag_version_numeric%%-*}" | sort -V | head -n1)" != "$min_version" ]]; then
+            echo -e "${red}This installer installs v2.0.0 or newer. For an older version run its own installer: x-ui legacy.${plain}"
+            exit 1
         fi
 
         url="https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz"
@@ -1837,19 +1895,21 @@ install_x-ui() {
         verify_release_checksum "${url}" "${xui_folder}-linux-$(arch).tar.gz"
     fi
     # x-ui.sh, x-ui.rc and the unit files must come from the same release as
-    # the binary; only the rolling dev build tracks main.
+    # the binary; a local build takes them from the checkout it built.
     local script_ref="${tag_version}"
-    if [[ "${tag_version}" == "dev-latest" ]]; then
-        script_ref="main"
-    fi
-    # The unit files are only fetched when the release tarball lacks them, so
-    # they are checked at that point instead of here.
-    local required_files=("x-ui.sh")
-    [[ $release == "alpine" ]] && required_files+=("x-ui.rc")
-    require_repo_files "${script_ref}" "${required_files[@]}"
     local xui_script_temp="/usr/bin/x-ui-temp.$$"
     rm -f "${xui_script_temp}"
-    curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.sh"
+    if [[ "$local_build" == true ]]; then
+        script_ref="main"
+        cp -f "${script_dir}/x-ui.sh" "${xui_script_temp}"
+    else
+        # The unit files are only fetched when the release tarball lacks them, so
+        # they are checked at that point instead of here.
+        local required_files=("x-ui.sh")
+        [[ $release == "alpine" ]] && required_files+=("x-ui.rc")
+        require_repo_files "${script_ref}" "${required_files[@]}"
+        curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.sh"
+    fi
     if [[ $? -ne 0 ]]; then
         rm -f "${xui_script_temp}"
         echo -e "${red}Failed to download x-ui.sh${plain}"
@@ -1986,6 +2046,11 @@ install_x-ui() {
     chmod +x /usr/bin/x-ui
     mkdir -p /var/log/x-ui
     config_after_install
+    if [[ "${XUI_DEBUG_INSTALL:-0}" == "1" ]]; then
+        ${xui_folder}/x-ui setting -listenIP 127.0.0.1 > /dev/null 2>&1
+        echo -e "${yellow}Debug mode: the panel listens on 127.0.0.1:${XUI_PANEL_PORT} only.${plain}"
+        echo -e "${yellow}Open it through an SSH tunnel: ssh -L ${XUI_PANEL_PORT}:127.0.0.1:${XUI_PANEL_PORT} root@<server>, then http://127.0.0.1:${XUI_PANEL_PORT}/<webBasePath>${plain}"
+    fi
 
     # Etckeeper compatibility
     if [ -d "/etc/.git" ]; then
@@ -2004,7 +2069,11 @@ install_x-ui() {
     if [[ $release == "alpine" ]]; then
         xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
         rm -f "${xui_rc_temp}"
-        curl -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.rc"
+        if [[ "${local_build:-false}" == true ]]; then
+            cp -f "${script_dir}/x-ui.rc" "${xui_rc_temp}"
+        else
+            curl -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${script_ref}/x-ui.rc"
+        fi
         if [[ $? -ne 0 ]]; then
             rm -f "${xui_rc_temp}"
             echo -e "${red}Failed to download x-ui.rc${plain}"
