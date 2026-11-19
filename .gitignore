@@ -44,3 +44,10 @@ docker-compose.override.yml
 
 # Ignore .env (Environment Variables) file
 .env
+
+# 3AX-UI: local AI notes (only .ai/PROJECT.md is tracked) and local build outputs
+.ai/
+/3ax-ui
+/release.sh
+build/
+target/
