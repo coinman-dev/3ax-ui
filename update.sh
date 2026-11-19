@@ -39,6 +39,23 @@ resolve_newest_tag() {
         sort -V -k1,1 | tail -n 1 | awk '{print $2}'
 }
 
+# 3AX-UI 1.x ran AmneziaWG with awg-quick and iptables; its servers move to
+# upstream's kernel mode, which also needs nft. Only hosts that ran AWG get it.
+prepare_ax1x_kernel_awg() {
+    [[ "${current_xui_version}" =~ ^v?1\. ]] || return 0
+    command -v awg > /dev/null 2>&1 || return 0
+    command -v nft > /dev/null 2>&1 && return 0
+    echo -e "${green}Installing nftables for AmneziaWG kernel mode...${plain}"
+    case "${release}" in
+        ubuntu | debian | armbian) apt-get install -y -q nftables > /dev/null 2>&1 ;;
+        fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol | centos) dnf install -y -q nftables > /dev/null 2>&1 || yum install -y -q nftables > /dev/null 2>&1 ;;
+        arch | manjaro | parch) pacman -Sy --noconfirm --needed nftables > /dev/null 2>&1 ;;
+        opensuse-tumbleweed | opensuse-leap) zypper -q install -y nftables > /dev/null 2>&1 ;;
+        alpine) apk add --no-cache nftables > /dev/null 2>&1 ;;
+    esac
+    command -v nft > /dev/null 2>&1 || echo -e "${yellow}Could not install nftables; AmneziaWG kernel mode will report it as missing in the panel.${plain}"
+}
+
 # Check command exist function
 _command_exists() {
     type "$1" &> /dev/null
@@ -736,6 +753,7 @@ update_x-ui() {
 
     echo -e "${green}Changing owner...${plain}"
     chown -R root:root ${xui_folder} > /dev/null 2>&1
+    prepare_ax1x_kernel_awg
 
     if [ -f "${xui_folder}/bin/config.json" ]; then
         echo -e "${green}Changing on config file permissions...${plain}"

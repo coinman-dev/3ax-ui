@@ -152,6 +152,9 @@ func initModels() error {
 	if err := dropLegacyInboundPortUnique(); err != nil {
 		return err
 	}
+	if err := migrateAx1xDatabase(); err != nil {
+		return err
+	}
 	if err := migrateHostVerifyPeerCertByNameColumn(); err != nil {
 		return err
 	}
