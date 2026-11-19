@@ -435,7 +435,14 @@ _xui_service_write_paths_dropin() {
         bin_folder="${main_folder%/}/${bin_folder#./}"
     fi
 
-    for path in "$db_folder" "$log_folder" "$bin_folder" "$main_folder"; do
+    # 3AX-UI: the first start after a 1.x upgrade retires 1.x's tunnel configs in
+    # /etc; the next update writes this drop-in again without them.
+    local ax1x_paths=()
+    if [[ "${current_xui_version:-}" =~ ^v?1\. ]]; then
+        ax1x_paths=(/etc/amnezia/amneziawg /etc/wireguard /etc/ndppd.conf)
+    fi
+
+    for path in "$db_folder" "$log_folder" "$bin_folder" "$main_folder" ${ax1x_paths[@]+"${ax1x_paths[@]}"}; do
         [[ "$path" == /* ]] || continue
         # ReadWritePaths= is a whitespace-separated list, and a folder whose
         # name contains whitespace cannot be written into it without relying on

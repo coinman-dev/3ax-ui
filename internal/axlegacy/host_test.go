@@ -105,15 +105,32 @@ func TestRetireTakesThe1xTunnelsDownOnce(t *testing.T) {
 	}
 }
 
+// The sandboxed unit can write ndppd.conf (a bind mount) but not unlink it from
+// read-only /etc, so the file is emptied in place; a read-only dir stands in.
 func TestRetireStopsNdppdWhenOnlyOurBlocksWereThere(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only directory standing in for the sandbox")
+	}
 	h := setupHost(t, []database.AxLegacyInterface{{Kind: "awg", Name: "awg0"}},
 		"route-ttl 30000\n\n# --- BEGIN AWG ---\nproxy eth0 {\n}\n# --- END AWG ---\n")
+	readOnlyEtc := filepath.Join(h.dir, "etc")
+	if err := os.Mkdir(readOnlyEtc, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(ndppdConf, filepath.Join(readOnlyEtc, "ndppd.conf")); err != nil {
+		t.Fatal(err)
+	}
+	ndppdConf = filepath.Join(readOnlyEtc, "ndppd.conf")
+	if err := os.Chmod(readOnlyEtc, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyEtc, 0o700) })
 	RetireHost()
 	if !slices.Contains(h.commands, "systemctl stop ndppd") {
 		t.Errorf("ndppd not stopped: %q", h.commands)
 	}
-	if _, err := os.Stat(ndppdConf); !os.IsNotExist(err) {
-		t.Errorf("ndppd.conf with nothing left in it was kept")
+	if left, err := os.ReadFile(ndppdConf); err != nil || len(left) != 0 {
+		t.Errorf("ndppd.conf = %q, %v; want it emptied", left, err)
 	}
 }
 

@@ -1,6 +1,5 @@
-// Package axlegacy retires what a 3AX-UI 1.x panel left running on the host.
-// 1.x brought its tunnels up with awg-quick / wg-quick on its own interfaces;
-// they outlive the panel and hold the UDP ports the AmneziaWG inbounds need.
+// Package axlegacy retires the awg-quick / wg-quick tunnels a 3AX-UI 1.x panel
+// left up: they outlive it and hold the UDP ports the AmneziaWG inbounds need.
 package axlegacy
 
 import (
@@ -94,7 +93,10 @@ func stripNdppd() {
 	}
 	rest := strings.TrimSpace(ndppdSection.ReplaceAllString(string(raw), ""))
 	if rest == "" || rest == "route-ttl 30000" {
-		_ = os.Remove(ndppdConf)
+		// Emptied, not removed: the sandboxed unit cannot unlink files in /etc.
+		if err := os.WriteFile(ndppdConf, nil, 0o644); err != nil {
+			logger.Warning("3AX-UI 1.x cleanup: emptying ndppd.conf:", err)
+		}
 		_, _ = runHost("systemctl", "stop", "ndppd")
 		return
 	}
