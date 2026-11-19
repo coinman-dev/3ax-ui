@@ -1,0 +1,685 @@
+package tgbot
+
+import (
+	"context"
+	"crypto/rand"
+	"embed"
+	"fmt"
+	"html"
+	"math/big"
+	"net"
+	"net/url"
+	"os"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/eventbus"
+	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	"github.com/mhsanaei/3x-ui/v3/internal/web/global"
+	"github.com/mhsanaei/3x-ui/v3/internal/web/locale"
+	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
+
+	"github.com/mymmrac/telego"
+	ta "github.com/mymmrac/telego/telegoapi"
+	th "github.com/mymmrac/telego/telegohandler"
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpproxy"
+)
+
+var (
+	bot *telego.Bot
+	// botMu guards bot: EnsureBot may replace it while a background goroutine
+	// (the screen artwork warm-up) is still using the previous liveBot().
+	botMu sync.RWMutex
+	// botStop is closed by StopBot to end every in-flight call of the live bot.
+	botStop chan struct{}
+
+	// botCancel stores the function to cancel the context, stopping Long Polling gracefully.
+	botCancel context.CancelFunc
+	// tgBotMutex protects concurrent access to botCancel variable
+	tgBotMutex sync.Mutex
+	// botWG waits for the OnReceive Long Polling goroutine to finish.
+	botWG sync.WaitGroup
+
+	botHandler  *th.BotHandler
+	adminIds    []int64
+	adminTopics map[int64]int // admin chat -> forum topic (message_thread_id)
+	isRunning   bool
+	hostname    string
+	hashStorage *global.HashStorage
+
+	// EventBus is set from web layer to publish login/security events.
+	EventBus *eventbus.Bus
+
+	// Performance improvements
+	messageWorkerPool chan struct{} // Semaphore for limiting concurrent message processing
+
+	// Simple cache for frequently accessed data
+	statusCache struct {
+		data      *service.Status
+		timestamp time.Time
+		mutex     sync.RWMutex
+	}
+
+	serverStatsCache struct {
+		data      string
+		timestamp time.Time
+		mutex     sync.RWMutex
+	}
+)
+
+// liveBot is the current connection, or nil before login and after logout.
+func liveBot() *telego.Bot {
+	botMu.RLock()
+	defer botMu.RUnlock()
+	return bot
+}
+
+// clientDraft is one chat's add-client wizard state. Per-protocol secrets are
+// filled per-inbound on submit, so only the universal fields live here.
+type clientDraft struct {
+	sync.Mutex
+	receiverInboundID  int
+	receiverInboundIDs []int
+	email              string
+	limitIP            int
+	totalGB            int64
+	expiryTime         int64
+	enable             bool
+	tgID               string
+	subID              string
+	comment            string
+	reset              int
+}
+
+// chatUser names the admin a wizard belongs to. A private chat's ids are equal;
+// in a group they are not, and each admin at its keyboard fills in their own.
+type chatUser struct {
+	chatID int64
+	userID int64
+}
+
+// messageActor reads the sender off a message. A post without one (a channel)
+// keys to user 0, an id no admin can hold.
+func messageActor(message telego.Message) chatUser {
+	if message.From == nil {
+		return chatUser{chatID: message.Chat.ID}
+	}
+	return chatUser{chatID: message.Chat.ID, userID: message.From.ID}
+}
+
+// callbackActor reads the admin who tapped the button, not the chat the keyboard
+// sits in: every admin in a group sees the same keyboard.
+func callbackActor(callbackQuery *telego.CallbackQuery) chatUser {
+	return chatUser{chatID: callbackQuery.Message.GetChat().ID, userID: callbackQuery.From.ID}
+}
+
+// clientDrafts keys a draft by the admin filling it in: the steps arrive on the
+// worker pool, so one draft let two admins fill in one client between them.
+type clientDrafts struct {
+	mu     sync.Mutex
+	drafts map[chatUser]*clientDraft
+}
+
+var addClientDrafts = &clientDrafts{drafts: make(map[chatUser]*clientDraft)}
+
+func (s *clientDrafts) forActor(actor chatUser) *clientDraft {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	draft, ok := s.drafts[actor]
+	if !ok {
+		draft = &clientDraft{}
+		s.drafts[actor] = draft
+	}
+	return draft
+}
+
+func (s *clientDrafts) reset(actor chatUser) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.drafts, actor)
+}
+
+// isAddClientStep reports whether callback data belongs to the add-client
+// wizard, the only flow that reads or writes a draft.
+func isAddClientStep(data string) bool {
+	return strings.HasPrefix(data, "add_client")
+}
+
+func (s *clientDrafts) resetAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.drafts = make(map[chatUser]*clientDraft)
+}
+
+// userStateStore guards the per-admin conversation states. The Telegram command
+// and callback handlers run on a worker-pool goroutine while the message handler
+// runs on the dispatch goroutine, so a bare map would be a concurrent-map-write
+// crash. It also expires abandoned conversations so a user who starts a flow and
+// goes silent doesn't leave an entry forever.
+type userStateStore struct {
+	mu        sync.Mutex
+	states    map[chatUser]userStateEntry
+	lastPrune time.Time
+}
+
+type userStateEntry struct {
+	state string
+	at    time.Time
+}
+
+var userStateMgr = &userStateStore{states: make(map[chatUser]userStateEntry)}
+
+func (s *userStateStore) set(actor chatUser, state string) {
+	s.mu.Lock()
+	s.states[actor] = userStateEntry{state: state, at: time.Now()}
+	s.mu.Unlock()
+}
+
+func (s *userStateStore) get(actor chatUser) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.states[actor]
+	return e.state, ok
+}
+
+func (s *userStateStore) clear(actor chatUser) {
+	s.mu.Lock()
+	delete(s.states, actor)
+	s.mu.Unlock()
+}
+
+func (s *userStateStore) reset() {
+	s.mu.Lock()
+	s.states = make(map[chatUser]userStateEntry)
+	s.mu.Unlock()
+}
+
+// maybePrune drops conversations older than maxAge, at most once per maxAge so a
+// busy bot doesn't sweep the whole map on every message.
+func (s *userStateStore) maybePrune(maxAge time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if now.Sub(s.lastPrune) < maxAge {
+		return
+	}
+	s.lastPrune = now
+	for id, e := range s.states {
+		if now.Sub(e.at) > maxAge {
+			delete(s.states, id)
+		}
+	}
+}
+
+// LoginStatus represents the result of a login attempt.
+type LoginStatus byte
+
+// Login status constants
+const (
+	LoginSuccess        LoginStatus = 1        // Login was successful
+	LoginFail           LoginStatus = 0        // Login failed
+	EmptyTelegramUserID             = int64(0) // Default value for empty Telegram user ID
+)
+
+// LoginAttempt contains safe metadata for panel login notifications.
+// It intentionally does not include attempted passwords.
+type LoginAttempt struct {
+	Username string
+	IP       string
+	Time     string
+	Status   LoginStatus
+	Reason   string
+}
+
+// Tgbot provides business logic for Telegram bot integration.
+// It handles bot commands, user interactions, and status reporting via Telegram.
+type Tgbot struct {
+	inboundService service.InboundService
+	clientService  service.ClientService
+	settingService service.SettingService
+	serverService  service.ServerService
+	xrayService    service.XrayService
+	lastStatus     *service.Status
+}
+
+// NewTgbot creates a new Tgbot instance.
+func (t *Tgbot) NewTgbot() *Tgbot {
+	return new(Tgbot)
+}
+
+// I18nBot retrieves a localized message for the bot interface. Every message is sent
+// HTML-parsed, so param values (remarks, e-mails, errors) are escaped here.
+func (t *Tgbot) I18nBot(name string, params ...string) string {
+	escaped := make([]string, len(params))
+	for i, param := range params {
+		key, value, found := strings.Cut(param, "==")
+		if !found {
+			escaped[i] = param
+			continue
+		}
+		escaped[i] = key + "==" + html.EscapeString(value)
+	}
+	return locale.I18n(locale.Bot, name, escaped...)
+}
+
+// GetHashStorage returns the hash storage instance for callback queries.
+func (t *Tgbot) GetHashStorage() *global.HashStorage {
+	return hashStorage
+}
+
+// getCachedStatus returns cached server status if it's fresh enough (less than 5 seconds old)
+func (t *Tgbot) getCachedStatus() (*service.Status, bool) {
+	statusCache.mutex.RLock()
+	defer statusCache.mutex.RUnlock()
+
+	if statusCache.data != nil && time.Since(statusCache.timestamp) < 5*time.Second {
+		return statusCache.data, true
+	}
+	return nil, false
+}
+
+// setCachedStatus updates the status cache
+func (t *Tgbot) setCachedStatus(status *service.Status) {
+	statusCache.mutex.Lock()
+	defer statusCache.mutex.Unlock()
+
+	statusCache.data = status
+	statusCache.timestamp = time.Now()
+}
+
+// getCachedServerStats returns cached server stats if it's fresh enough (less than 10 seconds old)
+func (t *Tgbot) getCachedServerStats() (string, bool) {
+	serverStatsCache.mutex.RLock()
+	defer serverStatsCache.mutex.RUnlock()
+
+	if serverStatsCache.data != "" && time.Since(serverStatsCache.timestamp) < 10*time.Second {
+		return serverStatsCache.data, true
+	}
+	return "", false
+}
+
+// setCachedServerStats updates the server stats cache
+func (t *Tgbot) setCachedServerStats(stats string) {
+	serverStatsCache.mutex.Lock()
+	defer serverStatsCache.mutex.Unlock()
+
+	serverStatsCache.data = stats
+	serverStatsCache.timestamp = time.Now()
+}
+
+// Start initializes and starts the Telegram bot with the provided translation files.
+func (t *Tgbot) Start(i18nFS embed.FS) error {
+	// Initialize localizer
+	err := locale.InitLocalizer(i18nFS, &t.settingService)
+	if err != nil {
+		return err
+	}
+
+	// If Start is called again (e.g. during reload), ensure any previous long-polling
+	// loop is stopped before creating a new bot / receiver.
+	StopBot()
+
+	// Initialize hash storage to store callback queries
+	hashStorage = global.NewHashStorage(20 * time.Minute)
+
+	// Initialize worker pool for concurrent message processing (max 10 concurrent handlers)
+	messageWorkerPool = make(chan struct{}, 10)
+
+	t.SetHostname()
+
+	// Get Telegram bot token
+	tgBotToken, err := t.settingService.GetTgBotToken()
+	if err != nil || tgBotToken == "" {
+		logger.Warning("Failed to get Telegram bot token:", err)
+		return err
+	}
+
+	// Get Telegram bot chat ID(s)
+	tgBotID, err := t.settingService.GetTgBotChatId()
+	if err != nil {
+		logger.Warning("Failed to get Telegram bot chat ID:", err)
+		return err
+	}
+
+	parsedAdminIds, parsedAdminTopics, err := parseAdminChats(tgBotID)
+	if err != nil {
+		logger.Warning("Failed to parse admin ID from Telegram bot chat ID:", err)
+		return err
+	}
+	tgBotMutex.Lock()
+	adminIds = parsedAdminIds
+	adminTopics = parsedAdminTopics
+	tgBotMutex.Unlock()
+
+	// Get Telegram bot proxy URL
+	tgBotProxy, err := t.settingService.GetTgBotProxy()
+	if err != nil {
+		logger.Warning("Failed to get Telegram bot proxy URL:", err)
+	}
+
+	// Get Telegram bot API server URL
+	tgBotAPIServer, err := t.settingService.GetTgBotAPIServer()
+	if err != nil {
+		logger.Warning("Failed to get Telegram bot API server URL:", err)
+	}
+
+	// Create new Telegram bot instance
+	stop := make(chan struct{})
+	botMu.Lock()
+	bot, err = t.NewBot(tgBotToken, tgBotProxy, tgBotAPIServer, stop)
+	if err == nil {
+		botStop = stop
+	}
+	botMu.Unlock()
+	if err != nil {
+		logger.Error("Failed to initialize Telegram bot API:", err)
+		return err
+	}
+
+	// Off the start path: with Telegram unreachable these block for a minute,
+	// holding the panel's signal loop and the sub server behind them.
+	go func(b *telego.Bot) {
+		t.resolveScreenArt()
+		t.trySetBotCommands(b)
+	}(liveBot())
+
+	// Start receiving Telegram bot messages
+	tgBotMutex.Lock()
+	alreadyRunning := isRunning || botCancel != nil
+	tgBotMutex.Unlock()
+	if !alreadyRunning {
+		logger.Info("Telegram bot receiver started")
+		go t.OnReceive()
+	}
+
+	return nil
+}
+
+func (t *Tgbot) trySetBotCommands(bot *telego.Bot) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Warning("Failed to register bot commands (Telegram may be rate-limiting); bot will continue without them:", r)
+		}
+	}()
+
+	// Only /start is advertised: the rest of the actions live on buttons, and
+	// the old list merely duplicated the menu. The commands still work.
+	err := bot.SetMyCommands(context.Background(), &telego.SetMyCommandsParams{
+		Commands: []telego.BotCommand{
+			{Command: "start", Description: t.I18nBot("tgbot.commands.startDesc")},
+		},
+	})
+	if err != nil {
+		logger.Warning("Failed to set bot commands:", err)
+	}
+}
+
+func isSupportedBotProxyScheme(proxyUrl string) bool {
+	return strings.HasPrefix(proxyUrl, "socks5://") ||
+		strings.HasPrefix(proxyUrl, "http://") ||
+		strings.HasPrefix(proxyUrl, "https://")
+}
+
+// createRobustFastHTTPClient creates a fasthttp.Client with proper connection handling
+func (t *Tgbot) createRobustFastHTTPClient(proxyUrl string, panelEgress func() string) *fasthttp.Client {
+	client := &fasthttp.Client{
+		// Connection timeouts
+		ReadTimeout:                   30 * time.Second,
+		WriteTimeout:                  30 * time.Second,
+		MaxIdleConnDuration:           60 * time.Second,
+		MaxConnDuration:               0, // unlimited, but controlled by MaxIdleConnDuration
+		MaxIdemponentCallAttempts:     3,
+		ReadBufferSize:                4096,
+		WriteBufferSize:               4096,
+		MaxConnsPerHost:               100,
+		MaxConnWaitTimeout:            10 * time.Second,
+		DisableHeaderNamesNormalizing: false,
+		DisablePathNormalizing:        false,
+		// resetTimeout stays false to keep the pre-RetryIfErr retry timing.
+		RetryIfErr: func(request *fasthttp.Request, _ int, _ error) (bool, bool) {
+			method := string(request.Header.Method())
+			return false, method == "GET" || method == "POST"
+		},
+	}
+
+	if proxyUrl != "" {
+		if strings.HasPrefix(proxyUrl, "socks5://") {
+			client.Dial = fasthttpproxy.FasthttpSocksDialer(proxyUrl)
+		} else {
+			client.Dial = fasthttpproxy.FasthttpHTTPDialer(proxyUrl)
+		}
+	} else if panelEgress != nil {
+		client.Dial = panelEgressDial(panelEgress)
+	}
+
+	return client
+}
+
+// panelEgressDial resolves the panel egress bridge per connection, so a bridge
+// that comes up after bot start (Xray started later) is used without a restart.
+func panelEgressDial(resolve func() string) fasthttp.DialFunc {
+	return func(addr string) (net.Conn, error) {
+		if bridge := resolve(); bridge != "" {
+			return fasthttpproxy.FasthttpSocksDialer(bridge)(addr)
+		}
+		return fasthttp.Dial(addr)
+	}
+}
+
+// NewBot creates a new Telegram bot instance with optional proxy and API server settings.
+func (t *Tgbot) NewBot(token string, proxyUrl string, apiServerUrl string, stopped <-chan struct{}) (*telego.Bot, error) {
+	// Validate proxy URL if provided
+	if proxyUrl != "" {
+		if !isSupportedBotProxyScheme(proxyUrl) {
+			logger.Warning("Unsupported proxy scheme (want socks5:// or http(s)://), ignoring proxy")
+			proxyUrl = "" // Clear invalid proxy
+		} else if _, err := url.Parse(proxyUrl); err != nil {
+			logger.Warningf("Can't parse proxy URL, ignoring proxy: %v", err)
+			proxyUrl = ""
+		}
+	}
+
+	// Validate API server URL if provided
+	if apiServerUrl != "" {
+		safeURL, err := service.SanitizePublicHTTPURL(apiServerUrl, false)
+		if err != nil {
+			logger.Warningf("Invalid or blocked API server URL, using default: %v", err)
+			apiServerUrl = ""
+		} else {
+			apiServerUrl = safeURL
+		}
+	}
+
+	// Create robust fasthttp client
+	client := t.createRobustFastHTTPClient(proxyUrl, t.settingService.PanelEgressProxyURL)
+
+	// Build bot options
+	var options []telego.BotOption
+	options = append(options, telego.WithAPICaller(stoppableCaller{
+		inner:   ta.FastHTTPCaller{Client: client},
+		stopped: stopped,
+	}))
+
+	if apiServerUrl != "" {
+		options = append(options, telego.WithAPIServer(apiServerUrl))
+	}
+
+	return telego.NewBot(token, options...)
+}
+
+// IsRunning checks if the Telegram bot is currently running.
+func (t *Tgbot) IsRunning() bool {
+	tgBotMutex.Lock()
+	defer tgBotMutex.Unlock()
+	return isRunning
+}
+
+// adminSnapshot returns the admin chat list under the mutex Start and Stop
+// replace it under: a torn slice header is not a harmless race.
+func adminSnapshot() []int64 {
+	tgBotMutex.Lock()
+	defer tgBotMutex.Unlock()
+	return slices.Clone(adminIds)
+}
+
+// parseAdminChats reads "chatId[:topicId],..."; the optional topic targets a
+// forum topic in a supergroup, e.g. "123456789,-1001234567890:42".
+func parseAdminChats(raw string) ([]int64, map[int64]int, error) {
+	ids := make([]int64, 0)
+	topics := make(map[int64]int)
+	if strings.TrimSpace(raw) == "" {
+		return ids, topics, nil
+	}
+	for entry := range strings.SplitSeq(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		chatPart, topicPart, hasTopic := strings.Cut(entry, ":")
+		id, err := strconv.ParseInt(strings.TrimSpace(chatPart), 10, 64)
+		if err != nil {
+			return nil, nil, err
+		}
+		topic := 0
+		if hasTopic {
+			topic, err = strconv.Atoi(strings.TrimSpace(topicPart))
+			if err != nil {
+				return nil, nil, err
+			}
+			if topic <= 0 {
+				return nil, nil, fmt.Errorf("invalid topic ID %q for chat %d", topicPart, id)
+			}
+		}
+		// General is thread 1 internally, but the Bot API only reaches it with no thread id.
+		if hasTopic && topic != generalTopicID {
+			if prev, ok := topics[id]; ok && prev != topic {
+				return nil, nil, fmt.Errorf("chat %d has more than one topic configured", id)
+			}
+			topics[id] = topic
+		}
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, topics, nil
+}
+
+const generalTopicID = 1
+
+// adminTopic returns the forum topic configured for chatId, or 0 when the
+// chat has none and messages should go to the chat itself.
+func adminTopic(chatId int64) int {
+	tgBotMutex.Lock()
+	defer tgBotMutex.Unlock()
+	return adminTopics[chatId]
+}
+
+// inAdminTopic routes a document to the configured forum topic of its chat.
+func inAdminTopic(document *telego.SendDocumentParams) *telego.SendDocumentParams {
+	document.MessageThreadID = adminTopic(document.ChatID.ID)
+	return document
+}
+
+// SetHostname sets the hostname for the liveBot().
+func (t *Tgbot) SetHostname() {
+	host, err := os.Hostname()
+	if err != nil {
+		logger.Error("get hostname error:", err)
+		hostname = ""
+		return
+	}
+	hostname = host
+}
+
+// Stop safely stops the Telegram bot's Long Polling operation.
+// This method now calls the global StopBot function and cleans up other resources.
+func (t *Tgbot) Stop() {
+	StopBot()
+	logger.Info("Stop Telegram receiver ...")
+	tgBotMutex.Lock()
+	adminIds = nil
+	adminTopics = nil
+	tgBotMutex.Unlock()
+}
+
+// StopBot safely stops the Telegram bot's Long Polling operation by cancelling its context.
+// This is the global function called from main.go's signal handler and t.Stop().
+func StopBot() {
+	// Don't hold the mutex while cancelling/waiting.
+	tgBotMutex.Lock()
+	cancel := botCancel
+	botCancel = nil
+	handler := botHandler
+	botHandler = nil
+	isRunning = false
+	tgBotMutex.Unlock()
+
+	botMu.Lock()
+	if botStop != nil {
+		close(botStop)
+		botStop = nil
+	}
+	botMu.Unlock()
+
+	userStateMgr.reset()
+	addClientDrafts.resetAll()
+	broadcastResetAll()
+
+	if handler != nil {
+		_ = handler.Stop()
+	}
+
+	if cancel != nil {
+		logger.Info("Sending cancellation signal to Telegram liveBot()...")
+		// Cancels the context passed to UpdatesViaLongPolling; this closes updates channel
+		// and lets botHandler.Start() exit cleanly.
+		cancel()
+		botWG.Wait()
+		logger.Info("Telegram bot successfully stopped.")
+	}
+}
+
+// encodeQuery encodes the query string if it's longer than 64 characters.
+func (t *Tgbot) encodeQuery(query string) string {
+	// NOTE: we only need to hash for more than 64 chars
+	if len(query) <= 64 {
+		return query
+	}
+
+	return hashStorage.SaveHash(query)
+}
+
+// decodeQuery decodes a hashed query string back to its original form.
+func (t *Tgbot) decodeQuery(query string) (string, error) {
+	if !hashStorage.IsMD5(query) {
+		return query, nil
+	}
+
+	decoded, exists := hashStorage.GetValue(query)
+	if !exists {
+		return "", common.NewError("hash not found in storage!")
+	}
+
+	return decoded, nil
+}
+
+// randomLowerAndNum generates a random string of lowercase letters and numbers.
+func (t *Tgbot) randomLowerAndNum(length int) string {
+	charset := "abcdefghijklmnopqrstuvwxyz0123456789"
+	bytes := make([]byte, length)
+	for i := range bytes {
+		randomIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		bytes[i] = charset[randomIndex.Int64()]
+	}
+	return string(bytes)
+}
+
+// isSingleWord checks if the text contains only a single word.
+func (t *Tgbot) isSingleWord(text string) bool {
+	text = strings.TrimSpace(text)
+	re := regexp.MustCompile(`\s+`)
+	return re.MatchString(text)
+}

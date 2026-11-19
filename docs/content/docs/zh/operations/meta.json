@@ -1,0 +1,13 @@
+{
+  "title": "运维",
+  "icon": "ServerCog",
+  "pages": [
+    "reverse-proxy",
+    "multi-node",
+    "outbounds-routing",
+    "backup-restore",
+    "telegram-bot",
+    "discord-bot",
+    "security"
+  ]
+}

@@ -1,0 +1,512 @@
+package service
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/google/uuid"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	"github.com/mhsanaei/3x-ui/v3/internal/xray"
+
+	"gorm.io/gorm"
+)
+
+type CopyClientsResult struct {
+	Added   []string `json:"added"`
+	Skipped []string `json:"skipped"`
+	Errors  []string `json:"errors"`
+}
+
+// enrichClientStats refreshes identities from clients while preserving sibling-owned traffic.
+// The clients table, not the embedded settings JSON, matches the running Xray config (#6436).
+func (s *InboundService) enrichClientStats(db *gorm.DB, inbounds []*model.Inbound) {
+	if len(inbounds) == 0 {
+		return
+	}
+	clientsByInbound := s.backfillClientStats(db, inbounds)
+	for _, inbound := range inbounds {
+		clients := clientsByInbound[inbound.Id]
+		if len(clients) == 0 || len(inbound.ClientStats) == 0 {
+			continue
+		}
+		cMap := make(map[string]clientStatsIdentity, len(clients))
+		for _, c := range clients {
+			cMap[strings.ToLower(c.Email)] = c
+		}
+		for j := range inbound.ClientStats {
+			email := strings.ToLower(inbound.ClientStats[j].Email)
+			if c, ok := cMap[email]; ok {
+				inbound.ClientStats[j].UUID = c.UUID
+				inbound.ClientStats[j].SubId = c.SubID
+			}
+		}
+	}
+}
+
+// backfillClientStats loads identities once, then appends missing sibling-owned traffic.
+func (s *InboundService) backfillClientStats(db *gorm.DB, inbounds []*model.Inbound) map[int][]clientStatsIdentity {
+	ids := make([]int, 0, len(inbounds))
+	for _, inbound := range inbounds {
+		ids = append(ids, inbound.Id)
+	}
+	clientsByInbound, err := s.clientService.listStatsIdentitiesForInbounds(db, ids)
+	if err != nil {
+		logger.Warning("backfillClientStats:", err)
+		return nil
+	}
+	seenByInbound := make([]map[string]struct{}, len(inbounds))
+	missing := make(map[string]struct{})
+	for i, inbound := range inbounds {
+		clients := clientsByInbound[inbound.Id]
+		seen := make(map[string]struct{}, len(inbound.ClientStats))
+		for _, st := range inbound.ClientStats {
+			if st.Email != "" {
+				seen[strings.ToLower(st.Email)] = struct{}{}
+			}
+		}
+		seenByInbound[i] = seen
+		for _, c := range clients {
+			if c.Email == "" {
+				continue
+			}
+			if _, ok := seen[strings.ToLower(c.Email)]; !ok {
+				missing[c.Email] = struct{}{}
+			}
+		}
+	}
+	if len(missing) > 0 {
+		emails := make([]string, 0, len(missing))
+		for e := range missing {
+			emails = append(emails, e)
+		}
+		var extra []xray.ClientTraffic
+		var loadErr error
+		for _, batch := range chunkStrings(emails, sqlInChunk) {
+			var page []xray.ClientTraffic
+			if err := db.Model(xray.ClientTraffic{}).Where("email IN ?", batch).Find(&page).Error; err != nil {
+				loadErr = err
+				break
+			}
+			extra = append(extra, page...)
+		}
+		if loadErr != nil {
+			logger.Warning("backfillClientStats:", loadErr)
+		} else {
+			byEmail := make(map[string]xray.ClientTraffic, len(extra))
+			for _, st := range extra {
+				byEmail[strings.ToLower(st.Email)] = st
+			}
+			for i, inbound := range inbounds {
+				for _, c := range clientsByInbound[inbound.Id] {
+					if c.Email == "" {
+						continue
+					}
+					key := strings.ToLower(c.Email)
+					if _, ok := seenByInbound[i][key]; ok {
+						continue
+					}
+					if st, ok := byEmail[key]; ok {
+						inbound.ClientStats = append(inbound.ClientStats, st)
+						seenByInbound[i][key] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	return clientsByInbound
+}
+
+// emailSpellings returns the arguments a "LOWER(col) IN ? OR col IN ?" match
+// needs: SQLite's LOWER() folds ASCII only, so non-ASCII capitals get every case.
+func emailSpellings(emails []string) []string {
+	seen := make(map[string]struct{}, len(emails))
+	out := make([]string, 0, len(emails))
+	for _, e := range emails {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		variants := []string{strings.ToLower(e)}
+		if strings.ContainsFunc(e, func(r rune) bool { return r > unicode.MaxASCII }) {
+			variants = caseVariants(e)
+		}
+		for _, v := range variants {
+			if _, dup := seen[v]; !dup {
+				seen[v] = struct{}{}
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+// emailUsedByOtherInbounds reports whether email lives in any inbound other than
+// exceptInboundId. Inside a transaction pass tx: a pool query there starves the pool.
+func (s *InboundService) emailUsedByOtherInbounds(db *gorm.DB, email string, exceptInboundId int) (bool, error) {
+	spellings := emailSpellings([]string{email})
+	if len(spellings) == 0 {
+		return false, nil
+	}
+	var count int64
+	err := db.Table("client_inbounds").
+		Joins("JOIN clients ON clients.id = client_inbounds.client_id").
+		Where("client_inbounds.inbound_id != ? AND (LOWER(clients.email) IN ? OR clients.email IN ?)",
+			exceptInboundId, spellings, spellings).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// emailsUsedByOtherInbounds is emailUsedByOtherInbounds for a batch; the result
+// is keyed by the lower-cased email.
+func (s *InboundService) emailsUsedByOtherInbounds(db *gorm.DB, emails []string, exceptInboundId int) (map[string]bool, error) {
+	shared := make(map[string]bool, len(emails))
+	for _, batch := range chunkStrings(emailSpellings(emails), sqlInChunk) {
+		var rows []struct{ Email string }
+		err := db.Table("client_inbounds").
+			Joins("JOIN clients ON clients.id = client_inbounds.client_id").
+			Select("DISTINCT clients.email AS email").
+			Where("client_inbounds.inbound_id != ? AND (LOWER(clients.email) IN ? OR clients.email IN ?)", exceptInboundId, batch, batch).
+			Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			shared[strings.ToLower(r.Email)] = true
+		}
+	}
+	return shared, nil
+}
+
+func (s *InboundService) writeBackClientSubID(sourceInboundID int, client model.Client, subID string) (bool, error) {
+	client.SubID = subID
+	client.UpdatedAt = time.Now().UnixMilli()
+	if client.Email == "" {
+		return false, common.NewError("empty client email")
+	}
+
+	settingsBytes, err := json.Marshal(map[string][]model.Client{
+		"clients": {client},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	updatePayload := &model.Inbound{
+		Id:       sourceInboundID,
+		Settings: string(settingsBytes),
+	}
+	return s.clientService.UpdateInboundClient(s, updatePayload, client.Email)
+}
+
+func (s *InboundService) generateRandomCredential(targetProtocol model.Protocol) string {
+	switch targetProtocol {
+	case model.VMESS, model.VLESS:
+		return uuid.NewString()
+	default:
+		return strings.ReplaceAll(uuid.NewString(), "-", "")
+	}
+}
+
+func (s *InboundService) buildTargetClientFromSource(source model.Client, targetInbound *model.Inbound, email string, flow string) (model.Client, error) {
+	nowTs := time.Now().UnixMilli()
+	target := source
+	target.Email = email
+	target.CreatedAt = nowTs
+	target.UpdatedAt = nowTs
+
+	target.ID = ""
+	target.Password = ""
+	target.Auth = ""
+	target.Flow = ""
+	target.Secret = ""
+
+	targetProtocol := targetInbound.Protocol
+	switch targetProtocol {
+	case model.VMESS:
+		target.ID = s.generateRandomCredential(targetProtocol)
+	case model.VLESS:
+		target.ID = s.generateRandomCredential(targetProtocol)
+		if (flow == "xtls-rprx-vision" || flow == "xtls-rprx-vision-udp443") &&
+			!targetInbound.DisableFlow &&
+			inboundCanEnableTlsFlow(string(targetProtocol), targetInbound.StreamSettings, targetInbound.Settings) {
+			target.Flow = flow
+		}
+	case model.Trojan, model.Shadowsocks, model.MASQUE:
+		target.Password = s.generateRandomCredential(targetProtocol)
+	case model.Hysteria:
+		target.Auth = s.generateRandomCredential(targetProtocol)
+	case model.MTProto:
+		target.Secret = model.GenerateFakeTLSSecret(mtprotoDomainFromSettings(targetInbound.Settings))
+	case model.TUIC:
+		target.ID = uuid.NewString()
+		target.Password = s.generateRandomCredential(targetProtocol)
+	default:
+		target.ID = s.generateRandomCredential(targetProtocol)
+	}
+
+	return target, nil
+}
+
+func (s *InboundService) nextAvailableCopiedEmail(originalEmail string, targetID int, occupied map[string]struct{}) string {
+	base := fmt.Sprintf("%s_%d", originalEmail, targetID)
+	candidate := base
+	suffix := 0
+	for {
+		if _, exists := occupied[strings.ToLower(candidate)]; !exists {
+			occupied[strings.ToLower(candidate)] = struct{}{}
+			return candidate
+		}
+		suffix++
+		candidate = fmt.Sprintf("%s_%d", base, suffix)
+	}
+}
+
+func (s *InboundService) CopyInboundClients(targetInboundID int, sourceInboundID int, clientEmails []string, flow string) (*CopyClientsResult, bool, error) {
+	result := &CopyClientsResult{
+		Added:   []string{},
+		Skipped: []string{},
+		Errors:  []string{},
+	}
+	if targetInboundID == sourceInboundID {
+		return result, false, common.NewError("source and target inbounds must be different")
+	}
+
+	targetInbound, err := s.GetInbound(targetInboundID)
+	if err != nil {
+		return result, false, err
+	}
+	sourceInbound, err := s.GetInbound(sourceInboundID)
+	if err != nil {
+		return result, false, err
+	}
+
+	sourceClients, err := s.GetClients(sourceInbound)
+	if err != nil {
+		return result, false, err
+	}
+	if len(sourceClients) == 0 {
+		return result, false, nil
+	}
+
+	allowedEmails := map[string]struct{}{}
+	if len(clientEmails) > 0 {
+		for _, email := range clientEmails {
+			allowedEmails[strings.ToLower(strings.TrimSpace(email))] = struct{}{}
+		}
+	}
+
+	occupiedEmails := map[string]struct{}{}
+	allEmails, err := s.GetAllEmails()
+	if err != nil {
+		return result, false, err
+	}
+	for _, email := range allEmails {
+		clean := strings.Trim(email, "\"")
+		if clean != "" {
+			occupiedEmails[strings.ToLower(clean)] = struct{}{}
+		}
+	}
+
+	newClients := make([]model.Client, 0)
+	needRestart := false
+	for _, sourceClient := range sourceClients {
+		originalEmail := strings.TrimSpace(sourceClient.Email)
+		if originalEmail == "" {
+			continue
+		}
+		if len(allowedEmails) > 0 {
+			if _, ok := allowedEmails[strings.ToLower(originalEmail)]; !ok {
+				continue
+			}
+		}
+
+		if sourceClient.SubID == "" {
+			newSubID := uuid.NewString()
+			subNeedRestart, subErr := s.writeBackClientSubID(sourceInbound.Id, sourceClient, newSubID)
+			if subErr != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: failed to write source subId: %v", originalEmail, subErr))
+				continue
+			}
+			if subNeedRestart {
+				needRestart = true
+			}
+			sourceClient.SubID = newSubID
+		}
+
+		targetEmail := s.nextAvailableCopiedEmail(originalEmail, targetInboundID, occupiedEmails)
+		targetClient, buildErr := s.buildTargetClientFromSource(sourceClient, targetInbound, targetEmail, flow)
+		if buildErr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", originalEmail, buildErr))
+			continue
+		}
+		newClients = append(newClients, targetClient)
+		result.Added = append(result.Added, targetEmail)
+	}
+
+	if len(newClients) == 0 {
+		return result, needRestart, nil
+	}
+
+	settingsPayload, err := json.Marshal(map[string][]model.Client{
+		"clients": newClients,
+	})
+	if err != nil {
+		return result, needRestart, err
+	}
+
+	addNeedRestart, err := s.clientService.AddInboundClient(s, &model.Inbound{
+		Id:       targetInboundID,
+		Settings: string(settingsPayload),
+	})
+	if err != nil {
+		return result, needRestart, err
+	}
+	if addNeedRestart {
+		needRestart = true
+	}
+
+	return result, needRestart, nil
+}
+
+func (s *InboundService) GetClientInboundByTrafficID(trafficId int) (traffic *xray.ClientTraffic, inbound *model.Inbound, err error) {
+	db := database.GetDB()
+	var traffics []*xray.ClientTraffic
+	err = db.Model(xray.ClientTraffic{}).Where("id = ?", trafficId).Find(&traffics).Error
+	if err != nil {
+		logger.Warningf("Error retrieving ClientTraffic with trafficId %d: %v", trafficId, err)
+		return nil, nil, err
+	}
+	if len(traffics) == 0 {
+		return nil, nil, nil
+	}
+	traffic = traffics[0]
+
+	inbound, err = s.GetInbound(traffic.InboundId)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// client_traffics.inbound_id goes stale when an inbound is deleted and
+		// recreated; fall back to the authoritative client_inbounds link by email.
+		ids, idErr := s.clientService.GetInboundIdsForEmail(db, traffic.Email)
+		if idErr != nil {
+			return traffic, nil, idErr
+		}
+		if len(ids) > 0 {
+			inbound, err = s.GetInbound(ids[0])
+		}
+	}
+	return traffic, inbound, err
+}
+
+func (s *InboundService) GetClientInboundByEmail(email string) (traffic *xray.ClientTraffic, inbound *model.Inbound, err error) {
+	db := database.GetDB()
+	var traffics []*xray.ClientTraffic
+	err = db.Model(xray.ClientTraffic{}).Where("email = ?", email).Find(&traffics).Error
+	if err != nil {
+		logger.Warningf("Error retrieving ClientTraffic with email %s: %v", email, err)
+		return nil, nil, err
+	}
+	if len(traffics) == 0 {
+		return nil, nil, nil
+	}
+	traffic = traffics[0]
+
+	inbound, err = s.GetInbound(traffic.InboundId)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// client_traffics.inbound_id is a legacy single-inbound pointer that goes
+		// stale when an inbound is deleted and recreated: the email-keyed traffic
+		// row survives but still references the missing inbound. Fall back to the
+		// authoritative client_inbounds link so email lookups (reset, info, …) work.
+		ids, idErr := s.clientService.GetInboundIdsForEmail(db, email)
+		if idErr != nil {
+			return traffic, nil, idErr
+		}
+		if len(ids) > 0 {
+			inbound, err = s.GetInbound(ids[0])
+		}
+	}
+	if err == nil && inbound != nil && !s.inboundHasClientEmail(inbound, email) {
+		// The pointed-at inbound still exists but no longer carries the client —
+		// the client was moved to another inbound (#6059). Resolve through the
+		// client_inbounds link to the inbound that actually hosts it now.
+		ids, idErr := s.clientService.GetInboundIdsForEmail(db, email)
+		if idErr == nil {
+			for _, id := range ids {
+				if id == inbound.Id {
+					continue
+				}
+				if other, oErr := s.GetInbound(id); oErr == nil && s.inboundHasClientEmail(other, email) {
+					inbound = other
+					break
+				}
+			}
+		}
+	}
+	return traffic, inbound, err
+}
+
+func (s *InboundService) inboundHasClientEmail(inbound *model.Inbound, email string) bool {
+	clients, err := s.GetClients(inbound)
+	if err != nil {
+		return false
+	}
+	for _, client := range clients {
+		if client.Email == email {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *InboundService) GetClientByEmail(clientEmail string) (*xray.ClientTraffic, *model.Client, error) {
+	traffic, inbound, err := s.GetClientInboundByEmail(clientEmail)
+	if err != nil {
+		return nil, nil, err
+	}
+	if inbound == nil {
+		return nil, nil, common.NewError("Inbound Not Found For Email:", clientEmail)
+	}
+
+	clients, err := s.GetClients(inbound)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, client := range clients {
+		if client.Email == clientEmail {
+			return traffic, &client, nil
+		}
+	}
+
+	return nil, nil, common.NewError("Client Not Found In Inbound For Email:", clientEmail)
+}
+
+// EmailsByInbound returns the list of client emails currently configured on
+// an inbound's settings.clients[]. Used by the "delete all clients" flow on
+// the inbounds page, which then feeds the list into ClientService.BulkDelete.
+func (s *InboundService) EmailsByInbound(inboundId int) ([]string, error) {
+	inbound, err := s.GetInbound(inboundId)
+	if err != nil {
+		return nil, err
+	}
+	clients, err := s.GetClients(inbound)
+	if err != nil {
+		return nil, err
+	}
+	emails := make([]string, 0, len(clients))
+	for _, c := range clients {
+		if e := strings.TrimSpace(c.Email); e != "" {
+			emails = append(emails, e)
+		}
+	}
+	return emails, nil
+}

@@ -1,0 +1,5 @@
+{
+  "title": "Справочник",
+  "icon": "BookBookmark",
+  "pages": ["env-vars", "database", "ports-firewall", "api"]
+}

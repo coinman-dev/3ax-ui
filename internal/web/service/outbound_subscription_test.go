@@ -1,0 +1,735 @@
+package service
+
+import (
+	"bytes"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"maps"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/link"
+)
+
+func TestOutboundSubscriptionCreatePropagatesAllocationDatabaseFailures(t *testing.T) {
+	setupSettingTestDB(t)
+	db := database.GetDB()
+	const callback = "test:fail_outbound_subscription_query"
+	errInjected := errors.New("injected outbound subscription query failure")
+	if err := db.Callback().Query().Before("gorm:query").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Table == "outbound_subscriptions" {
+			tx.AddError(errInjected)
+		}
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Callback().Query().Remove(callback); err != nil {
+			t.Errorf("remove query callback: %v", err)
+		}
+	})
+
+	for _, tc := range []struct {
+		name      string
+		tagPrefix string
+		operation string
+	}{
+		{name: "default prefix query", tagPrefix: "", operation: "prefix allocation"},
+		{name: "priority count query", tagPrefix: "custom-", operation: "priority allocation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			created, err := (&OutboundSubscriptionService{}).Create("test", "https://1.1.1.1/sub", tc.tagPrefix, "", true, 600, false, false, false)
+			if !errors.Is(err, errInjected) {
+				t.Fatalf("Create error = %v, want injected %s query failure", err, tc.operation)
+			}
+			if created != nil {
+				t.Fatalf("Create returned row %+v after %s query failure", created, tc.operation)
+			}
+		})
+	}
+}
+
+func TestOutboundSubscriptionUpdatePropagatesPrefixQueryFailureWithoutMutation(t *testing.T) {
+	setupSettingTestDB(t)
+	db := database.GetDB()
+	original := &model.OutboundSubscription{
+		Remark: "before", Url: "https://1.1.1.1/original", TagPrefix: "custom-",
+		Enabled: true, UpdateInterval: 600,
+	}
+	if err := db.Create(original).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+
+	errInjected := errors.New("injected update prefix query failure")
+	queryCount := 0
+	const callback = "test:fail_update_prefix_query"
+	if err := db.Callback().Query().Before("gorm:query").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement == nil || tx.Statement.Table != "outbound_subscriptions" {
+			return
+		}
+		queryCount++
+		if queryCount == 2 {
+			tx.AddError(errInjected)
+		}
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Callback().Query().Remove(callback); err != nil {
+			t.Errorf("remove query callback: %v", err)
+		}
+	})
+
+	err := (&OutboundSubscriptionService{}).Update(
+		original.Id, "after", "https://1.1.1.1/changed", "", "", false, 1200, false, false, false,
+	)
+	if !errors.Is(err, errInjected) {
+		t.Fatalf("Update error = %v, want injected prefix query failure", err)
+	}
+	if queryCount != 2 {
+		t.Fatalf("outbound subscription queries = %d, want Get plus prefix allocation", queryCount)
+	}
+
+	var got model.OutboundSubscription
+	if err := db.First(&got, original.Id).Error; err != nil {
+		t.Fatalf("reload subscription: %v", err)
+	}
+	if got.Remark != original.Remark || got.Url != original.Url || got.TagPrefix != original.TagPrefix ||
+		got.Enabled != original.Enabled || got.UpdateInterval != original.UpdateInterval {
+		t.Fatalf("subscription changed after failed allocation: got %+v, want %+v", got, *original)
+	}
+}
+
+func TestOutboundSubscriptionRefreshUsesCustomUserAgent(t *testing.T) {
+	setupSettingTestDB(t)
+	const wantUserAgent = "ClashMetaForAndroid/2.11.13"
+	var gotUserAgent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent = r.UserAgent()
+		_, _ = w.Write([]byte("vless://00000000-0000-4000-8000-000000000000@1.1.1.1:443?security=tls&type=tcp#node"))
+	}))
+	t.Cleanup(server.Close)
+
+	sub := &model.OutboundSubscription{
+		Url: server.URL, AllowPrivate: true, UserAgent: wantUserAgent, TagPrefix: "test-",
+	}
+	if err := database.GetDB().Create(sub).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	if _, err := (&OutboundSubscriptionService{}).Refresh(sub.Id); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if gotUserAgent != wantUserAgent {
+		t.Fatalf("User-Agent = %q, want %q", gotUserAgent, wantUserAgent)
+	}
+}
+
+// serveOutboundSubscription seeds a subscription whose URL returns body(n) for the n-th fetch.
+func serveOutboundSubscription(t *testing.T, tagPrefix string, body func(n int) string) int {
+	t.Helper()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_, _ = w.Write([]byte(body(requests)))
+	}))
+	t.Cleanup(server.Close)
+	sub := &model.OutboundSubscription{Url: server.URL, AllowPrivate: true, TagPrefix: tagPrefix}
+	if err := database.GetDB().Create(sub).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	return sub.Id
+}
+
+func refreshOutboundTags(t *testing.T, subID int) (tags []string, byAddress map[string]string) {
+	t.Helper()
+	obs, err := (&OutboundSubscriptionService{}).Refresh(subID)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	byAddress = map[string]string{}
+	for _, ob := range obs {
+		m := ob.(map[string]any)
+		tag, _ := m["tag"].(string)
+		address, _ := m["settings"].(map[string]any)["address"].(string)
+		tags = append(tags, tag)
+		byAddress[address] = tag
+	}
+	return tags, byAddress
+}
+
+func TestOutboundSubscriptionRefreshKeepsTagsWhenRealityParamsRotate(t *testing.T) {
+	setupSettingTestDB(t)
+	pbk := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	type server struct{ remark, address string }
+	var servers []server
+	// A 3x-ui upstream picks sid and sni at random per request, and older releases spx too (#6556).
+	subID := serveOutboundSubscription(t, "sub", func(n int) string {
+		lines := make([]string, 0, len(servers))
+		for _, s := range servers {
+			lines = append(lines, fmt.Sprintf(
+				"vless://00000000-0000-4000-8000-000000000000@%s:443?type=tcp&security=reality&pbk=%s&fp=chrome&sni=sni%d.example.com&sid=%02x&spx=%%2F%d#%s",
+				s.address, pbk, n, n, n, s.remark))
+		}
+		return strings.Join(lines, "\n")
+	})
+
+	steps := []struct {
+		name    string
+		servers []server
+		want    map[string]string
+	}{
+		{
+			"initial fetch",
+			[]server{{"France", "1.1.1.1"}, {"Germany", "8.8.8.8"}, {"Sweden", "9.9.9.9"}},
+			map[string]string{"1.1.1.1": "sub-france", "8.8.8.8": "sub-germany", "9.9.9.9": "sub-sweden"},
+		},
+		{
+			"France removed",
+			[]server{{"Germany", "8.8.8.8"}, {"Sweden", "9.9.9.9"}},
+			map[string]string{"8.8.8.8": "sub-germany", "9.9.9.9": "sub-sweden"},
+		},
+		{
+			"new France added first",
+			[]server{{"France", "1.0.0.1"}, {"Germany", "8.8.8.8"}, {"Sweden", "9.9.9.9"}},
+			map[string]string{"1.0.0.1": "sub-france", "8.8.8.8": "sub-germany", "9.9.9.9": "sub-sweden"},
+		},
+	}
+	for _, step := range steps {
+		servers = step.servers
+		if _, got := refreshOutboundTags(t, subID); !maps.Equal(got, step.want) {
+			t.Fatalf("%s: tags by address = %v, want %v", step.name, got, step.want)
+		}
+	}
+}
+
+func TestOutboundSubscriptionRefreshKeepsTagsOfRepeatedLink(t *testing.T) {
+	setupSettingTestDB(t)
+	const link = "vless://00000000-0000-4000-8000-000000000000@1.1.1.1:443?security=tls&type=tcp"
+	subID := serveOutboundSubscription(t, "p-", func(int) string { return link + "#A\n" + link + "#B" })
+
+	want := []string{"p-a", "p-b"}
+	for refresh := 1; refresh <= 3; refresh++ {
+		if got, _ := refreshOutboundTags(t, subID); !slices.Equal(got, want) {
+			t.Fatalf("refresh %d: tags = %v, want %v", refresh, got, want)
+		}
+	}
+}
+
+func TestOutboundSubscriptionRefreshAlignsPositionsPastCoreRejectedLink(t *testing.T) {
+	setupSettingTestDB(t)
+	// The unencrypted first link is dropped by the core; B and C then rotate their UUID.
+	subID := serveOutboundSubscription(t, "p-", func(n int) string {
+		uuid := fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
+		return "vless://00000000-0000-4000-8000-000000000000@1.1.1.1:443?security=none&type=tcp#Plain\n" +
+			"vless://" + uuid + "@8.8.8.8:443?security=tls&type=tcp#B\n" +
+			"vless://" + uuid + "@9.9.9.9:443?security=tls&type=tcp#C"
+	})
+
+	want := map[string]string{"8.8.8.8": "p-b", "9.9.9.9": "p-c"}
+	for refresh := 1; refresh <= 2; refresh++ {
+		if _, got := refreshOutboundTags(t, subID); !maps.Equal(got, want) {
+			t.Fatalf("refresh %d: tags by address = %v, want %v", refresh, got, want)
+		}
+	}
+}
+
+func TestReadBoundedOutboundSubscriptionBody(t *testing.T) {
+	t.Run("accepts body at the limit", func(t *testing.T) {
+		want := bytes.Repeat([]byte("a"), int(maxOutboundSubscriptionBytes))
+		got, err := readBoundedOutboundSubscriptionBody(bytes.NewReader(want))
+		if err != nil {
+			t.Fatalf("readBoundedOutboundSubscriptionBody: %v", err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("body mismatch: got %d bytes, want %d", len(got), len(want))
+		}
+	})
+
+	t.Run("rejects body over the limit", func(t *testing.T) {
+		body := bytes.Repeat([]byte("b"), int(maxOutboundSubscriptionBytes)+1)
+		got, err := readBoundedOutboundSubscriptionBody(bytes.NewReader(body))
+		if !errors.Is(err, errOutboundSubscriptionBodyTooLarge) {
+			t.Fatalf("error = %v, want errOutboundSubscriptionBodyTooLarge", err)
+		}
+		if got != nil {
+			t.Fatalf("oversized body returned %d bytes, want nil", len(got))
+		}
+	})
+}
+
+func TestDefaultPrefixNumber(t *testing.T) {
+	mk := func(id int, prefix string) *model.OutboundSubscription {
+		return &model.OutboundSubscription{Id: id, TagPrefix: prefix}
+	}
+	cases := []struct {
+		name      string
+		subs      []*model.OutboundSubscription
+		excludeId int
+		want      int
+	}{
+		{"no subscriptions starts at 1", nil, 0, 1},
+		{"sequential prefixes give the next", []*model.OutboundSubscription{mk(1, "sub1-"), mk(2, "sub2-")}, 0, 3},
+		{"reuses the lowest freed number", []*model.OutboundSubscription{mk(2, "sub2-")}, 0, 1},
+		{"legacy blank prefix reserves its id", []*model.OutboundSubscription{mk(1, ""), mk(5, "sub3-")}, 0, 2},
+		{"custom prefixes are ignored", []*model.OutboundSubscription{mk(1, "hk-"), mk(2, "jp-")}, 0, 1},
+		{"excludes the edited subscription", []*model.OutboundSubscription{mk(5, "sub2-")}, 5, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := defaultPrefixNumber(c.subs, c.excludeId); got != c.want {
+				t.Fatalf("got %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAssignStableTags(t *testing.T) {
+	t.Run("reuses the tag mapped to a known identity", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "JP-Tokyo"}}
+		prev := map[string]string{"id-abc": "sub1-keepme"}
+		got := assignStableTags(parsed, []string{"id-abc"}, prev, nil, 1, "")
+		if got[0] != "sub1-keepme" {
+			t.Fatalf("got %q, want sub1-keepme", got[0])
+		}
+		if parsed[0]["tag"] != "sub1-keepme" {
+			t.Fatalf("tag was not written back into the outbound: %v", parsed[0]["tag"])
+		}
+	})
+
+	t.Run("falls back to the previous tag at the same position", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "JP-Tokyo"}}
+		prev := map[string]string{"id-gone": "sub1-oldpos"}
+		got := assignStableTags(parsed, []string{"id-new"}, prev, map[int]string{0: "sub1-oldpos"}, 1, "")
+		if got[0] != "sub1-oldpos" {
+			t.Fatalf("got %q, want sub1-oldpos", got[0])
+		}
+	})
+
+	t.Run("does not let an inserted link steal a stable tag", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "Poland"}, {"tag": "NewServer"}, {"tag": "Netherlands"}}
+		prev := map[string]string{
+			"id-poland":      "sub1-poland",
+			"id-netherlands": "sub1-netherlands",
+		}
+		prevTagByIndex := map[int]string{0: "sub1-poland", 1: "sub1-netherlands"}
+
+		got := assignStableTags(parsed, []string{"id-poland", "id-new", "id-netherlands"}, prev, prevTagByIndex, 1, "")
+		want := []string{"sub1-poland", "sub1-newserver", "sub1-netherlands"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("does not let a fresh tag steal a stable tag", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "Netherlands"}, {"tag": "Renamed"}}
+		prev := map[string]string{"id-netherlands": "sub1-netherlands"}
+
+		got := assignStableTags(parsed, []string{"id-new", "id-netherlands"}, prev, nil, 1, "")
+		want := []string{"sub1-netherlands-1", "sub1-netherlands"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("skips reserved tags while adding a suffix", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "Netherlands"}, {"tag": "First"}, {"tag": "Second"}}
+		prev := map[string]string{
+			"id-first":  "sub1-netherlands",
+			"id-second": "sub1-netherlands-1",
+		}
+
+		got := assignStableTags(parsed, []string{"id-new", "id-first", "id-second"}, prev, nil, 1, "")
+		want := []string{"sub1-netherlands-2", "sub1-netherlands", "sub1-netherlands-1"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("allocates a fresh tag with the default sub<id>- prefix", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "Tokyo"}}
+		got := assignStableTags(parsed, []string{"id-x"}, nil, nil, 7, "")
+		want := link.SuggestTag("sub7-", "Tokyo", 0)
+		if got[0] != want {
+			t.Fatalf("got %q, want %q", got[0], want)
+		}
+	})
+
+	t.Run("uses a custom prefix for fresh tags", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "Tokyo"}}
+		got := assignStableTags(parsed, []string{"id-x"}, nil, nil, 1, "hk-")
+		want := link.SuggestTag("hk-", "Tokyo", 0)
+		if got[0] != want {
+			t.Fatalf("got %q, want %q", got[0], want)
+		}
+	})
+
+	t.Run("disambiguates colliding tags with a -N suffix", func(t *testing.T) {
+		parsed := []link.Outbound{{"tag": "Same"}, {"tag": "Same"}}
+		got := assignStableTags(parsed, []string{"id1", "id2"}, nil, nil, 1, "p-")
+		base := link.SuggestTag("p-", "Same", 0)
+		if got[0] != base {
+			t.Fatalf("got[0] = %q, want %q", got[0], base)
+		}
+		if got[1] != base+"-1" {
+			t.Fatalf("got[1] = %q, want %q", got[1], base+"-1")
+		}
+	})
+}
+
+// TestOutboundsContainTag covers the guard that ensures the outbound under test
+// is present in the HTTP-probe config. Subscription outbounds aren't part of the
+// template outbounds the frontend sends as allOutbounds, so the probe must append
+// the tested outbound when its tag is missing (otherwise burstObservatory has
+// nothing to probe and every subscription test times out).
+func TestOutboundsContainTag(t *testing.T) {
+	template := []any{
+		map[string]any{"tag": "direct", "protocol": "freedom"},
+		map[string]any{"tag": "blocked", "protocol": "blackhole"},
+	}
+	if !outboundsContainTag(template, "direct") {
+		t.Fatal("expected tag 'direct' to be found")
+	}
+	if outboundsContainTag(template, "sub1-tokyo") {
+		t.Fatal("expected subscription tag to be absent from template outbounds")
+	}
+	if outboundsContainTag(nil, "anything") {
+		t.Fatal("expected empty slice to contain no tags")
+	}
+	// Tolerates non-map / untagged entries without panicking.
+	mixed := []any{"not-a-map", map[string]any{"protocol": "freedom"}}
+	if outboundsContainTag(mixed, "direct") {
+		t.Fatal("expected no match among untagged/non-map entries")
+	}
+}
+
+// TestSanitizePublicHTTPURLRejectsPrivateAndBadSchemes covers the SSRF guard used
+// when fetching subscription URLs. All rejected cases use literal IPs or bad
+// schemes so the test never performs real DNS resolution.
+func TestSanitizePublicHTTPURLRejectsPrivateAndBadSchemes(t *testing.T) {
+	rejected := []string{
+		"http://127.0.0.1/sub",                    // loopback
+		"http://10.0.0.1/x",                       // private
+		"http://192.168.1.1",                      // private
+		"http://169.254.169.254/latest/meta-data", // link-local (cloud metadata)
+		"http://[::1]:8080/sub",                   // IPv6 loopback
+		"http://0.0.0.0",                          // unspecified
+		"ftp://example.com/x",                     // unsupported scheme
+		"file:///etc/passwd",                      // unsupported scheme
+	}
+	for _, raw := range rejected {
+		if _, err := SanitizePublicHTTPURL(raw, false); err == nil {
+			t.Errorf("expected %q to be rejected, got nil error", raw)
+		}
+	}
+
+	t.Run("allows a public literal IP without DNS", func(t *testing.T) {
+		got, err := SanitizePublicHTTPURL("http://8.8.8.8/sub", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "http://8.8.8.8/sub" {
+			t.Fatalf("got %q, want http://8.8.8.8/sub", got)
+		}
+	})
+}
+
+// outboundsContainTag mirrors the small helper in the outbound subpackage so
+// these subscription tests can assert on tag presence without importing it.
+func outboundsContainTag(outbounds []any, tag string) bool {
+	for _, ob := range outbounds {
+		if m, ok := ob.(map[string]any); ok {
+			if t, _ := m["tag"].(string); t == tag {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// The core dials a subscription outbound's server itself, so a provider must not point
+// one at Xray's credential-less API, whatever allowPrivate says, nor steer the dial past the check.
+func TestOutboundSubscriptionRefreshDropsLinksIntoXrayListeners(t *testing.T) {
+	setupSettingTestDB(t)
+	const uuid = "00000000-0000-4000-8000-000000000000"
+	srv := url.QueryEscape(`{"downloadSettings":{"address":"8.8.8.8","port":443,"network":"xhttp","sockopt":{"addressPortStrategy":"SrvPortAndAddress"}}}`)
+	subID := serveOutboundSubscription(t, "p-", func(int) string {
+		return "vless://" + uuid + "@127.0.0.1:62789?security=tls&type=tcp#Api\n" +
+			"vless://" + uuid + "@8.8.8.8:443?security=tls&type=tcp#B\n" +
+			"vless://" + uuid + "@8.8.8.8:443?security=tls&type=xhttp&extra=" + srv + "#Srv"
+	})
+	tags, _ := refreshOutboundTags(t, subID)
+	if !slices.Equal(tags, []string{"p-b"}) {
+		t.Fatalf("stored tags = %v, want only p-b", tags)
+	}
+	sub, err := (&OutboundSubscriptionService{}).Get(subID)
+	if err != nil || !strings.Contains(sub.LastError, "dropped 2 outbound(s)") {
+		t.Fatalf("lastError = %q (%v), want the two refused links reported", sub.LastError, err)
+	}
+}
+
+func TestActiveOutboundsDropStoredPrivateDialTargets(t *testing.T) {
+	setupSettingTestDB(t)
+	stored := `[{"tag":"p-lan","protocol":"vless","settings":{"address":"10.0.0.7","port":443,"id":"00000000-0000-4000-8000-000000000000","encryption":"none"},"streamSettings":{"network":"tcp","security":"tls"}},` +
+		`{"tag":"p-pub","protocol":"vless","settings":{"address":"8.8.8.8","port":443,"id":"00000000-0000-4000-8000-000000000000","encryption":"none"},"streamSettings":{"network":"tcp","security":"tls"}}]`
+	sub := &model.OutboundSubscription{Url: "https://provider.example/sub", TagPrefix: "p-", Enabled: true, LastFetchedOutbounds: stored}
+	if err := database.GetDB().Create(sub).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	obs, err := (&OutboundSubscriptionService{}).AllActiveOutbounds()
+	if err != nil {
+		t.Fatalf("AllActiveOutbounds: %v", err)
+	}
+	if outboundsContainTag(obs, "p-lan") || !outboundsContainTag(obs, "p-pub") {
+		t.Fatalf("active outbounds = %v, want the stored LAN target dropped and the public one kept", obs)
+	}
+}
+
+func TestNamesInternalHost(t *testing.T) {
+	for host, want := range map[string]bool{
+		"127.0.0.1": true, " [::1]:62789 ": true, "fe80::1%eth0": true, "10.1.2.3:80": true,
+		"localhost": true, "api.localhost.": true, "intranet": true, "": true, "env:HOME": true,
+		"8.8.8.8": false, "cdn.example.com": false, "[2001:4860:4860::8888]:443": false,
+	} {
+		if got := namesInternalHost(host); got != want {
+			t.Errorf("namesInternalHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+// The provider decides when its answer arrives, so an admin's delete or disable in the
+// meantime must survive the refresh that read the row before the download.
+func TestOutboundSubscriptionRefreshKeepsAdminChangesMadeDuringTheFetch(t *testing.T) {
+	setupSettingTestDB(t)
+	const body = "vless://00000000-0000-4000-8000-000000000000@8.8.8.8:443?security=tls&type=tcp#B"
+	var during func(id int)
+	var subID int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		during(subID)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	svc := &OutboundSubscriptionService{}
+	create := func() {
+		t.Helper()
+		sub := &model.OutboundSubscription{Url: server.URL, AllowPrivate: true, TagPrefix: "p-", Enabled: true}
+		if err := database.GetDB().Create(sub).Error; err != nil {
+			t.Fatalf("seed subscription: %v", err)
+		}
+		subID = sub.Id
+	}
+
+	create()
+	during = func(id int) { _ = svc.Delete(id) }
+	if _, err := svc.Refresh(subID); err == nil {
+		t.Fatalf("Refresh of a subscription deleted mid-fetch succeeded")
+	}
+	var count int64
+	database.GetDB().Model(&model.OutboundSubscription{}).Where("id = ?", subID).Count(&count)
+	if count != 0 {
+		t.Fatalf("subscription deleted during the fetch was re-created")
+	}
+
+	create()
+	during = func(id int) {
+		database.GetDB().Model(&model.OutboundSubscription{}).Where("id = ?", id).Update("enabled", false)
+	}
+	if _, err := svc.Refresh(subID); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	got, err := svc.Get(subID)
+	if err != nil || got.Enabled || !strings.Contains(got.LastFetchedOutbounds, "8.8.8.8") {
+		t.Fatalf("after disable mid-fetch: enabled=%v outbounds=%q (%v), want disabled with the fetch stored", got.Enabled, got.LastFetchedOutbounds, err)
+	}
+}
+
+// A subscription URL is the credential for the provider account; fetch errors are
+// logged and stored, so they may name the host but never the path or query.
+func TestOutboundSubscriptionFetchErrorsKeepTheURLSecret(t *testing.T) {
+	setupSettingTestDB(t)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	const token = "s3cr3t-token"
+	sub := &model.OutboundSubscription{Url: closed.URL + "/sub/" + token + "?key=" + token, AllowPrivate: true, TagPrefix: "p-"}
+	if err := database.GetDB().Create(sub).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	_, err := (&OutboundSubscriptionService{}).Refresh(sub.Id)
+	if err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("Refresh error = %v, want a failure that does not quote the URL", err)
+	}
+	stored, _ := (&OutboundSubscriptionService{}).Get(sub.Id)
+	if stored.LastError == "" || strings.Contains(stored.LastError, token) {
+		t.Fatalf("lastError = %q, want a failure that does not quote the URL", stored.LastError)
+	}
+	_, err = (&OutboundSubscriptionService{}).Create("r", "https://provider.example/sub/"+token+"%zz", "", "", true, 600, false, false, false)
+	if err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("Create error = %v, want a parse failure that does not quote the URL", err)
+	}
+}
+
+func TestOutboundSubscriptionPreviewStoresNothing(t *testing.T) {
+	setupSettingTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("vless://00000000-0000-4000-8000-000000000000@8.8.8.8:443?security=tls&type=tcp#B"))
+	}))
+	t.Cleanup(server.Close)
+	obs, err := (&OutboundSubscriptionService{}).Preview(server.URL, "", true, false)
+	if err != nil || len(obs) != 1 {
+		t.Fatalf("Preview = %v, %v; want the one outbound", obs, err)
+	}
+	var count int64
+	database.GetDB().Model(&model.OutboundSubscription{}).Count(&count)
+	if count != 0 {
+		t.Fatalf("Preview left %d subscription row(s) behind", count)
+	}
+}
+
+// Each fetch builds its own transport; whatever it leaves parked would otherwise live
+// for as long as the provider keeps the connection open.
+func TestOutboundSubscriptionRefreshLeavesNoIdleConnection(t *testing.T) {
+	setupSettingTestDB(t)
+	var open atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("vless://00000000-0000-4000-8000-000000000000@8.8.8.8:443?security=tls&type=tcp#B"))
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			open.Add(1)
+		case http.StateClosed, http.StateHijacked:
+			open.Add(-1)
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+	sub := &model.OutboundSubscription{Url: server.URL, AllowPrivate: true, TagPrefix: "p-"}
+	if err := database.GetDB().Create(sub).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	for range 3 {
+		if _, err := (&OutboundSubscriptionService{}).Refresh(sub.Id); err != nil {
+			t.Fatalf("Refresh: %v", err)
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for open.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := open.Load(); n != 0 {
+		t.Fatalf("%d connection(s) to the provider still open after the refreshes", n)
+	}
+}
+
+// One document must not turn into an unbounded number of outbounds: each is held,
+// validated and merged into the core's config.
+func TestOutboundSubscriptionRefreshCapsTheNumberOfLinks(t *testing.T) {
+	setupSettingTestDB(t)
+	subID := serveOutboundSubscription(t, "p-", func(int) string {
+		return strings.Repeat("ss://YWVzLTEyOC1nY206cA@8.8.8.8:8388#s\n", link.MaxSubscriptionOutbounds+5)
+	})
+	obs, err := (&OutboundSubscriptionService{}).Refresh(subID)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if len(obs) != link.MaxSubscriptionOutbounds {
+		t.Fatalf("stored %d outbounds, want the cap of %d", len(obs), link.MaxSubscriptionOutbounds)
+	}
+	sub, _ := (&OutboundSubscriptionService{}).Get(subID)
+	if !strings.Contains(sub.LastError, strconv.Itoa(link.MaxSubscriptionOutbounds)) {
+		t.Fatalf("lastError = %q, want the cut reported", sub.LastError)
+	}
+}
+
+// A provider's wireguard fields must not configure the host: the kernel TUN path
+// installs its addresses and routes, so subscription outbounds stay in userspace.
+func TestOutboundSubscriptionWireguardStaysOffKernelTun(t *testing.T) {
+	setupSettingTestDB(t)
+	subID := serveOutboundSubscription(t, "p-", func(int) string {
+		return "wireguard://JOSLNr3Kk8BViwrrTJ2M19gRBbGttnRfApY3nQ3fdT8%3D@8.8.8.8:51820?publickey=biSnuvUOX2pmtzf249FK8UGSq2PQslGSdoj4UqH4yew%3D&address=10.0.0.2%2F32#wg"
+	})
+	obs, err := (&OutboundSubscriptionService{}).Refresh(subID)
+	if err != nil || len(obs) != 1 {
+		t.Fatalf("Refresh = %v, %v", obs, err)
+	}
+	stored := `[{"tag":"p-old","protocol":"wireguard","settings":{"secretKey":"JOSLNr3Kk8BViwrrTJ2M19gRBbGttnRfApY3nQ3fdT8=","address":["10.0.0.2/32"],"peers":[{"publicKey":"biSnuvUOX2pmtzf249FK8UGSq2PQslGSdoj4UqH4yew=","endpoint":"8.8.8.8:51820"}]}}]`
+	old := &model.OutboundSubscription{Url: "https://provider.example/sub", TagPrefix: "q-", Enabled: true, LastFetchedOutbounds: stored}
+	if err := database.GetDB().Create(old).Error; err != nil {
+		t.Fatalf("seed subscription: %v", err)
+	}
+	if err := database.GetDB().Model(&model.OutboundSubscription{}).Where("id = ?", subID).Update("enabled", true).Error; err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	active, err := (&OutboundSubscriptionService{}).AllActiveOutbounds()
+	if err != nil || len(active) != 2 {
+		t.Fatalf("AllActiveOutbounds = %v, %v", active, err)
+	}
+	for _, ob := range append(obs, active...) {
+		settings, _ := ob.(map[string]any)["settings"].(map[string]any)
+		if settings["noKernelTun"] != true {
+			t.Fatalf("subscription wireguard outbound without noKernelTun: %v", ob)
+		}
+	}
+}
+
+func TestOutboundSubscriptionCreateKeepsItDisabled(t *testing.T) {
+	setupSettingTestDB(t)
+	sub, err := (&OutboundSubscriptionService{}).Create("r", "https://1.1.1.1/sub", "", "", false, 600, false, false, false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, err := (&OutboundSubscriptionService{}).Get(sub.Id)
+	if err != nil || stored.Enabled {
+		t.Fatalf("stored enabled = %v (%v), want the subscription created disabled", stored.Enabled, err)
+	}
+}
+
+// The core derives an RSA key per xmc mask on every build, so the masks a document may
+// spread over its links are budgeted per subscription, before anything is built.
+func TestOutboundSubscriptionRefreshCapsXMCMasks(t *testing.T) {
+	setupSettingTestDB(t)
+	const xmc = `{"type":"xmc","settings":{"password":"p","profiles":[{"username":"abc","uuid":"00000000-0000-0000-0000-000000000000","texturesValue":"a","texturesSignature":"a"}]}}`
+	server := func(address string, masks ...string) string {
+		return "vless://00000000-0000-4000-8000-000000000000@" + address + ":443?security=tls&type=tcp&fm=" +
+			url.QueryEscape(`{"tcp":[`+strings.Join(masks, ",")+`]}`) + "#" + address + "\n"
+	}
+	four := []string{xmc, xmc, xmc, xmc}
+	subID := serveOutboundSubscription(t, "p-", func(int) string {
+		return server("1.1.1.1", slices.Repeat([]string{xmc}, 400)...) +
+			strings.Repeat(server("1.1.1.3", four...), maxSubscriptionXMCMasks/4) +
+			server("1.1.1.4", xmc) +
+			server("1.1.1.5", `{"type":"sudoku","settings":{"password":"p"}}`)
+	})
+	tags, byAddress := refreshOutboundTags(t, subID)
+	if _, plain := byAddress["1.1.1.5"]; len(tags) != maxSubscriptionXMCMasks/4+1 || len(byAddress) != 2 || !plain {
+		t.Fatalf("kept %d outbounds, tags by address = %v", len(tags), byAddress)
+	}
+}
+
+// The core's XHTTP dialer panics on a downloadSettings block without an address or on another transport.
+func TestOutboundSubscriptionRefreshDropsXhttpDownloadSettingsTheCorePanicsOn(t *testing.T) {
+	setupSettingTestDB(t)
+	const server = "vless://00000000-0000-4000-8000-000000000000@%s:443?security=tls&type=xhttp&extra=%s#%s\n"
+	subID := serveOutboundSubscription(t, "p-", func(int) string {
+		return fmt.Sprintf(server, "1.1.1.1", url.QueryEscape(`{"downloadSettings":{}}`), "Empty") +
+			fmt.Sprintf(server, "8.8.8.8", url.QueryEscape(`{"downloadSettings":{"address":"8.8.4.4","port":443,"network":"tcp"}}`), "Tcp") +
+			fmt.Sprintf(server, "9.9.9.9", url.QueryEscape(`{"downloadSettings":{"address":"9.9.9.10","port":443,"network":"xhttp"}}`), "Complete")
+	})
+
+	want := map[string]string{"9.9.9.9": "p-complete"}
+	if _, got := refreshOutboundTags(t, subID); !maps.Equal(got, want) {
+		t.Fatalf("tags by address = %v, want %v", got, want)
+	}
+}

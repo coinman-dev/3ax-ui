@@ -1,0 +1,1600 @@
+/// <reference types="vite/client" />
+import { describe, expect, it } from 'vitest';
+
+import {
+  amneziawgConfigFromLink,
+  genAmneziaWGConfig,
+  genAmneziaWGLink,
+  genAllLinks,
+  genHysteriaLink,
+  genInboundLinks,
+  genShadowsocksLink,
+  genTrojanLink,
+  genTuicLink,
+  applyVlessRoute,
+  genVlessLink,
+  genVmessLink,
+  genWireguardConfig,
+  genWireguardLink,
+  isPostQuantumLink,
+  preferPublicHost,
+  resolveAddr,
+} from '@/lib/xray/inbound-link';
+import { type DbInboundLike, inboundFromDb } from '@/lib/xray/inbound-from-db';
+import { InboundSchema } from '@/schemas/api/inbound';
+import { Base64 } from '@/utils';
+import type { AmneziawgInboundSettings } from '@/schemas/protocols/inbound/amneziawg';
+import type { WireguardInboundSettings } from '@/schemas/protocols/inbound/wireguard';
+import type { FinalMaskStreamSettings } from '@/schemas/protocols/stream/finalmask';
+
+// reverse of inbound-link.ts's own toBase64Url, for asserting on the
+// decoded vpn:// payload without depending on that helper being exported.
+function fromBase64Url(value: string): string {
+  const b64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  return atob(padded);
+}
+
+// Snapshot baseline for the share-link generators. Snapshots were locked
+// at the close of the legacy class migration — at that point each
+// generator was verified byte-equal to the corresponding legacy Inbound
+// class method. Future drift past this baseline is a regression.
+
+const fullFixtures = import.meta.glob<unknown>('./golden/fixtures/inbound-full/*.json', {
+  eager: true,
+  import: 'default',
+});
+
+function fixtureName(path: string): string {
+  const file = path.split('/').pop() ?? path;
+  return file.replace(/\.json$/, '');
+}
+
+function fixturesForProtocol(protocol: string): Array<[string, Record<string, unknown>]> {
+  return Object.entries(fullFixtures)
+    .filter(([, raw]) => (raw as { protocol?: string }).protocol === protocol)
+    .map(([path, raw]): [string, Record<string, unknown>] => [
+      fixtureName(path),
+      raw as Record<string, unknown>,
+    ])
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
+describe('genVmessLink', () => {
+  const fixtures = fixturesForProtocol('vmess');
+  expect(fixtures.length, 'need at least one vmess full-inbound fixture').toBeGreaterThan(0);
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      const settings = (raw as { settings: { clients: Array<{ id: string; security?: string }> } })
+        .settings;
+      const client = settings.clients[0];
+
+      const link = genVmessLink({
+        inbound: typed,
+        address: 'example.test',
+        port: typed.port,
+        forceTls: 'same',
+        remark: 'parity-test',
+        clientId: client.id,
+        security: client.security as never,
+        externalProxy: null,
+      });
+      expect(link).toMatchSnapshot();
+    });
+  }
+});
+
+describe('genVlessLink', () => {
+  const fixtures = fixturesForProtocol('vless');
+  expect(fixtures.length, 'need at least one vless full-inbound fixture').toBeGreaterThan(0);
+
+  it('enables X25519MLKEM768 in REALITY share links', () => {
+    const entry = fixtures.find(([name]) => name === 'vless-tcp-reality');
+    expect(entry, 'need a VLESS REALITY fixture').toBeDefined();
+    const [, raw] = entry!;
+    const typed = InboundSchema.parse(raw);
+    const client = (raw as { settings: { clients: Array<{ id: string }> } }).settings.clients[0];
+
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'example.test',
+      clientId: client.id,
+    });
+
+    expect(new URL(link).searchParams.get('support-x25519mlkem768')).toBe('true');
+  });
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      const settings = (raw as { settings: { clients: Array<{ id: string; flow?: string }> } })
+        .settings;
+      const client = settings.clients[0];
+
+      const link = genVlessLink({
+        inbound: typed,
+        address: 'example.test',
+        port: typed.port,
+        forceTls: 'same',
+        remark: 'parity-test',
+        clientId: client.id,
+        flow: client.flow as never,
+        externalProxy: null,
+      });
+      expect(link).toMatchSnapshot();
+    });
+  }
+});
+
+describe('XDRIVE share links', () => {
+  // No client reads an xdrive link, and one carrying the storage secrets would print
+  // them into every QR code; mirrors the Go generator, which emits none either.
+  it('emits no link for an XDRIVE stream', () => {
+    const [, raw] = fixturesForProtocol('vless').find(([name]) => name === 'vless-ws-tls')!;
+    const inbound = InboundSchema.parse({
+      ...raw,
+      streamSettings: {
+        network: 'xdrive',
+        security: 'none',
+        xdriveSettings: { service: 'local', remoteFolder: '/srv/xdrive' },
+      },
+    });
+    const client = (raw as { settings: { clients: Array<{ id: string; email: string }> } }).settings
+      .clients[0];
+
+    const entries = genAllLinks({ inbound, client, fallbackHostname: 'panel.example.test' });
+
+    expect(entries.map((e) => e.link)).toEqual(['']);
+  });
+});
+
+describe('applyVlessRoute', () => {
+  const id = '11111111-2222-4333-8444-555555555555';
+  it('encodes a single value into the 3rd group and no-ops on invalid input', () => {
+    expect(applyVlessRoute(id, '443')).toBe('11111111-2222-01bb-8444-555555555555');
+    expect(applyVlessRoute(id, '53')).toBe('11111111-2222-0035-8444-555555555555');
+    expect(applyVlessRoute(id, '0')).toBe('11111111-2222-0000-8444-555555555555');
+    expect(applyVlessRoute(id, '65535')).toBe('11111111-2222-ffff-8444-555555555555');
+    expect(applyVlessRoute(id, '')).toBe(id);
+    expect(applyVlessRoute(id, undefined)).toBe(id);
+    expect(applyVlessRoute(id, '70000')).toBe(id);
+    expect(applyVlessRoute(id, '53,443')).toBe(id);
+    expect(applyVlessRoute(id, 'abc')).toBe(id);
+    expect(applyVlessRoute('short', '443')).toBe('short');
+  });
+});
+
+describe('genVlessLink vlessRoute', () => {
+  const [, raw] = fixturesForProtocol('vless')[0];
+  const typed = InboundSchema.parse(raw);
+
+  it('bakes a host route value into the link UUID 3rd group', () => {
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'example.test',
+      port: typed.port,
+      forceTls: 'same',
+      remark: 'r',
+      clientId: '11111111-2222-4333-8444-555555555555',
+      flow: '' as never,
+      externalProxy: {
+        forceTls: 'same',
+        dest: 'example.test',
+        port: typed.port,
+        remark: '',
+        vlessRoute: '443',
+      },
+    });
+    expect(link).toContain('vless://11111111-2222-01bb-8444-555555555555@');
+  });
+
+  it('leaves the UUID unchanged when no route is set', () => {
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'example.test',
+      port: typed.port,
+      forceTls: 'same',
+      remark: 'r',
+      clientId: '11111111-2222-4333-8444-555555555555',
+      flow: '' as never,
+      externalProxy: null,
+    });
+    expect(link).toContain('vless://11111111-2222-4333-8444-555555555555@');
+  });
+});
+
+describe('genVlessLink TCP fragment finalmask compatibility', () => {
+  const [, raw] = fixturesForProtocol('vless')[0];
+  const baseInbound = InboundSchema.parse(raw);
+  const clientId = (raw as { settings: { clients: Array<{ id: string }> } }).settings.clients[0].id;
+
+  function linkFor(finalmask: FinalMaskStreamSettings): string {
+    if (!baseInbound.streamSettings) throw new Error('fixture needs stream settings');
+    baseInbound.streamSettings.finalmask = finalmask;
+
+    return genVlessLink({
+      inbound: baseInbound,
+      address: 'example.test',
+      port: baseInbound.port,
+      clientId,
+    });
+  }
+
+  function finalmaskFrom(link: string): Record<string, unknown> {
+    const encoded = new URL(link).searchParams.get('fm');
+    if (!encoded) throw new Error('link needs an fm parameter');
+    return JSON.parse(encoded) as Record<string, unknown>;
+  }
+
+  it('emits the final configured length and delay for legacy clients', () => {
+    const finalmask: FinalMaskStreamSettings = {
+      tcp: [
+        {
+          type: 'fragment',
+          settings: {
+            packets: 'tlshello',
+            lengths: ['5-10', '10-15', '15-20', '20-25', '25-30'],
+            delays: ['10-20', '5-20', '5-25', '15-25', '10-30'],
+            maxSplit: '10-15',
+          },
+        },
+      ],
+      udp: [],
+    };
+    const tcpMasks = finalmask.tcp;
+    const fragmentSettings = finalmask.tcp[0].settings;
+    const lengths = fragmentSettings?.lengths;
+    const delays = fragmentSettings?.delays;
+    const before = structuredClone(finalmask);
+
+    const exported = finalmaskFrom(linkFor(finalmask));
+    const fragment = (exported.tcp as Array<{ settings: Record<string, unknown> }>)[0].settings;
+
+    expect(fragment).toEqual({
+      packets: 'tlshello',
+      lengths: ['5-10', '10-15', '15-20', '20-25', '25-30'],
+      delays: ['10-20', '5-20', '5-25', '15-25', '10-30'],
+      maxSplit: '10-15',
+      length: '25-30',
+      delay: '10-30',
+    });
+    expect(finalmask).toEqual(before);
+    expect(finalmask.tcp).toBe(tcpMasks);
+    expect(finalmask.tcp[0].settings).toBe(fragmentSettings);
+    expect(fragmentSettings?.lengths).toBe(lengths);
+    expect(fragmentSettings?.delays).toBe(delays);
+  });
+
+  it('preserves explicit legacy fields and does not add them to other masks', () => {
+    const finalmask: FinalMaskStreamSettings = {
+      tcp: [
+        {
+          type: 'fragment',
+          settings: {
+            length: '40-50',
+            delay: '3-4',
+            lengths: ['5-10', '25-30'],
+            delays: ['10-20', '10-30'],
+          },
+        },
+        { type: 'sudoku', settings: { lengths: ['5-10'], delays: ['10-20'] } },
+      ],
+      udp: [{ type: 'noise', settings: { lengths: ['5-10'], delays: ['10-20'] } }],
+    };
+
+    const exported = finalmaskFrom(linkFor(finalmask));
+
+    expect(exported).toEqual(finalmask);
+  });
+
+  // xray-core 26.10.21's filter screens the listener's own source IPs; a client core older than
+  // it refuses the unknown type, and the lists would hand clients the server's IP policy.
+  it('leaves the inbound-only filter mask out of the link', () => {
+    const exported = finalmaskFrom(
+      linkFor({
+        tcp: [{ type: 'filter', settings: { allowedSourceIPs: ['10.0.0.0/8'] } }],
+        udp: [
+          { type: 'filter', settings: { blockedSourceIPs: ['geoip:cn'] } },
+          { type: 'salamander', settings: { password: 'p' } },
+        ],
+      }),
+    );
+
+    expect(exported).toEqual({ udp: [{ type: 'salamander', settings: { password: 'p' } }] });
+  });
+
+  it('exports a stored UDP-only finalmask whose empty tcp list was dropped on save', () => {
+    const udpOnly = { udp: [{ type: 'salamander', settings: { password: 'p' } }] };
+    const inbound = inboundFromDb({
+      ...(raw as unknown as DbInboundLike),
+      streamSettings: { ...(raw.streamSettings as Record<string, unknown>), finalmask: udpOnly },
+    });
+
+    const link = genVlessLink({ inbound, address: 'example.test', port: inbound.port, clientId });
+
+    expect(finalmaskFrom(link)).toEqual(udpOnly);
+  });
+
+  it('does not create empty legacy values or search before a mixed-type last entry', () => {
+    const finalmask: FinalMaskStreamSettings = {
+      tcp: [
+        { type: 'fragment', settings: { packets: 'tlshello', lengths: [], delays: [] } },
+        {
+          type: 'fragment',
+          settings: { packets: 'tlshello', lengths: ['5-10', 25], delays: ['10-20', null] },
+        },
+        { type: 'fragment', settings: { lengths: [' '], delays: ['\t'] } },
+      ],
+      udp: [],
+    };
+
+    const exported = finalmaskFrom(linkFor(finalmask));
+    const [emptyRanges, mixedRanges, blankRanges] = exported.tcp as Array<{
+      settings: Record<string, unknown>;
+    }>;
+
+    expect(emptyRanges.settings).not.toHaveProperty('length');
+    expect(emptyRanges.settings).not.toHaveProperty('delay');
+    expect(mixedRanges.settings).not.toHaveProperty('length');
+    expect(mixedRanges.settings).not.toHaveProperty('delay');
+    expect(blankRanges.settings).not.toHaveProperty('length');
+    expect(blankRanges.settings).not.toHaveProperty('delay');
+  });
+});
+
+describe('genTrojanLink', () => {
+  const fixtures = fixturesForProtocol('trojan');
+  expect(fixtures.length, 'need at least one trojan full-inbound fixture').toBeGreaterThan(0);
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      const settings = (raw as { settings: { clients: Array<{ password: string }> } }).settings;
+      const client = settings.clients[0];
+
+      const link = genTrojanLink({
+        inbound: typed,
+        address: 'example.test',
+        port: typed.port,
+        forceTls: 'same',
+        remark: 'parity-test',
+        clientPassword: client.password,
+        externalProxy: null,
+      });
+      expect(link).toMatchSnapshot();
+    });
+  }
+});
+
+describe('genHysteriaLink', () => {
+  const fixtures = fixturesForProtocol('hysteria');
+  expect(fixtures.length, 'need at least one hysteria full-inbound fixture').toBeGreaterThan(0);
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      const settings = (raw as { settings: { clients: Array<{ auth: string }> } }).settings;
+      const client = settings.clients[0];
+
+      const link = genHysteriaLink({
+        inbound: typed,
+        address: 'example.test',
+        port: typed.port,
+        remark: 'parity-test',
+        clientAuth: client.auth,
+      });
+      expect(link).toMatchSnapshot();
+    });
+  }
+
+  it('emits the UDP hop range as the v2rayN-compatible mport param', () => {
+    const [, raw] = fixtures[0];
+    const withHop = {
+      ...raw,
+      settings: { ...(raw.settings as Record<string, unknown>), version: 2 },
+      streamSettings: {
+        ...(raw.streamSettings as Record<string, unknown>),
+        finalmask: { quicParams: { udpHop: { ports: '20000-50000', interval: '5-10' } } },
+      },
+    };
+    const typed = InboundSchema.parse(withHop);
+    const client = (raw.settings as { clients: Array<{ auth: string }> }).clients[0];
+
+    const link = genHysteriaLink({
+      inbound: typed,
+      address: 'example.test',
+      port: typed.port,
+      remark: 'hop-test',
+      clientAuth: client.auth,
+    });
+
+    expect(link.startsWith('hysteria2://')).toBe(true);
+    expect(link).toContain(`@example.test:${typed.port}`);
+    expect(link).toContain('mport=20000-50000');
+    expect(link.endsWith('#hop-test')).toBe(true);
+  });
+
+  it('emits mport from the udphop mask xray-core 26.9.9 moved hopping to', () => {
+    const [, raw] = fixtures[0];
+    const withHop = {
+      ...raw,
+      settings: { ...(raw.settings as Record<string, unknown>), version: 2 },
+      streamSettings: {
+        ...(raw.streamSettings as Record<string, unknown>),
+        finalmask: {
+          udp: [
+            {
+              type: 'udphop',
+              settings: { mode: 'intervalremote', interval: '5-10', remotePorts: '30000-40000' },
+            },
+          ],
+        },
+      },
+    };
+    const typed = InboundSchema.parse(withHop);
+    const client = (raw.settings as { clients: Array<{ auth: string }> }).clients[0];
+
+    const link = genHysteriaLink({
+      inbound: typed,
+      address: 'example.test',
+      port: typed.port,
+      remark: 'hop-mask',
+      clientAuth: client.auth,
+    });
+
+    expect(link).toContain('mport=30000-40000');
+  });
+
+  it('normalizes pinSHA256 to hex for base64, raw-hex and colon-hex pins (issue #4818)', () => {
+    const [, raw] = fixtures[0];
+    const base64Pin = 'yEfdI5XQl4wHgLggHEsomosoFZfUfCdfLXfT+W2N6cQ=';
+    const hexPin = '84491c0312d9e70f519ce24659a2ca7d9c4ec59dc86417ece426945e0f939293';
+    const colonPin =
+      'C8:47:DD:23:95:D0:97:8C:07:80:B8:20:1C:4B:28:9A:8B:28:15:97:D4:7C:27:5F:2D:77:D3:F9:6D:8D:E9:C4';
+    const stream = raw.streamSettings as Record<string, unknown>;
+    const tls = stream.tlsSettings as Record<string, unknown>;
+    const tlsClientSettings = tls.settings as Record<string, unknown>;
+    const withPins = {
+      ...raw,
+      streamSettings: {
+        ...stream,
+        tlsSettings: {
+          ...tls,
+          settings: { ...tlsClientSettings, pinnedPeerCertSha256: [base64Pin, hexPin, colonPin] },
+        },
+      },
+    };
+    const typed = InboundSchema.parse(withPins);
+    const client = (raw.settings as { clients: Array<{ auth: string }> }).clients[0];
+
+    const link = genHysteriaLink({
+      inbound: typed,
+      address: 'example.test',
+      port: typed.port,
+      remark: 'pin-test',
+      clientAuth: client.auth,
+    });
+
+    const pin = new URL(link).searchParams.get('pinSHA256');
+    expect(pin).toBe(
+      'c847dd2395d0978c0780b8201c4b289a8b281597d47c275f2d77d3f96d8de9c4,' +
+        '84491c0312d9e70f519ce24659a2ca7d9c4ec59dc86417ece426945e0f939293,' +
+        'c847dd2395d0978c0780b8201c4b289a8b281597d47c275f2d77d3f96d8de9c4',
+    );
+  });
+
+  it('emits an external proxy pin as hex pinSHA256 (not pcs)', () => {
+    const [, raw] = fixtures[0];
+    const typed = InboundSchema.parse(raw);
+    const client = (raw.settings as { clients: Array<{ auth: string }> }).clients[0];
+
+    const link = genHysteriaLink({
+      inbound: typed,
+      address: 'edge.example.com',
+      port: 8443,
+      remark: 'ep-pin',
+      clientAuth: client.auth,
+      externalProxy: {
+        forceTls: 'tls',
+        dest: 'edge.example.com',
+        port: 8443,
+        remark: 'ep-pin',
+        // base64 SHA-256 — must come out hex-normalized for Hysteria.
+        pinnedPeerCertSha256: ['yEfdI5XQl4wHgLggHEsomosoFZfUfCdfLXfT+W2N6cQ='],
+      },
+    });
+
+    const url = new URL(link);
+    expect(url.searchParams.get('pinSHA256')).toBe(
+      'c847dd2395d0978c0780b8201c4b289a8b281597d47c275f2d77d3f96d8de9c4',
+    );
+    expect(url.searchParams.has('pcs')).toBe(false);
+  });
+});
+
+describe('genWireguardLink + genWireguardConfig', () => {
+  const fixtures = fixturesForProtocol('wireguard');
+  expect(fixtures.length, 'need at least one wireguard full-inbound fixture').toBeGreaterThan(0);
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      if (typed.protocol !== 'wireguard') throw new Error('not a wireguard fixture');
+      // InboundSchema is an intersection of two DUs, so TS can't auto-narrow
+      // `settings` from `protocol`. The runtime guard above is the real
+      // check; this cast just helps the type checker.
+      const settings = typed.settings as WireguardInboundSettings;
+
+      const link = genWireguardLink({
+        settings,
+        address: 'wg.example.test',
+        port: typed.port,
+        remark: 'wg-peer-1',
+        peerIndex: 0,
+      });
+      const config = genWireguardConfig({
+        settings,
+        address: 'wg.example.test',
+        port: typed.port,
+        remark: 'wg-peer-1',
+        peerIndex: 0,
+      });
+      expect({ link, config }).toMatchSnapshot();
+    });
+  }
+});
+
+describe('genWireguardLink + genWireguardConfig multi allowedIPs', () => {
+  const settings = {
+    secretKey: '',
+    mtu: 1280,
+    dns: '',
+    peers: [
+      {
+        privateKey: 'cLI',
+        allowedIPs: ['10.0.0.2/32', 'fd00::2/128'],
+      },
+    ],
+  } as unknown as WireguardInboundSettings;
+
+  it('joins every allowed IP into the share-link address param', () => {
+    const link = genWireguardLink({
+      settings,
+      address: 'wg.example.test',
+      port: 51820,
+      remark: 'dual-stack',
+      peerIndex: 0,
+    });
+    const u = new URL(link);
+    expect(u.searchParams.get('address')).toBe('10.0.0.2/32,fd00::2/128');
+  });
+
+  it('joins every allowed IP into the .conf Address line', () => {
+    const config = genWireguardConfig({
+      settings,
+      address: 'wg.example.test',
+      port: 51820,
+      remark: 'dual-stack',
+      peerIndex: 0,
+    });
+    expect(config).toContain('Address = 10.0.0.2/32, fd00::2/128\n');
+  });
+});
+
+// Real AmneziaVPN app's import path (confirmed by reading its own source)
+// base64url-decodes a vpn:// link, best-effort decompresses it (falling back
+// to the raw bytes for plain text, which is never qCompress-framed), then
+// parses the result as a flat "Key = Value" bag -- so genAmneziaWGLink just
+// needs to wrap genAmneziaWGConfig's already-correct .conf text.
+describe('genAmneziaWGLink vpn:// scheme', () => {
+  const settings = {
+    server: {
+      publicKey: 'serverPubKey==',
+      mtu: 1420,
+      primaryDns: '8.8.8.8',
+      secondaryDns: '8.8.4.4',
+      jc: 5,
+      jmin: 10,
+      jmax: 50,
+      s1: 30,
+      s2: 45,
+      s3: 10,
+      s4: 5,
+      h1: '',
+      h2: '',
+      h3: '',
+      h4: '',
+      i1: '',
+    },
+    clients: [
+      {
+        email: 'peer-1',
+        privateKey: 'clientPrivKey==',
+        allowedIPs: ['10.8.1.2/32'],
+        keepAlive: 25,
+      },
+    ],
+  } as unknown as AmneziawgInboundSettings;
+
+  const input = {
+    settings,
+    address: 'awg.example.test',
+    port: 51820,
+    remark: 'awg-peer-1',
+    peerIndex: 0,
+  };
+
+  it('wraps the .conf text as a base64url-encoded vpn:// link, byte-identical to genAmneziaWGConfig', () => {
+    const link = genAmneziaWGLink(input);
+    expect(link.startsWith('vpn://')).toBe(true);
+
+    const decoded = fromBase64Url(link.slice('vpn://'.length));
+    expect(decoded).toBe(genAmneziaWGConfig(input));
+    expect(decoded).toContain('PrivateKey = clientPrivKey==\n');
+    expect(decoded).toContain('PublicKey = serverPubKey==\n');
+    expect(decoded).toContain('Endpoint = awg.example.test:51820');
+    // No trailing newline: the text ends on its last set field whichever that
+    // is, so the three emitters produce the same shape for the same client.
+    expect(decoded.endsWith('PersistentKeepalive = 25')).toBe(true);
+  });
+
+  it('omits every unset 3.1 field — a lone HeaderProtectionKey line would break the handshake', () => {
+    const decoded = fromBase64Url(genAmneziaWGLink(input).slice('vpn://'.length));
+    for (const absent of [
+      'I2',
+      'HeaderProtectionKey',
+      'ContentPaddingAddition',
+      'RekeyAfterTime',
+      'RekeyTimeout',
+      'RejectAfterTime',
+      'KeepaliveTimeout',
+      'MaxHandshakeAttempts',
+      'RandomTrailers',
+      'DisableCookies',
+    ]) {
+      expect(decoded).not.toContain(absent);
+    }
+  });
+
+  it('returns an empty string when the peer index has no client', () => {
+    expect(genAmneziaWGLink({ ...input, peerIndex: 5 })).toBe('');
+  });
+
+  // The subscription page's own reverse of the above: recovers a vpn://
+  // link's .conf text for the same copy/download/QR "Config" block
+  // WireGuard already gets there (wireguardConfigFromLink's AmneziaWG
+  // counterpart) -- found missing from that page in production (no
+  // download-config affordance for AmneziaWG links, unlike WireGuard's),
+  // even though every other surface in the panel (InboundInfoModal,
+  // ClientInfoModal, ClientQrModal) already had parity.
+  it('amneziawgConfigFromLink round-trips genAmneziaWGLink byte-identical to genAmneziaWGConfig', () => {
+    const link = genAmneziaWGLink(input);
+    expect(amneziawgConfigFromLink(link)).toBe(genAmneziaWGConfig(input));
+  });
+});
+
+describe('amneziawgConfigFromLink edge cases', () => {
+  it('returns an empty string for a non-vpn:// link', () => {
+    expect(amneziawgConfigFromLink('wireguard://abc')).toBe('');
+    expect(amneziawgConfigFromLink('')).toBe('');
+  });
+
+  it('returns an empty string for an unparseable vpn:// payload', () => {
+    expect(amneziawgConfigFromLink('vpn://not-valid-base64url!!!')).toBe('');
+  });
+});
+
+/*
+ * The full AmneziaWG 3.1 parameter block, pinned line-by-line and in order:
+ * the emitted client config must carry the identical block the Go server
+ * emitter writes (internal/amneziawg.writeObfuscation) or the tunnel breaks.
+ */
+describe('genAmneziaWGConfig 3.1 parameters', () => {
+  const settings = {
+    server: {
+      publicKey: 'serverPubKey==',
+      jc: 4,
+      jmin: 40,
+      jmax: 100,
+      s1: 30,
+      s2: 90,
+      s3: 20,
+      s4: 10,
+      h1: '10-2000',
+      h2: '3000-5000',
+      h3: '6000-8000',
+      h4: '9000-11000',
+      i1: '<r 64>',
+      i2: '<r 80>',
+      i3: '',
+      i4: '',
+      i5: '',
+      headerProtectionKey: 'MCPfRGcDGotJ6TcnIdDqsemj2cMIiGHnPUHM5ivXN18=',
+      contentPaddingAddition: '16-48',
+      rekeyAfterTime: '110-140',
+      rekeyTimeout: '4-8',
+      rejectAfterTime: '190-250',
+      keepaliveTimeout: '9-15',
+      maxHandshakeAttempts: '20-40',
+      randomTrailers: true,
+      disableCookies: true,
+    },
+    clients: [{ email: 'peer-1', privateKey: 'clientPrivKey==', allowedIPs: ['10.8.1.2/32'] }],
+  } as unknown as AmneziawgInboundSettings;
+
+  const input = {
+    settings,
+    address: 'awg.example.test',
+    port: 51820,
+    remark: 'awg-31',
+    peerIndex: 0,
+  };
+
+  it('emits every 3.1 line in the shared emitter order and round-trips through vpn://', () => {
+    const cfg = genAmneziaWGConfig(input);
+    const expectedOrder = [
+      'Jc = 4',
+      'H4 = 9000-11000',
+      'I1 = <r 64>',
+      'I2 = <r 80>',
+      'HeaderProtectionKey = MCPfRGcDGotJ6TcnIdDqsemj2cMIiGHnPUHM5ivXN18=',
+      'ContentPaddingAddition = 16-48',
+      'RekeyAfterTime = 110-140',
+      'RekeyTimeout = 4-8',
+      'RejectAfterTime = 190-250',
+      'KeepaliveTimeout = 9-15',
+      'MaxHandshakeAttempts = 20-40',
+      'RandomTrailers = on',
+      'DisableCookies = on',
+      '[Peer]',
+    ];
+    let pos = -1;
+    for (const line of expectedOrder) {
+      const i = cfg.indexOf(line);
+      expect(i, `missing or out-of-order: ${line}\n${cfg}`).toBeGreaterThan(pos);
+      pos = i;
+    }
+    expect(cfg).not.toContain('I3');
+    expect(amneziawgConfigFromLink(genAmneziaWGLink(input))).toBe(cfg);
+  });
+});
+
+describe('resolveAddr precedence', () => {
+  const baseInbound = {
+    listen: '',
+    port: 443,
+    protocol: 'vless' as const,
+  };
+
+  it('prefers hostOverride over listen and fallback', () => {
+    expect(
+      resolveAddr(
+        { ...baseInbound, listen: '10.0.0.1' } as never,
+        'cdn.example.test',
+        'fallback.test',
+      ),
+    ).toBe('cdn.example.test');
+  });
+
+  it('uses listen when override is empty and listen is explicit', () => {
+    expect(resolveAddr({ ...baseInbound, listen: '10.0.0.1' } as never, '', 'fallback.test')).toBe(
+      '10.0.0.1',
+    );
+  });
+
+  it('skips listen when it is 0.0.0.0 and falls through to fallbackHostname', () => {
+    expect(resolveAddr({ ...baseInbound, listen: '0.0.0.0' } as never, '', 'fallback.test')).toBe(
+      'fallback.test',
+    );
+  });
+
+  it('skips a unix socket path listen and falls through to fallbackHostname', () => {
+    expect(
+      resolveAddr({ ...baseInbound, listen: '/run/xray/in.sock' } as never, '', 'fallback.test'),
+    ).toBe('fallback.test');
+    expect(
+      resolveAddr({ ...baseInbound, listen: '@xray-abstract' } as never, '', 'fallback.test'),
+    ).toBe('fallback.test');
+  });
+
+  it('falls through to fallbackHostname when listen is empty', () => {
+    expect(resolveAddr(baseInbound as never, '', 'fallback.test')).toBe('fallback.test');
+  });
+
+  it('uses listen strategy with a shareable IPv6 listen before node override', () => {
+    expect(
+      resolveAddr(
+        {
+          ...baseInbound,
+          listen: '[2001:db8::1]',
+          shareAddrStrategy: 'listen',
+          shareAddr: '',
+        } as never,
+        'node.example.test',
+        'fallback.test',
+      ),
+    ).toBe('[2001:db8::1]');
+  });
+
+  it('uses listen strategy to prefer listen and fall back to node override', () => {
+    expect(
+      resolveAddr(
+        { ...baseInbound, listen: '10.0.0.1', shareAddrStrategy: 'listen', shareAddr: '' } as never,
+        'node.example.test',
+        'fallback.test',
+      ),
+    ).toBe('10.0.0.1');
+    expect(
+      resolveAddr(
+        { ...baseInbound, listen: '0.0.0.0', shareAddrStrategy: 'listen', shareAddr: '' } as never,
+        'node.example.test',
+        'fallback.test',
+      ),
+    ).toBe('node.example.test');
+    expect(
+      resolveAddr(
+        {
+          ...baseInbound,
+          listen: 'localhost',
+          shareAddrStrategy: 'listen',
+          shareAddr: '',
+        } as never,
+        'node.example.test',
+        'fallback.test',
+      ),
+    ).toBe('node.example.test');
+  });
+
+  it('uses custom strategy address before node override', () => {
+    expect(
+      resolveAddr(
+        {
+          ...baseInbound,
+          listen: '10.0.0.1',
+          shareAddrStrategy: 'custom',
+          shareAddr: 'edge.example.test',
+        } as never,
+        'node.example.test',
+        'fallback.test',
+      ),
+    ).toBe('edge.example.test');
+  });
+
+  it('normalizes a bare IPv6 custom strategy address', () => {
+    expect(
+      resolveAddr(
+        {
+          ...baseInbound,
+          listen: '10.0.0.1',
+          shareAddrStrategy: 'custom',
+          shareAddr: '2001:db8::2',
+        } as never,
+        'node.example.test',
+        'fallback.test',
+      ),
+    ).toBe('[2001:db8::2]');
+  });
+
+  it('ignores invalid custom strategy addresses and falls back to node override', () => {
+    for (const shareAddr of [
+      'https://edge.example.test',
+      'edge.example.test:8443',
+      '[2001:db8::2]:8443',
+      'bad host',
+    ]) {
+      expect(
+        resolveAddr(
+          { ...baseInbound, listen: '10.0.0.1', shareAddrStrategy: 'custom', shareAddr } as never,
+          'node.example.test',
+          'fallback.test',
+        ),
+      ).toBe('node.example.test');
+    }
+  });
+});
+
+// #4829: reaching the panel through an SSH tunnel (127.0.0.1/localhost) must not
+// leak the loopback host into share/QR links; a configured public host wins.
+describe('preferPublicHost (loopback fallback)', () => {
+  it('keeps a routable browser host as-is even when a public host is configured', () => {
+    expect(preferPublicHost('panel.example.com', 'sub.example.com')).toBe('panel.example.com');
+    expect(preferPublicHost('203.0.113.7', 'sub.example.com')).toBe('203.0.113.7');
+  });
+
+  it('substitutes the public host for loopback browser hosts', () => {
+    for (const loop of ['127.0.0.1', 'localhost', '::1', '[::1]', '127.5.6.7']) {
+      expect(preferPublicHost(loop, 'sub.example.com')).toBe('sub.example.com');
+    }
+  });
+
+  it('leaves loopback untouched when no public host is configured', () => {
+    expect(preferPublicHost('127.0.0.1', '')).toBe('127.0.0.1');
+    expect(preferPublicHost('localhost', '')).toBe('localhost');
+  });
+
+  it('an explicit per-inbound listen still wins over the loopback fallback', () => {
+    const inbound = { listen: '203.0.113.9', port: 443, protocol: 'vless' as const };
+    expect(
+      resolveAddr(inbound as never, '', preferPublicHost('127.0.0.1', 'sub.example.com')),
+    ).toBe('203.0.113.9');
+  });
+});
+
+describe('genInboundLinks orchestrator', () => {
+  // Every full-inbound fixture should produce the same \r\n-joined link
+  // block at this baseline.
+  const fixtures = Object.entries(fullFixtures)
+    .map(([path, raw]): [string, Record<string, unknown>] => [
+      fixtureName(path),
+      raw as Record<string, unknown>,
+    ])
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      const block = genInboundLinks({
+        inbound: typed,
+        remark: 'parity-test',
+        hostOverride: 'override.test',
+        fallbackHostname: 'fallback.test',
+      });
+      expect(block).toMatchSnapshot();
+    });
+  }
+});
+
+describe('genShadowsocksLink', () => {
+  const fixtures = fixturesForProtocol('shadowsocks');
+  expect(fixtures.length, 'need at least one shadowsocks full-inbound fixture').toBeGreaterThan(0);
+
+  for (const [name, raw] of fixtures) {
+    it(`${name}: byte-stable`, () => {
+      const typed = InboundSchema.parse(raw);
+      const settings = (raw as { settings: { clients?: Array<{ password: string }> } }).settings;
+      const client = settings.clients?.[0];
+
+      const link = genShadowsocksLink({
+        inbound: typed,
+        address: 'example.test',
+        port: typed.port,
+        forceTls: 'same',
+        remark: 'parity-test',
+        clientPassword: client?.password ?? '',
+        externalProxy: null,
+      });
+      expect(link).toMatchSnapshot();
+    });
+  }
+});
+
+describe('IPv6 bracket wrapping in share-link authority', () => {
+  it('genVlessLink brackets a bare IPv6 address', () => {
+    const [, raw] = fixturesForProtocol('vless')[0];
+    const typed = InboundSchema.parse(raw);
+    const clientId = (raw as { settings: { clients: Array<{ id: string }> } }).settings.clients[0]
+      .id;
+
+    const link = genVlessLink({
+      inbound: typed,
+      address: '2001:db8::1',
+      port: 443,
+      clientId,
+    });
+    expect(new URL(link).host).toBe('[2001:db8::1]:443');
+  });
+
+  it('genTrojanLink brackets a bare IPv6 address', () => {
+    const [, raw] = fixturesForProtocol('trojan')[0];
+    const typed = InboundSchema.parse(raw);
+    const clientPassword = (raw as { settings: { clients: Array<{ password: string }> } }).settings
+      .clients[0].password;
+
+    const link = genTrojanLink({
+      inbound: typed,
+      address: '2001:db8::1',
+      port: 443,
+      clientPassword,
+    });
+    expect(new URL(link).host).toBe('[2001:db8::1]:443');
+  });
+
+  it('genShadowsocksLink brackets a bare IPv6 address', () => {
+    const [, raw] = fixturesForProtocol('shadowsocks')[0];
+    const typed = InboundSchema.parse(raw);
+    const clientPassword =
+      (raw as { settings: { clients?: Array<{ password: string }> } }).settings.clients?.[0]
+        ?.password ?? '';
+
+    const link = genShadowsocksLink({
+      inbound: typed,
+      address: '2001:db8::1',
+      port: 443,
+      clientPassword,
+    });
+    expect(new URL(link).host).toBe('[2001:db8::1]:443');
+  });
+
+  it('genHysteriaLink brackets a bare IPv6 address', () => {
+    const [, raw] = fixturesForProtocol('hysteria')[0];
+    const typed = InboundSchema.parse(raw);
+    const clientAuth = (raw as { settings: { clients: Array<{ auth: string }> } }).settings
+      .clients[0].auth;
+
+    const link = genHysteriaLink({
+      inbound: typed,
+      address: '2001:db8::1',
+      port: 443,
+      clientAuth,
+    });
+    expect(new URL(link).host).toBe('[2001:db8::1]:443');
+  });
+
+  it('genWireguardLink brackets a bare IPv6 address', () => {
+    const [, raw] = fixturesForProtocol('wireguard')[0];
+    const typed = InboundSchema.parse(raw);
+    if (typed.protocol !== 'wireguard') throw new Error('not a wireguard fixture');
+    const settings = typed.settings as WireguardInboundSettings;
+
+    const link = genWireguardLink({
+      settings,
+      address: '2001:db8::1',
+      port: 443,
+      peerIndex: 0,
+    });
+    expect(new URL(link).host).toBe('[2001:db8::1]:443');
+  });
+
+  it('does not bracket IPv4 addresses or hostnames', () => {
+    const [, raw] = fixturesForProtocol('vless')[0];
+    const typed = InboundSchema.parse(raw);
+    const clientId = (raw as { settings: { clients: Array<{ id: string }> } }).settings.clients[0]
+      .id;
+
+    const v4 = genVlessLink({ inbound: typed, address: '203.0.113.7', port: 443, clientId });
+    expect(new URL(v4).host).toBe('203.0.113.7:443');
+
+    const host = genVlessLink({ inbound: typed, address: 'example.test', port: 443, clientId });
+    expect(new URL(host).host).toBe('example.test:443');
+  });
+});
+
+describe('external proxy pinned cert (pcs)', () => {
+  const [, raw] = fixturesForProtocol('vless').find(([name]) => name === 'vless-ws-tls')!;
+  const typed = InboundSchema.parse(raw);
+  const clientId = (raw as { settings: { clients: Array<{ id: string }> } }).settings.clients[0].id;
+
+  it('emits the external proxy pin list as pcs when forcing TLS', () => {
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'edge.example.com',
+      port: 8443,
+      forceTls: 'tls',
+      remark: 'ep-pin',
+      clientId,
+      externalProxy: {
+        forceTls: 'tls',
+        dest: 'edge.example.com',
+        port: 8443,
+        remark: 'ep-pin',
+        pinnedPeerCertSha256: ['aa11', 'bb22'],
+      },
+    });
+
+    expect(new URL(link).searchParams.get('pcs')).toBe('aa11,bb22');
+  });
+
+  it('omits pcs when the external proxy forces security off', () => {
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'edge.example.com',
+      port: 8080,
+      forceTls: 'none',
+      remark: 'ep-none',
+      clientId,
+      externalProxy: {
+        forceTls: 'none',
+        dest: 'edge.example.com',
+        port: 8080,
+        remark: 'ep-none',
+        pinnedPeerCertSha256: ['aa11'],
+      },
+    });
+
+    expect(new URL(link).searchParams.has('pcs')).toBe(false);
+  });
+});
+
+// #5322: the panel copy-link must carry XTLS Vision `flow` for VLESS+XHTTP
+// when VLESS encryption (vlessenc) is on, matching the form's flow display
+// and the backend subscription. Gating is via canEnableTlsFlow.
+describe('genVlessLink flow gating (#5322)', () => {
+  function vlessXhttp(encryption: string) {
+    return InboundSchema.parse({
+      id: 1,
+      up: 0,
+      down: 0,
+      total: 0,
+      remark: 'vlessenc',
+      enable: true,
+      expiryTime: 0,
+      listen: '',
+      port: 443,
+      tag: 'inbound-vless-xhttp',
+      sniffing: {
+        enabled: false,
+        destOverride: [],
+        metadataOnly: false,
+        routeOnly: false,
+        ipsExcluded: [],
+        domainsExcluded: [],
+      },
+      protocol: 'vless',
+      settings: {
+        clients: [
+          {
+            id: '11111111-2222-3333-4444-555555555555',
+            email: 'a@example.test',
+            flow: 'xtls-rprx-vision',
+            limitIp: 0,
+            totalGB: 0,
+            expiryTime: 0,
+            enable: true,
+            tgId: 0,
+            subId: 's1',
+            comment: '',
+            reset: 0,
+          },
+        ],
+        decryption: 'none',
+        encryption,
+        fallbacks: [],
+      },
+      streamSettings: {
+        network: 'xhttp',
+        xhttpSettings: {},
+        security: 'none',
+      },
+    });
+  }
+
+  const clientId = '11111111-2222-3333-4444-555555555555';
+
+  it('emits flow for VLESS+XHTTP when vless encryption is enabled', () => {
+    const link = genVlessLink({
+      inbound: vlessXhttp('mlkem768x25519plus.native.0rtt.SGVsbG8'),
+      address: 'example.test',
+      port: 443,
+      clientId,
+      flow: 'xtls-rprx-vision',
+    });
+    expect(new URL(link).searchParams.get('flow')).toBe('xtls-rprx-vision');
+  });
+
+  it('omits flow for VLESS+XHTTP without vless encryption', () => {
+    const link = genVlessLink({
+      inbound: vlessXhttp('none'),
+      address: 'example.test',
+      port: 443,
+      clientId,
+      flow: 'xtls-rprx-vision',
+    });
+    expect(new URL(link).searchParams.has('flow')).toBe(false);
+  });
+
+  it('still emits flow for classic TCP+REALITY Vision', () => {
+    const [, raw] = fixturesForProtocol('vless').find(([name]) => name === 'vless-tcp-reality')!;
+    const typed = InboundSchema.parse(raw);
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'example.test',
+      port: 443,
+      clientId: (raw as { settings: { clients: Array<{ id: string }> } }).settings.clients[0].id,
+      flow: 'xtls-rprx-vision',
+    });
+    expect(new URL(link).searchParams.get('flow')).toBe('xtls-rprx-vision');
+  });
+});
+
+describe('genVlessLink XHTTP extra compatibility', () => {
+  it('emits both sessionID and legacy session keys in XHTTP extra', () => {
+    const typed = InboundSchema.parse({
+      id: 1,
+      up: 0,
+      down: 0,
+      total: 0,
+      remark: 'xhttp-session',
+      enable: true,
+      expiryTime: 0,
+      listen: '',
+      port: 443,
+      tag: 'inbound-vless-xhttp',
+      sniffing: {
+        enabled: false,
+        destOverride: [],
+        metadataOnly: false,
+        routeOnly: false,
+        ipsExcluded: [],
+        domainsExcluded: [],
+      },
+      protocol: 'vless',
+      settings: {
+        clients: [
+          {
+            id: '11111111-2222-3333-4444-555555555555',
+            email: 'a@example.test',
+            flow: '',
+            limitIp: 0,
+            totalGB: 0,
+            expiryTime: 0,
+            enable: true,
+            tgId: 0,
+            subId: 's1',
+            comment: '',
+            reset: 0,
+          },
+        ],
+        decryption: 'none',
+        encryption: 'none',
+        fallbacks: [],
+      },
+      streamSettings: {
+        network: 'xhttp',
+        security: 'none',
+        xhttpSettings: {
+          path: '/sp',
+          host: 'edge.example.test',
+          mode: 'auto',
+          sessionIDPlacement: 'header',
+          sessionIDKey: 'X-Session',
+        },
+      },
+    });
+
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'example.test',
+      port: 443,
+      clientId: '11111111-2222-3333-4444-555555555555',
+    });
+    const extra = JSON.parse(new URL(link).searchParams.get('extra') ?? '{}') as Record<
+      string,
+      unknown
+    >;
+
+    expect(extra.sessionIDPlacement).toBe('header');
+    expect(extra.sessionIDKey).toBe('X-Session');
+    expect(extra.sessionPlacement).toBe('header');
+    expect(extra.sessionKey).toBe('X-Session');
+  });
+});
+
+describe('genTuicLink', () => {
+  it('canonicalizes legacy flat controller values to the Go runtime default', () => {
+    const cases = [
+      { value: '', expected: 'bbr' },
+      { value: ' ', expected: 'bbr' },
+      { value: 'BBR', expected: 'bbr' },
+      { value: ' CuBiC ', expected: 'cubic' },
+      { value: 'reno', expected: 'new_reno' },
+      { value: 'invalid', expected: 'new_reno' },
+    ];
+    for (const { value, expected } of cases) {
+      const inbound = InboundSchema.parse({
+        id: 10,
+        protocol: 'tuic',
+        port: 8443,
+        settings: {
+          congestion_control: value,
+          clients: [
+            {
+              uuid: '11111111-2222-3333-4444-555555555555',
+              password: 'secretpassword',
+              email: 'user@tuic',
+            },
+          ],
+        },
+      });
+      const link = genTuicLink({
+        inbound,
+        address: 'example.com',
+        clientUuid: '11111111-2222-3333-4444-555555555555',
+        clientPassword: 'secretpassword',
+      });
+      expect(new URL(link).searchParams.get('congestion_control')).toBe(expected);
+    }
+  });
+
+  it('builds a standard tuic share link with all parameters', () => {
+    const inbound = InboundSchema.parse({
+      id: 1,
+      tag: 'tuic-test',
+      protocol: 'tuic',
+      port: 8443,
+      listen: '0.0.0.0',
+      enable: true,
+      settings: {
+        server: {
+          certificate: '/etc/cert.pem',
+          private_key: '/etc/key.pem',
+          congestion_control: 'bbr',
+          alpn: ['h3', 'spdy/3.1'],
+          udp_relay_mode: 'native',
+          zero_rtt_handshake: true,
+          sni: 'tuic.example.com',
+        },
+        clients: [
+          {
+            uuid: '11111111-2222-3333-4444-555555555555',
+            password: 'secretpassword',
+            email: 'user@tuic',
+            enable: true,
+          },
+        ],
+      },
+    });
+
+    const link = genTuicLink({
+      inbound,
+      address: 'example.com',
+      port: 8443,
+      remark: 'TUIC-Node',
+      clientUuid: '11111111-2222-3333-4444-555555555555',
+      clientPassword: 'secretpassword',
+    });
+
+    expect(link).toContain(
+      'tuic://11111111-2222-3333-4444-555555555555:secretpassword@example.com:8443',
+    );
+    expect(link).toContain('congestion_control=bbr');
+    expect(link).toContain('alpn=h3%2Cspdy%2F3.1');
+    expect(link).toContain('sni=tuic.example.com');
+    expect(link).toContain('udp_relay_mode=native');
+    expect(link).toContain('allow_insecure=0');
+    expect(link).toContain('#TUIC-Node');
+  });
+
+  it('falls back to default alpn and udp_relay_mode when server settings are empty', () => {
+    const inbound = InboundSchema.parse({
+      id: 2,
+      tag: 'tuic-default-test',
+      protocol: 'tuic',
+      port: 8443,
+      listen: '0.0.0.0',
+      enable: true,
+      settings: {
+        clients: [
+          {
+            uuid: '11111111-2222-3333-4444-555555555555',
+            password: 'secretpassword',
+            email: 'user@tuic',
+            enable: true,
+          },
+        ],
+      },
+    });
+
+    const link = genTuicLink({
+      inbound,
+      address: 'example.com',
+      port: 8443,
+      remark: 'TUIC-Default',
+      clientUuid: '11111111-2222-3333-4444-555555555555',
+      clientPassword: 'secretpassword',
+    });
+
+    expect(link).toContain('congestion_control=bbr');
+    expect(link).toContain('alpn=h3%2Cspdy%2F3.1');
+    expect(link).toContain('udp_relay_mode=native');
+    expect(link).toContain('allow_insecure=0');
+  });
+
+  it('applies externalProxy overrides (sni, alpn, allow_insecure) and does not duplicate remark', () => {
+    const inbound = InboundSchema.parse({
+      id: 3,
+      tag: 'tuic-ep-test',
+      protocol: 'tuic',
+      port: 8443,
+      listen: '0.0.0.0',
+      enable: true,
+      settings: {
+        server: {
+          certificate: '/etc/cert.pem',
+          private_key: '/etc/key.pem',
+          congestion_control: 'bbr',
+          alpn: ['h3'],
+          sni: 'default.example.com',
+        },
+        clients: [
+          {
+            uuid: '11111111-2222-3333-4444-555555555555',
+            password: 'secretpassword',
+            email: 'user@tuic',
+            enable: true,
+          },
+        ],
+      },
+      streamSettings: {
+        externalProxy: [
+          {
+            dest: 'host-us.example.com',
+            port: 9443,
+            remark: 'US',
+            sni: 'override.example.com',
+            alpn: ['h3', 'h2'],
+            allowInsecure: true,
+          },
+        ],
+      },
+    });
+
+    const entries = genAllLinks({
+      inbound,
+      remark: 'TUIC-Node',
+      client: {
+        uuid: '11111111-2222-3333-4444-555555555555',
+        password: 'secretpassword',
+        email: 'user@tuic',
+      },
+      fallbackHostname: 'panel.example.com',
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].remark).toBe('TUIC-Node-US');
+
+    const link = entries[0].link;
+    expect(link).toContain(
+      'tuic://11111111-2222-3333-4444-555555555555:secretpassword@host-us.example.com:9443',
+    );
+    expect(link).toContain('sni=override.example.com');
+    expect(link).toContain('alpn=h3%2Ch2');
+    expect(link).toContain('allow_insecure=1');
+    expect(link).toContain('#TUIC-Node-US');
+    expect(link).not.toContain('#TUIC-Node-US-US');
+  });
+});
+
+describe('isPostQuantumLink', () => {
+  type RealityFixture = {
+    settings: { clients: Array<{ id: string }>; encryption?: string };
+    streamSettings: { realitySettings: { settings: { mldsa65Verify?: string } } };
+  };
+  const [, raw] = fixturesForProtocol('vless').find(([name]) => name === 'vless-tcp-reality')!;
+  const clientId = (raw as RealityFixture).settings.clients[0].id;
+  const x25519Key = 'G3cdPSd1-NnlpTbWNSM5vHsT5VNzWfFzYSKwbUMnV1Y';
+  const mlkem768Key = 'A'.repeat(1579);
+
+  function realityLink(edit: (inbound: RealityFixture) => void = () => {}): string {
+    const copy = structuredClone(raw) as RealityFixture;
+    edit(copy);
+    return genVlessLink({ inbound: InboundSchema.parse(copy), address: 'example.test', clientId });
+  }
+
+  // #6730: the REALITY ML-KEM support hint is a short flag, not a large PQ payload.
+  it('keeps the QR for a plain REALITY link', () => {
+    expect(isPostQuantumLink(realityLink())).toBe(false);
+  });
+
+  it('keeps the QR for VLESS encryption authenticated by an X25519 key', () => {
+    const link = realityLink((ib) => {
+      ib.settings.encryption = `mlkem768x25519plus.native.0rtt.${x25519Key}`;
+    });
+    expect(isPostQuantumLink(link)).toBe(false);
+  });
+
+  it('hides the QR for VLESS encryption authenticated by an ML-KEM-768 key', () => {
+    const link = realityLink((ib) => {
+      ib.settings.encryption = `mlkem768x25519plus.native.0rtt.${mlkem768Key}`;
+    });
+    expect(isPostQuantumLink(link)).toBe(true);
+  });
+
+  it('hides the QR for a REALITY link carrying an ML-DSA-65 verify key', () => {
+    const link = realityLink((ib) => {
+      ib.streamSettings.realitySettings.settings.mldsa65Verify = 'B'.repeat(2603);
+    });
+    expect(isPostQuantumLink(link)).toBe(true);
+  });
+
+  it('exports cipherSuites as cs query parameter on VLESS TLS links', () => {
+    const [, rawFixture] = fixturesForProtocol('vless')[0];
+    const stream = rawFixture.streamSettings as Record<string, unknown> | undefined;
+    const tls = stream?.tlsSettings as Record<string, unknown> | undefined;
+    const typed = InboundSchema.parse({
+      ...rawFixture,
+      streamSettings: {
+        ...stream,
+        security: 'tls',
+        tlsSettings: {
+          ...tls,
+          cipherSuites: 'TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256',
+        },
+      },
+    });
+
+    const link = genVlessLink({
+      inbound: typed,
+      address: 'example.test',
+      port: 443,
+      clientId: '11111111-2222-3333-4444-555555555555',
+    });
+    expect(new URL(link).searchParams.get('cs')).toBe(
+      'TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256',
+    );
+  });
+
+  // Xray reads an empty fingerprint as chrome, whose uTLS hello drops cipherSuites,
+  // so a link carrying cs with no fingerprint must ask for unsafe.
+  describe('cipherSuites pin fp=unsafe when no fingerprint is set', () => {
+    function tlsInbound(
+      protocol: 'vless' | 'vmess' | 'trojan',
+      fingerprint: string,
+      cipherSuites = 'TLS_AES_128_GCM_SHA256',
+    ) {
+      const [, rawFixture] = fixturesForProtocol(protocol)[0];
+      const stream = rawFixture.streamSettings as Record<string, unknown> | undefined;
+      const tls = (stream?.tlsSettings ?? {}) as Record<string, unknown>;
+      return InboundSchema.parse({
+        ...rawFixture,
+        streamSettings: {
+          ...stream,
+          security: 'tls',
+          tlsSettings: {
+            ...tls,
+            cipherSuites,
+            settings: { ...(tls.settings as Record<string, unknown>), fingerprint },
+          },
+        },
+      });
+    }
+
+    it('VLESS link gets fp=unsafe', () => {
+      const link = genVlessLink({
+        inbound: tlsInbound('vless', ''),
+        address: 'example.test',
+        clientId: '11111111-2222-3333-4444-555555555555',
+      });
+      expect(new URL(link).searchParams.get('fp')).toBe('unsafe');
+    });
+
+    it('VLESS link keeps an explicit fingerprint', () => {
+      const link = genVlessLink({
+        inbound: tlsInbound('vless', 'firefox'),
+        address: 'example.test',
+        clientId: '11111111-2222-3333-4444-555555555555',
+      });
+      expect(new URL(link).searchParams.get('fp')).toBe('firefox');
+    });
+
+    it('VMess link gets fp=unsafe', () => {
+      const link = genVmessLink({
+        inbound: tlsInbound('vmess', ''),
+        address: 'example.test',
+        clientId: '11111111-2222-3333-4444-555555555555',
+      });
+      const obj = JSON.parse(Base64.decode(link.slice('vmess://'.length))) as Record<
+        string,
+        unknown
+      >;
+      expect(obj.fp).toBe('unsafe');
+    });
+
+    it('Trojan link gets fp=unsafe from an external proxy cipherSuites', () => {
+      const link = genTrojanLink({
+        inbound: tlsInbound('trojan', '', ''),
+        address: 'example.test',
+        clientPassword: 'pw',
+        externalProxy: {
+          forceTls: 'same',
+          dest: 'cdn.example.test',
+          port: 443,
+          remark: '',
+          cipherSuites: 'TLS_AES_256_GCM_SHA384',
+        },
+      });
+      expect(new URL(link).searchParams.get('fp')).toBe('unsafe');
+    });
+  });
+});

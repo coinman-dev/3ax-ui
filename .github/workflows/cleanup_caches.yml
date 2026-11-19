@@ -1,15 +1,11 @@
-# Manual recovery only. Normal cache eviction and artifact retention are handled by GitHub.
 name: Cleanup Caches
 on:
+  schedule:
+    - cron: "0 3 * * *" # every day
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   cleanup:
-    timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -32,24 +28,4 @@ jobs:
               gh api -X DELETE repos/${{ github.repository }}/actions/caches/$CACHE_ID
             done
             echo "Old caches deleted successfully."
-          fi
-
-      - name: Delete artifacts older than 2 days
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CUTOFF_DATE=$(date -d "2 days ago" -Ins --utc | sed 's/+0000/Z/')
-          echo "Deleting artifacts older than: $CUTOFF_DATE"
-
-          ARTIFACT_IDS=$(gh api --paginate repos/${{ github.repository }}/actions/artifacts \
-            --jq ".artifacts[] | select(.created_at < \"$CUTOFF_DATE\") | .id" 2>/dev/null)
-
-          if [ -z "$ARTIFACT_IDS" ]; then
-            echo "No old artifacts found to delete."
-          else
-            echo "$ARTIFACT_IDS" | while read ARTIFACT_ID; do
-              echo "Deleting artifact: $ARTIFACT_ID"
-              gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID
-            done
-            echo "Old artifacts deleted successfully."
           fi

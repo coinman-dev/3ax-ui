@@ -1,9 +1,10 @@
 # Ignore editor and IDE settings
 .idea/
 .vscode/
-.cache/
+.cursor/
+.specify/
 .claude/
-.ai/
+.cache/
 .sync*
 
 # Ignore log files
@@ -16,19 +17,14 @@ tmp/
 # Ignore build and distribution directories
 backup/
 bin/
-build/
+x-ui/
 dist/
 release/
-target/
 node_modules/
 
 # Ignore compiled binaries
-/3ax-ui
-/3x-ui
-
-# Ignore script and executable files
-/release.sh
-/x-ui
+main
+3x-ui
 
 # Ignore OS specific files
 .DS_Store
@@ -36,7 +32,12 @@ Thumbs.db
 
 # Ignore Go build files
 *.exe
+*.syso
 x-ui.db
+x-ui.db-shm
+x-ui.db-wal
+system_metrics.gob
+*.dump
 
 # Ignore Docker specific files
 docker-compose.override.yml

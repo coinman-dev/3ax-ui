@@ -1,26 +1,23 @@
 name: "CodeQL Advanced"
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore: ['**/*.md', 'docs/**', 'LICENSE*']
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - "v*"
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "frontend/**"
   schedule:
     - cron: "18 2 * * 2"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   analyze:
-    timeout-minutes: 30
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
-    env:
-      CODEQL_ACTION_FILE_COVERAGE_ON_PRS: true
     permissions:
       security-events: write
       packages: read
@@ -40,7 +37,22 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        if: matrix.language == 'go'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend bundle
+        if: matrix.language == 'go'
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4

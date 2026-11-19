@@ -1,0 +1,1315 @@
+// Package link provides parsers for VPN share links (vmess://, vless://, etc.)
+// and subscription bodies (typically base64-encoded newline lists of such links).
+// The output shape matches the wire format used by the panel's Xray template
+// outbounds array so that parsed objects can be injected directly.
+package link
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"math"
+	"net"
+	"net/url"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/util/maskcompat"
+)
+
+// Outbound is the minimal shape we emit for each parsed link.
+// Extra fields (mux, etc.) are carried inside settings/streamSettings.
+type Outbound map[string]any
+
+// ParseResult holds a parsed outbound together with a stable identity string
+// that can be used to correlate the same logical server across refreshes
+// (even if the remark changes).
+type ParseResult struct {
+	Outbound Outbound
+	Identity string
+}
+
+// MaxSubscriptionOutbounds caps the outbounds one document yields: each is held, validated
+// and merged into the core's config, and the byte cap alone allows hundreds of thousands.
+const MaxSubscriptionOutbounds = 2000
+
+// ParseSubscriptionBody accepts the raw body returned by a subscription URL.
+// It handles the common case where the body is a base64-encoded blob of
+// newline-separated links, and also tolerates an already-decoded text body.
+// It returns the list of successfully parsed outbounds (in order) and their
+// corresponding identities.
+func ParseSubscriptionBody(body []byte) ([]Outbound, []string, error) {
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return nil, nil, nil
+	}
+
+	// Try base64 decode first (standard and URL-safe variants).
+	if decoded, ok := tryBase64(text); ok {
+		text = strings.TrimSpace(decoded)
+	}
+
+	lines := splitLines(text)
+	var outbounds []Outbound
+	var identities []string
+	seen := map[string]int{}
+
+	for _, ln := range lines {
+		if len(outbounds) >= MaxSubscriptionOutbounds {
+			break
+		}
+		ln = strings.TrimSpace(ln)
+		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		res, err := ParseLink(ln)
+		if err != nil || res == nil {
+			// Ignore unparseable lines (comments, unsupported protocols, etc.)
+			continue
+		}
+		identity := res.Identity
+		// A repeated identity would share one stored tag, shifting both tags on every refresh.
+		if n := seen[res.Identity]; n > 0 {
+			identity = fmt.Sprintf("%s#%d", res.Identity, n)
+		}
+		seen[res.Identity]++
+		outbounds = append(outbounds, res.Outbound)
+		identities = append(identities, identity)
+	}
+	return outbounds, identities, nil
+}
+
+func tryBase64(s string) (string, bool) {
+	// Remove whitespace that some providers insert.
+	clean := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+			return -1
+		}
+		return r
+	}, s)
+
+	// Common padding fix
+	for len(clean)%4 != 0 {
+		clean += "="
+	}
+
+	// Standard
+	if b, err := base64.StdEncoding.DecodeString(clean); err == nil {
+		return string(b), true
+	}
+	// URL-safe (no padding)
+	if b, err := base64.RawURLEncoding.DecodeString(clean); err == nil {
+		return string(b), true
+	}
+	// URL-safe with padding
+	if b, err := base64.URLEncoding.DecodeString(clean); err == nil {
+		return string(b), true
+	}
+	return "", false
+}
+
+func splitLines(s string) []string {
+	// Accept \n, \r\n, and also some providers use literal \n in the text.
+	s = strings.ReplaceAll(s, `\n`, "\n")
+	return strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' })
+}
+
+// ParseLink parses a single share link and returns the outbound object plus
+// a stable identity for tag correlation. Supported schemes:
+//   - vmess://
+//   - vless://
+//   - trojan://
+//   - ss:// (modern and legacy)
+//   - hysteria2:// (also hy2://)
+//   - wireguard:// (also wg://)
+func ParseLink(link string) (*ParseResult, error) {
+	res, err := parseLinkByScheme(strings.TrimSpace(link))
+	if err != nil {
+		return nil, err
+	}
+	dropHostLocalKeys(res.Outbound)
+	if !nestsWithin(map[string]any(res.Outbound), maxOutboundDepth) {
+		return nil, fmt.Errorf("link nests JSON deeper than %d levels", maxOutboundDepth)
+	}
+	return res, nil
+}
+
+// maxOutboundDepth bounds the JSON a link can nest into its outbound (the deepest real shape,
+// an xhttp download stream's finalmask, is about 11): pretty-printing costs depth squared.
+const maxOutboundDepth = 16
+
+func nestsWithin(v any, depth int) bool {
+	if depth < 0 {
+		return false
+	}
+	switch v := v.(type) {
+	case map[string]any:
+		for _, child := range v {
+			if !nestsWithin(child, depth-1) {
+				return false
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if !nestsWithin(child, depth-1) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func parseLinkByScheme(link string) (*ParseResult, error) {
+	switch {
+	case strings.HasPrefix(link, "vmess://"):
+		return parseVmess(link)
+	case strings.HasPrefix(link, "vless://"):
+		return parseVless(link)
+	case strings.HasPrefix(link, "trojan://"):
+		return parseTrojan(link)
+	case strings.HasPrefix(link, "ss://"):
+		return parseShadowsocks(link)
+	case strings.HasPrefix(link, "hysteria2://"), strings.HasPrefix(link, "hy2://"):
+		return parseHysteria2(link)
+	case strings.HasPrefix(link, "wireguard://"), strings.HasPrefix(link, "wg://"):
+		return parseWireguard(link)
+	default:
+		return nil, fmt.Errorf("unsupported link scheme")
+	}
+}
+
+// hostLocalKeys redirect the core's dial or name files on the importing host; extra=, fm= and
+// vmess JSON copy provider keys verbatim, and the core binds keys case-folded.
+var hostLocalKeys = []string{"dialerProxy", "certificateFile", "keyFile", "masterKeyLog"}
+
+func dropHostLocalKeys(v any) {
+	switch v := v.(type) {
+	case map[string]any:
+		for key, child := range v {
+			if slices.ContainsFunc(hostLocalKeys, func(k string) bool { return strings.EqualFold(k, key) }) {
+				delete(v, key)
+				continue
+			}
+			dropHostLocalKeys(child)
+		}
+	case Outbound:
+		dropHostLocalKeys(map[string]any(v))
+	case []any:
+		for _, child := range v {
+			dropHostLocalKeys(child)
+		}
+	}
+}
+
+// --- vmess ---
+
+func parseVmess(link string) (*ParseResult, error) {
+	b64 := strings.TrimPrefix(link, "vmess://")
+	// vmess:// base64(json), standard or URL-safe, padded or not
+	raw, err := base64DecodeFlexible(b64)
+	if err != nil {
+		return nil, fmt.Errorf("vmess decode: %w", err)
+	}
+	var j map[string]any
+	if err := json.Unmarshal([]byte(raw), &j); err != nil {
+		return nil, fmt.Errorf("vmess json: %w", err)
+	}
+
+	identity := vmessIdentity(j)
+
+	network := getString(j, "net", "tcp")
+	security := "none"
+	if tls, _ := j["tls"].(string); tls == "tls" {
+		security = "tls"
+	}
+	stream := buildStream(network, security)
+
+	// Map known fields (best effort, matching frontend parser coverage)
+	switch network {
+	case "ws":
+		host, _ := j["host"].(string)
+		setWS(stream, host, getString(j, "path", "/"))
+	case "grpc":
+		svc := getString(j, "path", "")
+		if auth, ok := j["authority"].(string); ok && auth != "" {
+			stream["grpcSettings"].(map[string]any)["authority"] = auth
+		}
+		stream["grpcSettings"].(map[string]any)["serviceName"] = svc
+		stream["grpcSettings"].(map[string]any)["multiMode"] = getString(j, "type", "") == "multi"
+	case "httpupgrade":
+		setHTTPUpgrade(stream, getString(j, "host", ""), getString(j, "path", "/"))
+	case "xhttp":
+		xh := stream["xhttpSettings"].(map[string]any)
+		xh["host"] = getString(j, "host", "")
+		xh["path"] = getString(j, "path", "/")
+		if m := getString(j, "mode", ""); m != "" {
+			xh["mode"] = m
+		}
+		for _, k := range vmessXhttpKeys {
+			if v, ok := j[k]; ok {
+				xh[k] = v
+			}
+		}
+		for legacy, renamed := range xhttpLegacyAliases {
+			if _, ok := xh[renamed]; !ok {
+				if v, ok := j[legacy].(string); ok && v != "" {
+					xh[renamed] = v
+				}
+			}
+		}
+	case "tcp":
+		if getString(j, "type", "") == "http" {
+			stream["tcpSettings"] = map[string]any{
+				"header": map[string]any{
+					"type": "http",
+					"request": map[string]any{
+						"version": "1.1",
+						"method":  "GET",
+						"path":    splitComma(getString(j, "path", "/")),
+						"headers": map[string]any{"Host": splitComma(getString(j, "host", ""))},
+					},
+				},
+			}
+		}
+	case "kcp":
+		applyTransport(stream, url.Values{"mtu": {strconv.Itoa(num(j["mtu"]))}, "tti": {strconv.Itoa(num(j["tti"]))}})
+	}
+
+	// The vmess object carries fm as-is and the mKCP header and seed as type and path.
+	maskParams := url.Values{"fm": {getString(j, "fm", "")}}
+	if network == "kcp" {
+		maskParams.Set("headerType", getString(j, "type", ""))
+		maskParams.Set("seed", getString(j, "path", ""))
+	}
+	applyFinalMask(stream, maskParams)
+
+	if security == "tls" {
+		tls := stream["tlsSettings"].(map[string]any)
+		tls["serverName"] = getString(j, "sni", "")
+		tls["fingerprint"] = getString(j, "fp", "")
+		if alpn := getString(j, "alpn", ""); alpn != "" {
+			tls["alpn"] = splitComma(alpn)
+		}
+		// The vmess object names the certificate checks v2rayN does the same way
+		// the url-param protocols name them in applySecurity.
+		tls["echConfigList"] = getString(j, "ech", "")
+		tls["verifyPeerCertByName"] = getString(j, "vcn", "")
+		tls["pinnedPeerCertSha256"] = getString(j, "pcs", "")
+		tls["cipherSuites"] = getString(j, "cs", "")
+	}
+
+	port := num(j["port"])
+	scy := getString(j, "scy", "auto")
+	if scy == "none" || scy == "zero" {
+		scy = "auto"
+	}
+	ob := Outbound{
+		"protocol": "vmess",
+		"tag":      getString(j, "ps", ""),
+		"settings": map[string]any{
+			"vnext": []any{
+				map[string]any{
+					"address": getString(j, "add", ""),
+					"port":    port,
+					"users": []any{
+						map[string]any{
+							"id":       getString(j, "id", ""),
+							"security": scy,
+						},
+					},
+				},
+			},
+		},
+		"streamSettings": stream,
+	}
+	return &ParseResult{Outbound: ob, Identity: identity}, nil
+}
+
+// vmessXhttpKeys are the XHTTP fields a vmess link carries inline, where vless/trojan put them in extra.
+var vmessXhttpKeys = []string{
+	"xPaddingBytes", "xPaddingObfsMode", "xPaddingKey", "xPaddingHeader", "xPaddingPlacement", "xPaddingMethod",
+	"sessionIDPlacement", "sessionIDKey", "sessionIDTable", "sessionIDLength",
+	"seqPlacement", "seqKey", "uplinkDataPlacement", "uplinkDataKey", "uplinkHTTPMethod", "uplinkChunkSize",
+	"scMaxEachPostBytes", "scMinPostsIntervalMs", "scMaxBufferedPosts", "scStreamUpServerSecs",
+	"serverMaxHeaderBytes", "noSSEHeader", "noGRPCHeader", "xmux", "downloadSettings", "headers",
+}
+
+// xhttpLegacyAliases maps the pre-rename session keys older links carry onto the current ones.
+var xhttpLegacyAliases = map[string]string{
+	"sessionPlacement": "sessionIDPlacement",
+	"sessionKey":       "sessionIDKey",
+}
+
+func vmessIdentity(j map[string]any) string {
+	// Remove ps (remark) for identity
+	core := map[string]any{}
+	for k, v := range j {
+		if k == "ps" {
+			continue
+		}
+		core[k] = v
+	}
+	b, _ := json.Marshal(core)
+	return "vmess:" + string(b)
+}
+
+// --- vless / trojan (URL forms) ---
+
+func parseVless(link string) (*ParseResult, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "vless" {
+		return nil, fmt.Errorf("not vless")
+	}
+	id := u.User.Username()
+	host := u.Hostname()
+	port := defaultPort(u.Port(), 443)
+	params := u.Query()
+	network := params.Get("type")
+	if network == "" {
+		network = "tcp"
+	}
+	security := params.Get("security")
+	if security == "" {
+		security = "none"
+	}
+	stream := buildStream(network, security)
+	applyTransport(stream, params)
+	applySecurity(stream, params)
+	applyFinalMask(stream, params)
+
+	identity := "vless:" + u.Scheme + "://" + id + "@" + host + ":" + strconv.Itoa(port) + "?" + canonicalQuery(params)
+
+	ob := Outbound{
+		"protocol": "vless",
+		"tag":      decodeHash(u.EscapedFragment()),
+		"settings": map[string]any{
+			"address":    host,
+			"port":       port,
+			"id":         id,
+			"flow":       params.Get("flow"),
+			"encryption": firstNonEmpty(params.Get("encryption"), "none"),
+		},
+		"streamSettings": stream,
+	}
+	return &ParseResult{Outbound: ob, Identity: identity}, nil
+}
+
+func parseTrojan(link string) (*ParseResult, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "trojan" {
+		return nil, fmt.Errorf("not trojan")
+	}
+	pw := u.User.Username()
+	host := u.Hostname()
+	port := defaultPort(u.Port(), 443)
+	params := u.Query()
+	network := params.Get("type")
+	if network == "" {
+		network = "tcp"
+	}
+	security := params.Get("security")
+	if security == "" {
+		security = "tls"
+	}
+	stream := buildStream(network, security)
+	applyTransport(stream, params)
+	applySecurity(stream, params)
+	applyFinalMask(stream, params)
+
+	identity := "trojan:" + u.Scheme + "://" + pw + "@" + host + ":" + strconv.Itoa(port) + "?" + canonicalQuery(params)
+
+	ob := Outbound{
+		"protocol": "trojan",
+		"tag":      decodeHash(u.EscapedFragment()),
+		"settings": map[string]any{
+			"servers": []any{
+				map[string]any{"address": host, "port": port, "password": pw},
+			},
+		},
+		"streamSettings": stream,
+	}
+	return &ParseResult{Outbound: ob, Identity: identity}, nil
+}
+
+// --- shadowsocks ---
+
+func parseShadowsocks(link string) (*ParseResult, error) {
+	// Two shapes:
+	//   ss://base64(method:pass)@host:port#remark
+	//   ss://base64(method:pass@host:port)#remark
+	// Query may carry Xray-native stream params (type/security/sni/alpn/fp)
+	// emitted by genShadowsocksLink — preserve them like trojan/vless.
+	remark := ""
+	if i := strings.Index(link, "#"); i >= 0 {
+		remark, _ = url.QueryUnescape(link[i+1:])
+		link = link[:i]
+	}
+	rawQuery := ""
+	if i := strings.Index(link, "?"); i >= 0 {
+		rawQuery = link[i+1:]
+		link = link[:i]
+	}
+	params, _ := url.ParseQuery(rawQuery)
+	core := strings.TrimPrefix(link, "ss://")
+	at := strings.Index(core, "@")
+	var host, method, pass string
+	var port int
+	if at >= 0 {
+		// modern
+		userB64 := core[:at]
+		hp := strings.TrimRight(core[at+1:], "/")
+		userInfo, err := base64DecodeFlexible(userB64)
+		if err != nil {
+			// SIP022 (2022-blake3-*) userinfo is percent-encoded, not base64.
+			if dec, uerr := url.QueryUnescape(userB64); uerr == nil {
+				userInfo = dec
+			} else {
+				userInfo = userB64 // not b64, rare
+			}
+		}
+		colon := strings.LastIndex(hp, ":")
+		if colon < 0 {
+			return nil, fmt.Errorf("bad ss host:port")
+		}
+		host = hp[:colon]
+		port, err = strconv.Atoi(hp[colon+1:])
+		if err != nil {
+			return nil, fmt.Errorf("bad ss port %q: %w", hp[colon+1:], err)
+		}
+		method, pass = splitMethodPass(userInfo)
+	} else {
+		// legacy: whole thing b64
+		dec, err := base64DecodeFlexible(core)
+		if err != nil {
+			return nil, err
+		}
+		at = strings.Index(dec, "@")
+		if at < 0 {
+			return nil, fmt.Errorf("bad legacy ss")
+		}
+		userInfo := dec[:at]
+		hp := dec[at+1:]
+		colon := strings.LastIndex(hp, ":")
+		if colon < 0 {
+			return nil, fmt.Errorf("bad legacy ss hp")
+		}
+		host = hp[:colon]
+		port, err = strconv.Atoi(hp[colon+1:])
+		if err != nil {
+			return nil, fmt.Errorf("bad legacy ss port %q: %w", hp[colon+1:], err)
+		}
+		method, pass = splitMethodPass(userInfo)
+	}
+	identity := "ss:" + method + ":" + pass + "@" + host + ":" + strconv.Itoa(port)
+	// The panel and v2rayN express shadowsocks tcp/http obfuscation only as the
+	// SIP002 plugin, so it has to become the header it stands for.
+	applyObfsLocalPlugin(params, rawQuery)
+	network := params.Get("type")
+	if network == "" {
+		network = "tcp"
+	}
+	security := params.Get("security")
+	if security == "" {
+		security = "none"
+	}
+	stream := buildStream(network, security)
+	applyTransport(stream, params)
+	applySecurity(stream, params)
+	applyFinalMask(stream, params)
+	ob := Outbound{
+		"protocol": "shadowsocks",
+		"tag":      remark,
+		"settings": map[string]any{
+			"servers": []any{
+				map[string]any{"address": host, "port": port, "password": pass, "method": method},
+			},
+		},
+		"streamSettings": stream,
+	}
+	return &ParseResult{Outbound: ob, Identity: identity}, nil
+}
+
+func splitMethodPass(userInfo string) (string, string) {
+	before, after, ok := strings.Cut(userInfo, ":")
+	if !ok {
+		return "2022-blake3-aes-128-gcm", userInfo // guess
+	}
+	return before, after
+}
+
+// applyObfsLocalPlugin maps a SIP002 obfs-local=http plugin onto the tcp/http
+// response header it stands for; the other plugin values have no Xray header.
+func applyObfsLocalPlugin(p url.Values, rawQuery string) {
+	if p.Get("headerType") != "" || p.Get("type") == "http" {
+		return
+	}
+	plugin := p.Get("plugin")
+	if plugin == "" {
+		plugin = rawQueryPlugin(rawQuery)
+	}
+	parts := strings.Split(plugin, ";")
+	if len(parts) == 0 || parts[0] != "obfs-local" {
+		return
+	}
+	obfs, host := "", ""
+	for _, part := range parts[1:] {
+		if k, v, ok := strings.Cut(part, "="); ok {
+			switch k {
+			case "obfs":
+				obfs = v
+			case "obfs-host":
+				host = v
+			}
+		}
+	}
+	if obfs != "http" {
+		return
+	}
+	p.Set("type", "tcp")
+	p.Set("headerType", "http")
+	if host != "" {
+		p.Set("host", host)
+	}
+}
+
+// rawQueryPlugin reads the plugin parameter straight out of the query string for
+// the pair stdlib discards: a value holding an unencoded semicolon never parses.
+func rawQueryPlugin(rawQuery string) string {
+	for _, segment := range strings.Split(rawQuery, "&") {
+		if key, value, ok := strings.Cut(segment, "="); ok && key == "plugin" {
+			if decoded, err := url.QueryUnescape(value); err == nil {
+				return decoded
+			}
+		}
+	}
+	return ""
+}
+
+// --- hysteria2 ---
+
+func parseHysteria2(link string) (*ParseResult, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "hysteria2" && u.Scheme != "hy2" {
+		return nil, fmt.Errorf("not hysteria2")
+	}
+	auth := u.User.Username()
+	host := u.Hostname()
+	port := defaultPort(u.Port(), 443)
+	params := u.Query()
+
+	stream := map[string]any{
+		"network":  "hysteria",
+		"security": "tls",
+		"hysteriaSettings": map[string]any{
+			"version":        2,
+			"auth":           auth,
+			"udpIdleTimeout": 60,
+		},
+		"tlsSettings": map[string]any{
+			"serverName":           params.Get("sni"),
+			"alpn":                 splitCommaOrDefault(params.Get("alpn"), []string{"h3"}),
+			"fingerprint":          params.Get("fp"),
+			"echConfigList":        params.Get("ech"),
+			"verifyPeerCertByName": params.Get("vcn"),
+			"pinnedPeerCertSha256": params.Get("pinSHA256"),
+		},
+	}
+	applyFinalMask(stream, params)
+	applyHysteria2Obfs(stream, params)
+	applyHysteria2Hop(stream, params)
+
+	identity := "hysteria2:" + auth + "@" + host + ":" + strconv.Itoa(port) + "?" + canonicalQuery(params)
+
+	ob := Outbound{
+		"protocol":       "hysteria",
+		"tag":            decodeHash(u.EscapedFragment()),
+		"settings":       map[string]any{"address": host, "port": port, "version": 2},
+		"streamSettings": stream,
+	}
+	return &ParseResult{Outbound: ob, Identity: identity}, nil
+}
+
+// --- wireguard ---
+
+func parseWireguard(link string) (*ParseResult, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "wireguard" && u.Scheme != "wg" {
+		return nil, fmt.Errorf("not wireguard")
+	}
+	secret, _ := url.QueryUnescape(u.User.Username())
+	params := u.Query()
+	host := u.Hostname()
+	portStr := u.Port()
+	endpoint := host
+	if portStr != "" {
+		endpoint = net.JoinHostPort(host, portStr)
+	}
+
+	addrRaw := firstParam(params, "address", "ip")
+	allowedRaw := firstParam(params, "allowedips", "allowed_ips")
+	addrs := splitComma(addrRaw)
+	if len(addrs) == 0 {
+		addrs = []string{"0.0.0.0/0", "::/0"}
+	}
+	allowed := splitComma(allowedRaw)
+	if len(allowed) == 0 {
+		allowed = []string{"0.0.0.0/0", "::/0"}
+	}
+
+	peer := map[string]any{
+		"publicKey":  firstParam(params, "publickey", "publicKey", "public_key", "peerPublicKey"),
+		"endpoint":   endpoint,
+		"allowedIPs": allowed,
+	}
+	if psk := firstParam(params, "presharedkey", "preshared_key", "pre-shared-key", "psk"); psk != "" {
+		peer["preSharedKey"] = psk
+	}
+	if ka := firstParam(params, "keepalive", "persistentkeepalive", "persistent_keepalive"); ka != "" {
+		if n, err := strconv.Atoi(ka); err == nil {
+			peer["keepAlive"] = n
+		}
+	}
+
+	settings := map[string]any{
+		"secretKey": secret,
+		"address":   addrs,
+		"peers":     []any{peer},
+	}
+	if mtu := params.Get("mtu"); mtu != "" {
+		if n, err := strconv.Atoi(mtu); err == nil {
+			settings["mtu"] = n
+		}
+	}
+	if res := params.Get("reserved"); res != "" {
+		parts := splitComma(res)
+		var iv []int
+		for _, p := range parts {
+			if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+				iv = append(iv, n)
+			}
+		}
+		if len(iv) > 0 {
+			settings["reserved"] = iv
+		}
+	}
+
+	identity := "wireguard:" + secret + "@" + endpoint + "?" + canonicalQuery(params)
+
+	ob := Outbound{
+		"protocol": "wireguard",
+		"tag":      decodeHash(u.EscapedFragment()),
+		"settings": settings,
+	}
+	return &ParseResult{Outbound: ob, Identity: identity}, nil
+}
+
+// --- helpers ---
+
+func buildStream(network, security string) map[string]any {
+	stream := map[string]any{"network": network, "security": security}
+	switch network {
+	case "tcp":
+		stream["tcpSettings"] = map[string]any{"header": map[string]any{"type": "none"}}
+	case "kcp":
+		stream["kcpSettings"] = map[string]any{
+			"mtu": 1350, "tti": 20, "uplinkCapacity": 5, "downlinkCapacity": 20,
+			"cwndMultiplier": 1, "maxSendingWindow": 2097152,
+		}
+	case "ws":
+		stream["wsSettings"] = map[string]any{"path": "/", "host": "", "headers": map[string]any{}, "heartbeatPeriod": 0}
+	case "grpc":
+		stream["grpcSettings"] = map[string]any{"serviceName": "", "authority": "", "multiMode": false}
+	case "httpupgrade":
+		stream["httpupgradeSettings"] = map[string]any{"path": "/", "host": "", "headers": map[string]any{}}
+	case "xhttp":
+		// No scMaxEachPostBytes/scMinPostsIntervalMs seed: xray-core's own
+		// defaults apply, and the literal values fingerprint traffic (#5141).
+		stream["xhttpSettings"] = map[string]any{
+			"path": "/", "host": "", "mode": "auto", "headers": map[string]any{},
+			"xPaddingBytes": "100-1000",
+		}
+	default:
+		stream["tcpSettings"] = map[string]any{"header": map[string]any{"type": "none"}}
+	}
+	switch security {
+	case "tls":
+		stream["tlsSettings"] = map[string]any{
+			"serverName": "", "alpn": []any{}, "fingerprint": "",
+			"echConfigList": "", "verifyPeerCertByName": "", "pinnedPeerCertSha256": "",
+			"cipherSuites": "",
+		}
+	case "reality":
+		stream["realitySettings"] = map[string]any{
+			"publicKey": "", "fingerprint": "chrome", "serverName": "",
+			"shortId": "", "spiderX": "", "mldsa65Verify": "",
+		}
+	}
+	return stream
+}
+
+func setWS(stream map[string]any, host, path string) {
+	ws := stream["wsSettings"].(map[string]any)
+	ws["host"] = host
+	ws["path"] = path
+}
+
+func setHTTPUpgrade(stream map[string]any, host, path string) {
+	h := stream["httpupgradeSettings"].(map[string]any)
+	h["host"] = host
+	h["path"] = path
+}
+
+func applyTransport(stream map[string]any, p url.Values) {
+	net := stream["network"].(string)
+	host := p.Get("host")
+	path := firstNonEmpty(p.Get("path"), "/")
+	switch net {
+	case "ws":
+		setWS(stream, host, path)
+	case "grpc":
+		gs := stream["grpcSettings"].(map[string]any)
+		gs["serviceName"] = firstNonEmpty(p.Get("serviceName"), p.Get("path"))
+		gs["authority"] = p.Get("authority")
+		gs["multiMode"] = p.Get("mode") == "multi"
+	case "httpupgrade":
+		setHTTPUpgrade(stream, host, path)
+	case "xhttp":
+		xh := stream["xhttpSettings"].(map[string]any)
+		xh["host"] = host
+		xh["path"] = path
+		if m := p.Get("mode"); m != "" {
+			xh["mode"] = m
+		}
+		if v := p.Get("x_padding_bytes"); v != "" {
+			xh["xPaddingBytes"] = v
+		}
+		if extra := p.Get("extra"); extra != "" {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(extra), &parsed); err == nil {
+				maps.Copy(xh, parsed)
+			}
+		}
+		for _, k := range []string{"xPaddingBytes", "scMaxEachPostBytes", "scMinPostsIntervalMs", "uplinkChunkSize"} {
+			if v := p.Get(k); v != "" {
+				xh[k] = v
+			}
+		}
+	case "kcp":
+		// mtu/tti live on kcpSettings; header/seed are finalmask mkcp-legacy (see applyMkcpLegacyFromShare).
+		kcp := stream["kcpSettings"].(map[string]any)
+		if n, ok := kcpParamInRange(p.Get("mtu"), kcpMinMTU, kcpMaxMTU); ok {
+			kcp["mtu"] = n
+		}
+		if n, ok := kcpParamInRange(p.Get("tti"), kcpMinTTI, kcpMaxTTI); ok {
+			kcp["tti"] = n
+		}
+	case "tcp":
+		if p.Get("headerType") == "http" || p.Get("type") == "http" {
+			stream["tcpSettings"] = map[string]any{
+				"header": map[string]any{
+					"type": "http",
+					"request": map[string]any{
+						"version": "1.1",
+						"method":  "GET",
+						"path":    splitComma(path),
+						"headers": map[string]any{"Host": splitComma(host)},
+					},
+				},
+			}
+		}
+	}
+}
+
+func applySecurity(stream map[string]any, p url.Values) {
+	sec := stream["security"].(string)
+	switch sec {
+	case "tls":
+		tls := stream["tlsSettings"].(map[string]any)
+		tls["serverName"] = p.Get("sni")
+		tls["fingerprint"] = p.Get("fp")
+		if alpn := p.Get("alpn"); alpn != "" {
+			tls["alpn"] = splitComma(alpn)
+		}
+		tls["echConfigList"] = p.Get("ech")
+		tls["verifyPeerCertByName"] = p.Get("vcn")
+		tls["pinnedPeerCertSha256"] = p.Get("pcs")
+		if cs := p.Get("cs"); cs != "" {
+			tls["cipherSuites"] = cs
+		}
+	case "reality":
+		re := stream["realitySettings"].(map[string]any)
+		re["serverName"] = p.Get("sni")
+		re["fingerprint"] = firstNonEmpty(p.Get("fp"), "chrome")
+		re["publicKey"] = p.Get("pbk")
+		re["shortId"] = p.Get("sid")
+		re["spiderX"] = p.Get("spx")
+		re["mldsa65Verify"] = p.Get("pqv")
+	}
+}
+
+func applyFinalMask(stream map[string]any, p url.Values) {
+	if fm := p.Get("fm"); fm != "" {
+		var parsed any
+		if json.Unmarshal([]byte(fm), &parsed) == nil {
+			sanitizeFinalMaskQuicParams(parsed)
+			maskcompat.UpgradeLegacyXdns(parsed)
+			maskcompat.UpgradeLegacyUDPHop(parsed)
+			maskcompat.NormalizeUDPHop(parsed)
+			stream["finalmask"] = parsed
+		}
+	}
+	applyMkcpLegacyFromShare(stream, p)
+}
+
+// mKCP bounds mirror xray-core's KCPConfig.Build checks (a value outside them fails
+// the whole config load); mtu's ceiling is the int32 that fits its uint32 field everywhere.
+const (
+	kcpMinMTU = 21
+	kcpMaxMTU = math.MaxInt32
+	kcpMinTTI = 10
+	kcpMaxTTI = 1000
+)
+
+// kcpParamInRange rejects an out-of-range or malformed link value so buildStream's default stays.
+func kcpParamInRange(s string, minVal, maxVal int) (int, bool) {
+	n, err := strconv.Atoi(s)
+	return n, err == nil && n >= minVal && n <= maxVal
+}
+
+// kcpHeaderTypeToMask maps share-link headerType to mkcp-legacy settings.header
+// (inverse of sub.kcpMaskToHeaderType).
+var kcpHeaderTypeToMask = map[string]string{
+	"dns":          "dns",
+	"dtls":         "dtls",
+	"srtp":         "srtp",
+	"utp":          "utp",
+	"wechat-video": "wechat",
+	"wireguard":    "wireguard",
+}
+
+// applyMkcpLegacyFromShare restores headerType/seed into finalmask.udp mkcp-legacy,
+// matching the shape InboundFormModal / FinalMaskForm emit. fm= mkcp-legacy wins.
+func applyMkcpLegacyFromShare(stream map[string]any, p url.Values) {
+	headerType := strings.TrimSpace(p.Get("headerType"))
+	seed := p.Get("seed")
+	if headerType == "" || headerType == "none" {
+		headerType = ""
+	}
+	if headerType == "" && seed == "" {
+		return
+	}
+	if network, _ := stream["network"].(string); network != "" && network != "kcp" {
+		return
+	}
+	maskHeader := ""
+	if headerType != "" {
+		mapped, ok := kcpHeaderTypeToMask[headerType]
+		if !ok {
+			return
+		}
+		maskHeader = mapped
+	}
+	finalmask, _ := stream["finalmask"].(map[string]any)
+	if finalmask == nil {
+		finalmask = map[string]any{}
+	}
+	udp, _ := finalmask["udp"].([]any)
+	for _, raw := range udp {
+		m, _ := raw.(map[string]any)
+		if m != nil {
+			if t, _ := m["type"].(string); t == "mkcp-legacy" {
+				return // fm= (or prior) already carries the live mask
+			}
+		}
+	}
+	// One mask per field, seed first: MkcpLegacy.Build ignores value once header is set,
+	// and the chain puts the last mask outermost on the wire (header around the cipher).
+	if seed != "" {
+		udp = append(udp, mkcpLegacyMask("", seed))
+	}
+	if maskHeader != "" {
+		udp = append(udp, mkcpLegacyMask(maskHeader, ""))
+	}
+	finalmask["udp"] = udp
+	stream["finalmask"] = finalmask
+}
+
+func mkcpLegacyMask(header, value string) map[string]any {
+	return map[string]any{
+		"type":     "mkcp-legacy",
+		"settings": map[string]any{"header": header, "value": value},
+	}
+}
+
+// gecko packetSize bounds mirror xray-core's salamander buffer cap.
+const (
+	geckoMinPacketSize = 1
+	geckoMaxPacketSize = 2048
+)
+
+// parsePacketSizeRange validates a min/max pair for the Gecko obfs marker.
+func parsePacketSizeRange(minStr, maxStr string) (int, int, bool) {
+	minVal, err1 := strconv.Atoi(minStr)
+	maxVal, err2 := strconv.Atoi(maxStr)
+	if err1 != nil || err2 != nil ||
+		minVal < geckoMinPacketSize || maxVal < minVal || maxVal > geckoMaxPacketSize {
+		return 0, 0, false
+	}
+	return minVal, maxVal, true
+}
+
+// applyHysteria2Obfs rebuilds the salamander mask from the standard Hysteria2
+// obfs pair. An fm=-carried password wins; gecko adds the packetSize pair.
+func applyHysteria2Obfs(stream map[string]any, p url.Values) {
+	obfs := p.Get("obfs")
+	isGecko := strings.EqualFold(obfs, "gecko")
+	if !isGecko && !strings.EqualFold(obfs, "salamander") {
+		return
+	}
+	password := firstParam(p, "obfs-password", "obfs_password", "obfsPassword")
+	if password == "" {
+		return
+	}
+	packetSize := ""
+	if isGecko {
+		// Both halves required with digit+range validation, matching the
+		// export side; half-specified or non-numeric values are dropped.
+		minSize := strings.TrimSpace(p.Get("minPacketSize"))
+		maxSize := strings.TrimSpace(p.Get("maxPacketSize"))
+		if min, max, ok := parsePacketSizeRange(minSize, maxSize); ok {
+			packetSize = fmt.Sprintf("%d-%d", min, max)
+		}
+	}
+	finalmask := ensureChildMap(stream, "finalmask")
+	udp, _ := finalmask["udp"].([]any)
+	for _, m := range udp {
+		mask, ok := m.(map[string]any)
+		if !ok || mask["type"] != "salamander" {
+			continue
+		}
+		settings, ok := mask["settings"].(map[string]any)
+		if !ok {
+			settings = map[string]any{}
+			mask["settings"] = settings
+		}
+		if pw, _ := settings["password"].(string); pw == "" {
+			settings["password"] = password
+		}
+		if packetSize != "" {
+			if ps, _ := settings["packetSize"].(string); ps == "" {
+				settings["packetSize"] = packetSize
+			}
+		}
+		return
+	}
+	settings := map[string]any{"password": password}
+	if packetSize != "" {
+		settings["packetSize"] = packetSize
+	}
+	finalmask["udp"] = append(udp, map[string]any{
+		"type":     "salamander",
+		"settings": settings,
+	})
+}
+
+// applyHysteria2Hop rebuilds the UDP port-hopping range from the standard mport
+// param. xray-core 26.9.9 replaced finalmask.quicParams.udpHop with a "udphop"
+// UDP mask, whose intervalremote mode is what the old key used to do; a mask
+// already supplied via fm= wins.
+func applyHysteria2Hop(stream map[string]any, p url.Values) {
+	ports := firstParam(p, "mport")
+	if ports == "" {
+		return
+	}
+	finalmask := ensureChildMap(stream, "finalmask")
+	masks, _ := finalmask["udp"].([]any)
+	for _, rawMask := range masks {
+		mask, _ := rawMask.(map[string]any)
+		if maskType, _ := mask["type"].(string); maskType == "udphop" {
+			return
+		}
+	}
+	finalmask["udp"] = append(masks, map[string]any{
+		"type": "udphop",
+		"settings": map[string]any{
+			"mode":        "intervalremote",
+			"interval":    "5-10",
+			"remotePorts": ports,
+		},
+	})
+}
+
+func ensureChildMap(parent map[string]any, key string) map[string]any {
+	m, ok := parent[key].(map[string]any)
+	if !ok {
+		m = map[string]any{}
+		parent[key] = m
+	}
+	return m
+}
+
+// sanitizeFinalMaskQuicParams coerces the strictly numeric quicParams fields
+// of a finalmask blob taken verbatim from a share link's fm= parameter.
+// Xray-core rejects the whole config at startup when e.g. keepAlivePeriod
+// arrives as a duration string like "10s" or an out-of-range integer, so
+// numeric strings are parsed, duration strings are converted to whole
+// seconds, the ranged fields are clamped to what xray accepts, and anything
+// non-finite, negative, absurdly large, or unparseable is dropped so a bad
+// value falls back to xray's default instead of killing the config (#5783).
+func sanitizeFinalMaskQuicParams(parsed any) {
+	fm, ok := parsed.(map[string]any)
+	if !ok {
+		return
+	}
+	qp, ok := fm["quicParams"].(map[string]any)
+	if !ok {
+		return
+	}
+	numericKeys := []string{
+		"initStreamReceiveWindow", "maxStreamReceiveWindow",
+		"initConnectionReceiveWindow", "maxConnectionReceiveWindow",
+		"maxIdleTimeout", "keepAlivePeriod", "maxIncomingStreams",
+	}
+	for _, key := range numericKeys {
+		raw, exists := qp[key]
+		if !exists {
+			continue
+		}
+		n, ok := coerceQuicNumeric(raw)
+		if ok {
+			n, ok = clampQuicNumeric(key, n)
+		}
+		if !ok {
+			delete(qp, key)
+			continue
+		}
+		qp[key] = int64(n)
+	}
+}
+
+func coerceQuicNumeric(raw any) (float64, bool) {
+	switch v := raw.(type) {
+	case float64:
+		return math.Trunc(v), true
+	case string:
+		if n, err := strconv.ParseFloat(v, 64); err == nil && !math.IsInf(n, 0) && !math.IsNaN(n) {
+			return math.Trunc(n), true
+		}
+		if d, err := time.ParseDuration(v); err == nil {
+			return math.Trunc(d.Seconds()), true
+		}
+	}
+	return 0, false
+}
+
+// clampQuicNumeric enforces xray-core's QuicParamsConfig validation so a
+// coerced value cannot still fail the config load: keepAlivePeriod is 0 or
+// 2-60, maxIdleTimeout is 0 or 4-120, maxIncomingStreams is 0 or >= 8.
+// quicNumericMax keeps values in plain-integer JSON territory and far below
+// the uint64 window fields' range.
+const quicNumericMax = float64(1e15)
+
+func clampQuicNumeric(key string, n float64) (float64, bool) {
+	if n < 0 || n > quicNumericMax {
+		return 0, false
+	}
+	if n == 0 {
+		return 0, true
+	}
+	switch key {
+	case "keepAlivePeriod":
+		return math.Min(math.Max(n, 2), 60), true
+	case "maxIdleTimeout":
+		return math.Min(math.Max(n, 4), 120), true
+	case "maxIncomingStreams":
+		return math.Max(n, 8), true
+	}
+	return n, true
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func firstParam(p url.Values, keys ...string) string {
+	for _, k := range keys {
+		if v := p.Get(k); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// realityPerRequestParams are picked per request by subscription servers (3x-ui randomizes
+// sid/sni, older releases spx too), so they must not split one server into new identities.
+var realityPerRequestParams = map[string]bool{"sid": true, "sni": true, "spx": true}
+
+func canonicalQuery(p url.Values) string {
+	// Sort keys for stable identity
+	reality := p.Get("security") == "reality"
+	keys := make([]string, 0, len(p))
+	for k := range p {
+		if reality && realityPerRequestParams[k] {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	// simple sort
+	for i := 0; i < len(keys); i++ {
+		for j := i + 1; j < len(keys); j++ {
+			if keys[j] < keys[i] {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		for _, v := range p[k] {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+func decodeHash(h string) string {
+	if h == "" {
+		return ""
+	}
+	if dec, err := url.QueryUnescape(h); err == nil {
+		return dec
+	}
+	return h
+}
+
+func defaultPort(p string, def int) int {
+	if p == "" {
+		return def
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
+func num(v any) int {
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case string:
+		n, _ := strconv.Atoi(x)
+		return n
+	}
+	return 0
+}
+
+func getString(m map[string]any, key, def string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return def
+}
+
+func splitComma(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func splitCommaOrDefault(s string, def []string) []string {
+	if s == "" {
+		return def
+	}
+	return splitComma(s)
+}
+
+func padBase64(s string) string {
+	for len(s)%4 != 0 {
+		s += "="
+	}
+	return s
+}
+
+func base64DecodeFlexible(s string) (string, error) {
+	s = padBase64(s)
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return string(b), nil
+	}
+	if b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(s, "=")); err == nil {
+		return string(b), nil
+	}
+	return "", fmt.Errorf("base64 decode failed")
+}
+
+// SlugRemark turns a free-form remark into a tag segment, keeping Unicode
+// letters and digits (so non-ASCII remarks like Cyrillic stay readable) and
+// replacing every other run of characters with a single dash.
+var slugRe = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+
+const maxSlugRunes = 64
+
+func SlugRemark(remark string) string {
+	s := strings.ToLower(strings.TrimSpace(remark))
+	s = slugRe.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		return ""
+	}
+	// collapse runs of dashes
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	// The tag names Xray counters, a traffic row and the config; a link author picks the remark.
+	if r := []rune(s); len(r) > maxSlugRunes {
+		s = strings.TrimRight(string(r[:maxSlugRunes]), "-")
+	}
+	return s
+}
+
+// SuggestTag builds a tag from a prefix and a remark (or index fallback).
+// It is intended for initial assignment; stability is handled by the service layer.
+func SuggestTag(prefix, remark string, idx int) string {
+	base := SlugRemark(remark)
+	if base == "" {
+		base = fmt.Sprintf("%d", idx)
+	}
+	p := strings.TrimSuffix(prefix, "-")
+	if p != "" {
+		return p + "-" + base
+	}
+	return base
+}

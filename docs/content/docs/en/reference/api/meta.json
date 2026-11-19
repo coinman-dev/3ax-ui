@@ -1,0 +1,20 @@
+{
+  "title": "API Reference",
+  "icon": "Webhook",
+  "pages": [
+    "index",
+    "authentication",
+    "api-tokens",
+    "inbounds",
+    "clients",
+    "server",
+    "settings",
+    "xray-settings",
+    "subscription-server",
+    "subscription-balancers",
+    "hosts",
+    "nodes",
+    "backup",
+    "websocket"
+  ]
+}

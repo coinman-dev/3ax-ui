@@ -1,0 +1,15 @@
+{
+  "title": "پیکربندی",
+  "icon": "Settings",
+  "pages": [
+    "panel",
+    "ssl-certificates",
+    "inbounds",
+    "reality",
+    "masque",
+    "transports",
+    "clients",
+    "subscription",
+    "share-links"
+  ]
+}

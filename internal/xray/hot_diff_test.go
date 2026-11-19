@@ -1,0 +1,602 @@
+package xray
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	xuilogger "github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/json_util"
+
+	"github.com/op/go-logging"
+	"github.com/xtls/xray-core/proxy/shadowsocks"
+)
+
+func TestMain(m *testing.M) {
+	// ComputeHotDiff logs the section that blocks a hot apply; the package
+	// logger must exist before any test exercises a blocked path.
+	xuilogger.InitLogger(logging.ERROR)
+	os.Exit(m.Run())
+}
+
+func makeHotConfig() *Config {
+	return &Config{
+		LogConfig:       json_util.RawMessage(`{"loglevel":"warning"}`),
+		RouterConfig:    json_util.RawMessage(`{"domainStrategy":"AsIs","rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}`),
+		OutboundConfigs: json_util.RawMessage(`[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"blocked"}]`),
+		Policy:          json_util.RawMessage(`{}`),
+		API:             json_util.RawMessage(`{"services":["HandlerService","StatsService","RoutingService"],"tag":"api"}`),
+		Stats:           json_util.RawMessage(`{}`),
+		Metrics:         json_util.RawMessage(`{}`),
+		InboundConfigs: []InboundConfig{
+			{
+				Port:     62789,
+				Protocol: "tunnel",
+				Tag:      "api",
+				Listen:   json_util.RawMessage(`"127.0.0.1"`),
+				Settings: json_util.RawMessage(`{}`),
+			},
+			{
+				Port:     1080,
+				Protocol: "vless",
+				Tag:      "inbound-1080",
+				Listen:   json_util.RawMessage(`"0.0.0.0"`),
+				Settings: json_util.RawMessage(`{"clients":[]}`),
+			},
+		},
+	}
+}
+
+func TestComputeHotDiff_NoChanges(t *testing.T) {
+	diff, ok := ComputeHotDiff(makeHotConfig(), makeHotConfig())
+	if !ok {
+		t.Fatal("identical configs must be hot-appliable")
+	}
+	if !diff.Empty() {
+		t.Fatalf("identical configs must produce an empty diff, got %+v", diff)
+	}
+}
+
+func TestComputeHotDiff_FormattingOnlyChangeIsEmptyDiff(t *testing.T) {
+	oldCfg := makeHotConfig()
+	newCfg := makeHotConfig()
+	// Reformat every section the way a frontend textarea save would.
+	newCfg.LogConfig = json_util.RawMessage("{\n  \"loglevel\": \"warning\"\n}")
+	newCfg.Policy = json_util.RawMessage("{ }")
+	newCfg.API = json_util.RawMessage("{\n  \"services\": [\"HandlerService\", \"StatsService\", \"RoutingService\"],\n  \"tag\": \"api\"\n}")
+	newCfg.OutboundConfigs = json_util.RawMessage("[\n  {\"protocol\": \"freedom\", \"tag\": \"direct\"},\n  {\"protocol\": \"blackhole\", \"tag\": \"blocked\"}\n]")
+	newCfg.InboundConfigs[1].Settings = json_util.RawMessage("{\n  \"clients\": []\n}")
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("formatting-only change must be hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 0 || len(diff.AddedInbounds) != 0 ||
+		len(diff.RemovedOutboundTags) != 0 || len(diff.AddedOutbounds) != 0 {
+		t.Fatalf("formatting-only change must produce no handler ops, got %+v", diff)
+	}
+}
+
+func TestComputeHotDiff_CanonicalEquality(t *testing.T) {
+	// Key reorder in a static section (the DNS editor rebuilds the object on
+	// save) must not read as a change.
+	oldCfg := makeHotConfig()
+	oldCfg.DNSConfig = json_util.RawMessage(`{"servers":["1.1.1.1"],"queryStrategy":"UseIP","tag":"dns-in"}`)
+	newCfg := makeHotConfig()
+	newCfg.DNSConfig = json_util.RawMessage(`{"tag":"dns-in","queryStrategy":"UseIP","servers":["1.1.1.1"]}`)
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok || !diff.Empty() {
+		t.Fatalf("dns key reorder must be an empty hot diff, ok=%v diff=%+v", ok, diff)
+	}
+
+	// Explicit null and an absent section are the same thing.
+	newCfg = makeHotConfig()
+	newCfg.FakeDNS = json_util.RawMessage(`null`)
+	diff, ok = ComputeHotDiff(makeHotConfig(), newCfg)
+	if !ok || !diff.Empty() {
+		t.Fatalf("fakedns null vs absent must be an empty hot diff, ok=%v diff=%+v", ok, diff)
+	}
+
+	// A real DNS change still forces a restart — there is no reload API.
+	newCfg = makeHotConfig()
+	newCfg.DNSConfig = json_util.RawMessage(`{"servers":["8.8.8.8"]}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("real dns change must force a restart")
+	}
+
+	// Large integers keep full precision during normalization: two values
+	// that only differ past float64 precision must still read as a change.
+	oldCfg = makeHotConfig()
+	oldCfg.Policy = json_util.RawMessage(`{"big":9007199254740993}`)
+	newCfg = makeHotConfig()
+	newCfg.Policy = json_util.RawMessage(`{"big":9007199254740992}`)
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("values differing past float64 precision must not compare equal")
+	}
+
+	// Reordered keys inside the first (default) outbound must not force a
+	// restart — the form editor rebuilds the object on save.
+	oldCfg = makeHotConfig()
+	oldCfg.OutboundConfigs = json_util.RawMessage(`[{"protocol":"freedom","settings":{"domainStrategy":"AsIs"},"tag":"direct"},{"protocol":"blackhole","tag":"blocked"}]`)
+	newCfg = makeHotConfig()
+	newCfg.OutboundConfigs = json_util.RawMessage(`[{"tag":"direct","settings":{"domainStrategy":"AsIs"},"protocol":"freedom"},{"protocol":"blackhole","tag":"blocked"}]`)
+	diff, ok = ComputeHotDiff(oldCfg, newCfg)
+	if !ok || !diff.Empty() {
+		t.Fatalf("first outbound key reorder must be an empty hot diff, ok=%v diff=%+v", ok, diff)
+	}
+}
+
+func TestComputeHotDiff_StaticSectionChangeNeedsRestart(t *testing.T) {
+	newCfg := makeHotConfig()
+	newCfg.LogConfig = json_util.RawMessage(`{"loglevel":"debug"}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("log change must force a restart")
+	}
+
+	newCfg = makeHotConfig()
+	newCfg.DNSConfig = json_util.RawMessage(`{"servers":["1.1.1.1"]}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("dns change must force a restart")
+	}
+
+	newCfg = makeHotConfig()
+	newCfg.Observatory = json_util.RawMessage(`{"subjectSelector":["wg"]}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("observatory change must force a restart")
+	}
+
+	newCfg = makeHotConfig()
+	newCfg.Env = json_util.RawMessage(`{"XRAY_DNS_PATH":"/tmp/dns"}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("env change must force a restart: env vars are read only at process start")
+	}
+}
+
+func TestComputeHotDiff_InboundAddRemoveChange(t *testing.T) {
+	oldCfg := makeHotConfig()
+	newCfg := makeHotConfig()
+	// change existing beyond the clients list, so no user-level shortcut applies
+	newCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[],"decryption":"none"}`)
+	// add new
+	newCfg.InboundConfigs = append(newCfg.InboundConfigs, InboundConfig{
+		Port: 2080, Protocol: "vmess", Tag: "inbound-2080",
+		Settings: json_util.RawMessage(`{}`),
+	})
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("inbound-only change must be hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 1 || diff.RemovedInboundTags[0] != "inbound-1080" {
+		t.Fatalf("expected changed inbound to be removed, got %v", diff.RemovedInboundTags)
+	}
+	if len(diff.AddedInbounds) != 2 {
+		t.Fatalf("expected re-add + new add, got %d", len(diff.AddedInbounds))
+	}
+	if diff.RoutingConfig != nil || len(diff.AddedOutbounds) != 0 || len(diff.RemovedOutboundTags) != 0 {
+		t.Fatalf("unexpected non-inbound operations: %+v", diff)
+	}
+}
+
+func TestComputeHotDiff_ClientOnlyChangeUsesUserOps(t *testing.T) {
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"a","id":"uuid-a"},{"email":"b","id":"uuid-b"}],"decryption":"none"}`)
+	newCfg := makeHotConfig()
+	// b expired and is stripped from the generated config (#5712); a's id rotated.
+	newCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"a","id":"uuid-a2"},{"email":"c","id":"uuid-c"}],"decryption":"none"}`)
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("client-only change must be hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 0 || len(diff.AddedInbounds) != 0 {
+		t.Fatalf("client-only change must not replace the handler, got %+v", diff)
+	}
+	removed := map[string]bool{}
+	for _, u := range diff.RemovedUsers {
+		if u.Tag != "inbound-1080" || u.Protocol != "vless" {
+			t.Fatalf("removed user op has wrong target: %+v", u)
+		}
+		removed[u.Email] = true
+	}
+	if len(removed) != 2 || !removed["a"] || !removed["b"] {
+		t.Fatalf("expected users a (changed) and b (gone) removed, got %v", removed)
+	}
+	added := map[string]string{}
+	for _, u := range diff.AddedUsers {
+		id, _ := u.User["id"].(string)
+		added[u.Email] = id
+	}
+	if len(added) != 2 || added["a"] != "uuid-a2" || added["c"] != "uuid-c" {
+		t.Fatalf("expected users a (new id) and c added, got %v", added)
+	}
+}
+
+// A MASQUE inbound carries every user's CONNECT-IP tunnel; replacing the handler to
+// add one user would drop all of them, so its client list diffs per user too.
+func TestComputeHotDiff_MasqueClientAddUsesUserOps(t *testing.T) {
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs[1].Protocol = "masque"
+	oldCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"a","pass":"pw-a"}],"address":["10.14.0.1/24"]}`)
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs[1].Protocol = "masque"
+	newCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"a","pass":"pw-a"},{"email":"b","pass":"pw-b"}],"address":["10.14.0.1/24"]}`)
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("a MASQUE client-only change must be hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 0 || len(diff.AddedInbounds) != 0 {
+		t.Fatalf("a MASQUE client add must not replace the handler, got %+v", diff)
+	}
+	if len(diff.RemovedUsers) != 0 || len(diff.AddedUsers) != 1 ||
+		diff.AddedUsers[0].Email != "b" || diff.AddedUsers[0].User["pass"] != "pw-b" {
+		t.Fatalf("expected only user b added with its pass, got added %+v removed %+v", diff.AddedUsers, diff.RemovedUsers)
+	}
+}
+
+func TestComputeHotDiff_ClientChangeFallsBackToReplace(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(cfg *Config)
+	}{
+		{
+			name: "unsupported protocol",
+			mutate: func(cfg *Config) {
+				cfg.InboundConfigs[1].Protocol = "http"
+			},
+		},
+		{
+			name: "client without email",
+			mutate: func(cfg *Config) {
+				cfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"id":"uuid-a"}]}`)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oldCfg := makeHotConfig()
+			newCfg := makeHotConfig()
+			tc.mutate(oldCfg)
+			tc.mutate(newCfg)
+			newCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"x","id":"uuid-x","password":"pw"}]}`)
+
+			diff, ok := ComputeHotDiff(oldCfg, newCfg)
+			if !ok {
+				t.Fatal("change must still be hot-appliable via handler replacement")
+			}
+			if len(diff.RemovedUsers) != 0 || len(diff.AddedUsers) != 0 {
+				t.Fatalf("expected no user ops, got %+v", diff)
+			}
+			if len(diff.RemovedInboundTags) != 1 || len(diff.AddedInbounds) != 1 {
+				t.Fatalf("expected handler replacement, got %+v", diff)
+			}
+		})
+	}
+}
+
+func TestComputeHotDiff_ApiInboundChangeNeedsRestart(t *testing.T) {
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs[0].Port = 62790
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("api inbound change must force a restart")
+	}
+}
+
+func TestComputeHotDiff_OutboundChangeAndReorder(t *testing.T) {
+	oldCfg := makeHotConfig()
+	newCfg := makeHotConfig()
+	// change a non-first outbound + add one
+	newCfg.OutboundConfigs = json_util.RawMessage(`[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","settings":{},"tag":"blocked"},{"protocol":"socks","tag":"warp"}]`)
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("outbound-only change must be hot-appliable")
+	}
+	if len(diff.RemovedOutboundTags) != 1 || diff.RemovedOutboundTags[0] != "blocked" {
+		t.Fatalf("expected changed outbound to be removed, got %v", diff.RemovedOutboundTags)
+	}
+	if len(diff.AddedOutbounds) != 2 {
+		t.Fatalf("expected re-add + new add, got %d", len(diff.AddedOutbounds))
+	}
+	for _, raw := range diff.AddedOutbounds {
+		if !strings.Contains(string(raw), `"tag"`) {
+			t.Fatalf("added outbound JSON must be the raw element, got %s", raw)
+		}
+	}
+
+	// pure reorder of non-first outbounds must be a no-op
+	reordered := makeHotConfig()
+	reordered.OutboundConfigs = json_util.RawMessage(`[{"protocol":"freedom","tag":"direct"},{"protocol":"socks","tag":"warp"},{"protocol":"blackhole","tag":"blocked"}]`)
+	base := makeHotConfig()
+	base.OutboundConfigs = json_util.RawMessage(`[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"blocked"},{"protocol":"socks","tag":"warp"}]`)
+	diff, ok = ComputeHotDiff(base, reordered)
+	if !ok || !diff.Empty() {
+		t.Fatalf("reorder of non-first outbounds must be an empty hot diff, ok=%v diff=%+v", ok, diff)
+	}
+}
+
+func TestComputeHotDiff_FirstOutboundChangeNeedsRestart(t *testing.T) {
+	newCfg := makeHotConfig()
+	// change the default (first) outbound content
+	newCfg.OutboundConfigs = json_util.RawMessage(`[{"protocol":"freedom","settings":{"domainStrategy":"UseIP"},"tag":"direct"},{"protocol":"blackhole","tag":"blocked"}]`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("changing the default outbound must force a restart")
+	}
+
+	// swap which outbound comes first
+	newCfg = makeHotConfig()
+	newCfg.OutboundConfigs = json_util.RawMessage(`[{"protocol":"blackhole","tag":"blocked"},{"protocol":"freedom","tag":"direct"}]`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("changing the first outbound must force a restart")
+	}
+}
+
+func TestComputeHotDiff_TaglessOutboundNeedsRestart(t *testing.T) {
+	newCfg := makeHotConfig()
+	newCfg.OutboundConfigs = json_util.RawMessage(`[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole"}]`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("tagless outbound must force a restart")
+	}
+}
+
+func TestComputeHotDiff_RoutingRulesChange(t *testing.T) {
+	newCfg := makeHotConfig()
+	newCfg.RouterConfig = json_util.RawMessage(`{"domainStrategy":"AsIs","rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"},{"type":"field","ip":["geoip:private"],"outboundTag":"blocked"}]}`)
+
+	diff, ok := ComputeHotDiff(makeHotConfig(), newCfg)
+	if !ok {
+		t.Fatal("rules-only routing change must be hot-appliable")
+	}
+	if diff.RoutingConfig == nil {
+		t.Fatal("routing diff must carry the new routing section")
+	}
+
+	// balancers are reloadable too
+	newCfg = makeHotConfig()
+	newCfg.RouterConfig = json_util.RawMessage(`{"domainStrategy":"AsIs","rules":[],"balancers":[{"tag":"b1","selector":["wg"]}]}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); !ok {
+		t.Fatal("balancer-only routing change must be hot-appliable")
+	}
+}
+
+func TestComputeHotDiff_RoutingStrategyChangeNeedsRestart(t *testing.T) {
+	newCfg := makeHotConfig()
+	newCfg.RouterConfig = json_util.RawMessage(`{"domainStrategy":"IPIfNonMatch","rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}`)
+	if _, ok := ComputeHotDiff(makeHotConfig(), newCfg); ok {
+		t.Fatal("domainStrategy change must force a restart")
+	}
+}
+
+func TestComputeHotDiff_RealityStreamChangeNeedsRestart(t *testing.T) {
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs[1].StreamSettings = json_util.RawMessage(`{"network":"tcp","security":"reality","realitySettings":{"privateKey":"old-key","serverNames":["a.example"]}}`)
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs[1].StreamSettings = json_util.RawMessage(`{"network":"tcp","security":"reality","realitySettings":{"privateKey":"new-key","serverNames":["a.example"]}}`)
+
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("a REALITY stream-settings change must force a full restart, not a gRPC hot swap")
+	}
+}
+
+func TestComputeHotDiff_SecuritySwitchToRealityNeedsRestart(t *testing.T) {
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs[1].StreamSettings = json_util.RawMessage(`{"network":"tcp","security":"none"}`)
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs[1].StreamSettings = json_util.RawMessage(`{"network":"tcp","security":"reality","realitySettings":{"privateKey":"k"}}`)
+
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("switching security to REALITY must force a full restart")
+	}
+}
+
+func TestComputeHotDiff_RealityClientOnlyChangeStaysHot(t *testing.T) {
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs[1].StreamSettings = json_util.RawMessage(`{"network":"tcp","security":"reality","realitySettings":{"privateKey":"k"}}`)
+	oldCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"a","id":"uuid-a"}],"decryption":"none"}`)
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs[1].StreamSettings = json_util.RawMessage(`{"network":"tcp","security":"reality","realitySettings":{"privateKey":"k"}}`)
+	newCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"clients":[{"email":"a","id":"uuid-a"},{"email":"b","id":"uuid-b"}],"decryption":"none"}`)
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("client-only change on a REALITY inbound must stay hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 0 || len(diff.AddedInbounds) != 0 {
+		t.Fatalf("client-only change must not replace the handler, got %+v", diff)
+	}
+	if len(diff.AddedUsers) != 1 || diff.AddedUsers[0].Email != "b" {
+		t.Fatalf("expected user b added via AlterInbound, got %+v", diff.AddedUsers)
+	}
+}
+
+// TestComputeHotDiff_NewTproxyInboundNeedsRestart reproduces a real incident:
+// enabling RouteThroughXray on an AmneziaWG inbound while Xray is already
+// running adds a brand-new dokodemo-door bridge with sockopt.tproxy set.
+// Xray-core's gRPC AddInbound reports success for this but never actually
+// binds a working listener, so TPROXY-redirected peer traffic silently goes
+// nowhere until the next full restart -- confirmed directly on a real box
+// (iptables TPROXY counters incrementing, but `ss` showing nothing listening
+// on the bridge port; the listener only appeared after `systemctl restart
+// x-ui`). This must force a restart instead of a hot add.
+func TestComputeHotDiff_NewTproxyInboundNeedsRestart(t *testing.T) {
+	oldCfg := makeHotConfig()
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs = append(newCfg.InboundConfigs, InboundConfig{
+		Listen:         json_util.RawMessage(`"127.0.0.1"`),
+		Port:           63110,
+		Protocol:       "dokodemo-door",
+		Tag:            "in-443-udp",
+		Settings:       json_util.RawMessage(`{"allowedNetwork":"tcp,udp","followRedirect":true}`),
+		StreamSettings: json_util.RawMessage(`{"sockopt":{"tproxy":"tproxy"}}`),
+	})
+
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("adding a new TPROXY-sockopt inbound must force a full restart, not a gRPC hot add")
+	}
+}
+
+// TestComputeHotDiff_TproxyStreamChangeNeedsRestart mirrors the REALITY
+// stream-change test above: an existing TPROXY bridge whose port changed
+// (e.g. the AmneziaWG inbound's own id-derived egress port shifted) must not
+// be hot-swapped either, for the same reliability reason.
+func TestComputeHotDiff_TproxyStreamChangeNeedsRestart(t *testing.T) {
+	tproxyIb := InboundConfig{
+		Listen:         json_util.RawMessage(`"127.0.0.1"`),
+		Port:           63110,
+		Protocol:       "dokodemo-door",
+		Tag:            "in-443-udp",
+		Settings:       json_util.RawMessage(`{"allowedNetwork":"tcp,udp","followRedirect":true}`),
+		StreamSettings: json_util.RawMessage(`{"sockopt":{"tproxy":"tproxy"}}`),
+	}
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs = append(oldCfg.InboundConfigs, tproxyIb)
+	newCfg := makeHotConfig()
+	changedIb := tproxyIb
+	changedIb.Port = 63111
+	newCfg.InboundConfigs = append(newCfg.InboundConfigs, changedIb)
+
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("a TPROXY bridge's port change must force a full restart, not a gRPC hot swap")
+	}
+}
+
+// TestComputeHotDiff_SocksAccountsSettingsChangeNeedsRestart reproduces a
+// real incident: editing one client under an AmneziaWG inbound left its
+// relay's settings.json byte-different (a new account list) while Xray was
+// already running. A gRPC remove+add reported success but silently dropped
+// an account with a non-ASCII email; a full restart always produced the
+// correct account list. This must force a restart, not a hot swap.
+func TestComputeHotDiff_SocksAccountsSettingsChangeNeedsRestart(t *testing.T) {
+	relayIb := InboundConfig{
+		Listen:   json_util.RawMessage(`"127.0.0.1"`),
+		Port:     65110,
+		Protocol: "socks",
+		Tag:      "in-443-udp",
+		Settings: json_util.RawMessage(`{"auth":"password","udp":true,"accounts":[{"user":"Роутер_awg","pass":"p"}]}`),
+	}
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs = append(oldCfg.InboundConfigs, relayIb)
+	newCfg := makeHotConfig()
+	changedIb := relayIb
+	changedIb.Settings = json_util.RawMessage(`{"auth":"password","udp":true,"accounts":[{"user":"Роутер_awg","pass":"p"},{"user":"Майфун🛟","pass":"p"}]}`)
+	newCfg.InboundConfigs = append(newCfg.InboundConfigs, changedIb)
+
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("a password-auth SOCKS5 relay's account-list change must force a full restart, not a gRPC hot swap")
+	}
+}
+
+// TestComputeHotDiff_NewSocksAccountsInboundNeedsRestart mirrors the TPROXY
+// new-inbound test above: a brand-new AmneziaWG relay inbound must also
+// force a restart, for the same reliability reason.
+func TestComputeHotDiff_NewSocksAccountsInboundNeedsRestart(t *testing.T) {
+	oldCfg := makeHotConfig()
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs = append(newCfg.InboundConfigs, InboundConfig{
+		Listen:   json_util.RawMessage(`"127.0.0.1"`),
+		Port:     65110,
+		Protocol: "socks",
+		Tag:      "in-443-udp",
+		Settings: json_util.RawMessage(`{"auth":"password","udp":true,"accounts":[{"user":"Майфун🛟","pass":"p"}]}`),
+	})
+
+	if _, ok := ComputeHotDiff(oldCfg, newCfg); ok {
+		t.Fatal("adding a new password-auth SOCKS5 relay inbound must force a full restart, not a gRPC hot add")
+	}
+}
+
+// TestComputeHotDiff_NoauthSocksBridgeStaysHot confirms the check above is
+// scoped to password-auth accounts specifically: this fork's other SOCKS5
+// bridges (panel egress, per-node egress, mtproto egress) use "noauth" with
+// no per-account identity, have no history of this failure mode, and must
+// keep using the ordinary remove+add hot path rather than pay for an
+// unnecessary restart on every port/tag change.
+func TestComputeHotDiff_NoauthSocksBridgeStaysHot(t *testing.T) {
+	bridgeIb := InboundConfig{
+		Listen:   json_util.RawMessage(`"127.0.0.1"`),
+		Port:     62790,
+		Protocol: "socks",
+		Tag:      "panel-egress",
+		Settings: json_util.RawMessage(`{"auth":"noauth","udp":false}`),
+	}
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs = append(oldCfg.InboundConfigs, bridgeIb)
+	newCfg := makeHotConfig()
+	changedIb := bridgeIb
+	changedIb.Port = 62791
+	newCfg.InboundConfigs = append(newCfg.InboundConfigs, changedIb)
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("a noauth SOCKS5 bridge's port change should stay hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 1 || len(diff.AddedInbounds) != 1 {
+		t.Fatalf("expected a plain remove+add for the changed bridge, got %+v", diff)
+	}
+}
+
+// Replacing a hysteria handler closes the UDP listener its QUIC sessions share,
+// and clients get no reset: they stall until their own idle timeout expires.
+func TestComputeHotDiff_HysteriaClientOnlyChangeKeepsListener(t *testing.T) {
+	stream := json_util.RawMessage(`{"network":"hysteria","security":"tls","hysteriaSettings":{"version":2}}`)
+	oldCfg := makeHotConfig()
+	oldCfg.InboundConfigs[1].Protocol = "hysteria"
+	oldCfg.InboundConfigs[1].StreamSettings = stream
+	oldCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"version":2,"clients":[{"email":"a","auth":"auth-a"}]}`)
+	newCfg := makeHotConfig()
+	newCfg.InboundConfigs[1].Protocol = "hysteria"
+	newCfg.InboundConfigs[1].StreamSettings = stream
+	newCfg.InboundConfigs[1].Settings = json_util.RawMessage(`{"version":2,"clients":[{"email":"a","auth":"auth-a"},{"email":"b","auth":"auth-b"}]}`)
+
+	diff, ok := ComputeHotDiff(oldCfg, newCfg)
+	if !ok {
+		t.Fatal("client-only change must be hot-appliable")
+	}
+	if len(diff.RemovedInboundTags) != 0 || len(diff.AddedInbounds) != 0 {
+		t.Fatalf("hysteria client-only change must not replace the handler, got removed=%v added=%d", diff.RemovedInboundTags, len(diff.AddedInbounds))
+	}
+	if len(diff.RemovedUsers) != 0 || len(diff.AddedUsers) != 1 || diff.AddedUsers[0].Email != "b" || diff.AddedUsers[0].Protocol != "hysteria" {
+		t.Fatalf("expected a single AddUser op for b, got %+v", diff)
+	}
+}
+
+// 2022 clients carry no method of their own, so a user op built from the client
+// object alone has no cipher and its account cannot be built for the core.
+func TestInboundUserOps_ShadowsocksAddedUserBuildsTheInboundAccount(t *testing.T) {
+	cases := []struct {
+		name, settingsHead, clientMethod string
+		wantLegacy                       bool
+	}{
+		{"legacy aead", `"method":"aes-256-gcm"`, `"method":"aes-256-gcm",`, true},
+		{"2022", `"method":"2022-blake3-aes-128-gcm","password":"AAECAwQFBgcICQoLDA0ODw=="`, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inbound := func(clients ...string) *InboundConfig {
+				return &InboundConfig{
+					Port: 8388, Protocol: "shadowsocks", Tag: "inbound-8388",
+					Listen:   json_util.RawMessage(`"0.0.0.0"`),
+					Settings: json_util.RawMessage(`{` + tc.settingsHead + `,"network":"tcp,udp","clients":[` + strings.Join(clients, ",") + `]}`),
+				}
+			}
+			clientA := `{` + tc.clientMethod + `"email":"a","password":"EBESExQVFhcYGRobHB0eHw=="}`
+			clientB := `{` + tc.clientMethod + `"email":"b","password":"ICEiIyQlJicoKSorLC0uLw=="}`
+
+			diff, ok := InboundUserOps(inbound(clientA), inbound(clientA, clientB))
+			if !ok {
+				t.Fatal("a client-only shadowsocks change must apply through per-user ops")
+			}
+			if len(diff.RemovedUsers) != 0 || len(diff.AddedUsers) != 1 || diff.AddedUsers[0].Email != "b" {
+				t.Fatalf("expected only user b added, got added %+v removed %+v", diff.AddedUsers, diff.RemovedUsers)
+			}
+			_, legacy, modern := decodeSSAccount(t, diff.AddedUsers[0].User)
+			if tc.wantLegacy && (legacy == nil || legacy.CipherType != shadowsocks.CipherType_AES_256_GCM) {
+				t.Fatalf("want a legacy aes-256-gcm account, got legacy %v modern %v", legacy, modern)
+			}
+			if !tc.wantLegacy && (modern == nil || modern.Key != "ICEiIyQlJicoKSorLC0uLw==") {
+				t.Fatalf("want a 2022 account keyed by b's password, got legacy %v modern %v", legacy, modern)
+			}
+		})
+	}
+}

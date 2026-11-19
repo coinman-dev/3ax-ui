@@ -1,0 +1,50 @@
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+
+import { CipherSuitesSelect } from '@/components/form';
+
+function renderSelect(value: string) {
+  const onChange = vi.fn();
+  render(<CipherSuitesSelect aria-label="cipher suites" value={value} onChange={onChange} />);
+  return onChange;
+}
+
+describe('CipherSuitesSelect', () => {
+  it('shows each colon-separated suite as its own tag', () => {
+    renderSelect('TLS_AES_256_GCM_SHA384:MY_CUSTOM_SUITE');
+    expect(screen.getByText('TLS_AES_256_GCM_SHA384')).toBeTruthy();
+    expect(screen.getByText('MY_CUSTOM_SUITE')).toBeTruthy();
+  });
+
+  it('stores a typed custom suite joined with colons after the existing one', () => {
+    const onChange = renderSelect('TLS_AES_256_GCM_SHA384');
+    const input = screen.getByRole('combobox', { name: 'cipher suites' });
+    fireEvent.change(input, { target: { value: 'MY_CUSTOM_SUITE' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13 });
+    expect(onChange).toHaveBeenLastCalledWith('TLS_AES_256_GCM_SHA384:MY_CUSTOM_SUITE');
+  });
+
+  // A preset is a whole ordered list (the order is part of the ClientHello), so
+  // picking one replaces the suites instead of appending a tag named after it.
+  it('replaces the suites with the picked preset list', async () => {
+    const onChange = renderSelect('TLS_AES_256_GCM_SHA384');
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'cipher suites' }));
+    fireEvent.click(await screen.findByText('real-firefox'));
+    expect(onChange).toHaveBeenLastCalledWith(
+      'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:' +
+        'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:' +
+        'TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:' +
+        'TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:' +
+        'TLS_RSA_WITH_AES_128_GCM_SHA256:TLS_RSA_WITH_AES_256_GCM_SHA384:' +
+        'TLS_RSA_WITH_AES_128_CBC_SHA:TLS_RSA_WITH_AES_256_CBC_SHA',
+    );
+  });
+
+  it('stores an empty string once every suite is removed', () => {
+    const onChange = renderSelect('TLS_AES_256_GCM_SHA384');
+    const remove = document.querySelector('.ant-select-selection-item-remove');
+    expect(remove).not.toBeNull();
+    fireEvent.click(remove as Element);
+    expect(onChange).toHaveBeenLastCalledWith('');
+  });
+});

@@ -1,0 +1,1792 @@
+import { useEffect, useId, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  AutoComplete,
+  Button,
+  Col,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Switch,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+  message,
+} from 'antd';
+import {
+  DeleteOutlined,
+  EyeOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  RetweetOutlined,
+} from '@ant-design/icons';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import { Controller, FormProvider, useForm, useWatch, useFieldArray } from 'react-hook-form';
+
+import { HttpUtil, IntlUtil, RandomUtil, Wireguard } from '@/utils';
+import { formatInboundLabel } from '@/lib/inbounds/label';
+import { generateMtprotoSecret } from '@/lib/xray/inbound-defaults';
+import { normalizeClientIps, type ClientIpInfo } from '@/lib/clients/ip-log';
+import { resolveExternalLinkExpiry } from '@/lib/clients/external-link';
+import { useDatepicker } from '@/hooks/useDatepicker';
+import { useClientHwids } from '@/hooks/useClientHwids';
+import { useRawHostsQuery } from '@/api/queries/useRawHostsQuery';
+import { DateTimePicker, SelectAllClearButtons, selectTagRender } from '@/components/form';
+import { FormField, rhfZodValidate } from '@/components/form/rhf';
+import ClientHwidListModal from '@/components/clients/ClientHwidList';
+import { TLS_FLOW_CONTROL, TRAFFIC_RESETS } from '@/schemas/primitives';
+import {
+  OptionalAmneziaWGKeepAliveInputSchema,
+  OptionalNumericKeepAliveInputSchema,
+  keepAliveInputValue,
+} from '@/schemas/primitives/keepalive';
+import type {
+  ClientRecord,
+  InboundOption,
+  ExternalLink,
+  ExternalLinkInput,
+} from '@/hooks/useClients';
+import { useFail2banStatusQuery, getLimitIpNotice } from '@/api/queries/useFail2banStatusQuery';
+import ClientRenewalFields from './ClientRenewalFields';
+import { ClientFormSchema, ClientCreateFormSchema, type ClientFormValues } from '@/schemas/client';
+import './ClientFormModal.css';
+
+const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
+const VMESS_SECURITY_OPTIONS = ['auto', 'aes-128-gcm', 'chacha20-poly1305'] as const;
+
+const MULTI_CLIENT_PROTOCOLS = new Set([
+  'shadowsocks',
+  'vless',
+  'vmess',
+  'trojan',
+  'hysteria',
+  'wireguard',
+  'mtproto',
+  'amneziawg',
+  'tuic',
+  'masque',
+]);
+
+const CLIENT_FORM_MODAL_Z_INDEX = 1000;
+const CLIENT_IP_LOG_MODAL_Z_INDEX = CLIENT_FORM_MODAL_Z_INDEX + 1;
+
+interface ExternalLinkRow {
+  kind: 'link' | 'subscription';
+  value: string;
+  remark: string;
+  enable: boolean;
+  expiryTime: number;
+  namePrefix: string;
+  lastFetchAt: number;
+  lastFetchError: string;
+}
+
+interface ApiMsg<T = unknown> {
+  success?: boolean;
+  msg?: string;
+  obj?: T;
+}
+
+type Mode = 'add' | 'edit';
+
+interface SaveMetaEdit {
+  isEdit: true;
+  email: string;
+  attach: number[];
+  detach: number[];
+  externalLinks: ExternalLinkInput[];
+}
+
+interface SaveMetaCreate {
+  isEdit: false;
+  email: string;
+  externalLinks: ExternalLinkInput[];
+}
+
+interface SaveCreatePayload {
+  client: Record<string, unknown>;
+  inboundIds: number[];
+}
+
+interface ClientFormModalProps {
+  open: boolean;
+  mode: Mode;
+  client: ClientRecord | null;
+  inbounds: InboundOption[];
+  attachedExternalLinks?: ExternalLink[];
+  attachedIds?: number[];
+  tunnelAllowedIPs?: Record<number, string>;
+  tgBotEnable?: boolean;
+  groups?: string[];
+  save: (
+    payload: Record<string, unknown> | SaveCreatePayload,
+    meta: SaveMetaEdit | SaveMetaCreate,
+  ) => Promise<ApiMsg | null>;
+  resetTraffic?: (client: ClientRecord) => Promise<ApiMsg | null>;
+  onOpenChange: (open: boolean) => void;
+}
+
+type Values = ClientFormValues & {
+  expiryDate: number;
+  limitHwid: number;
+  externalLinks: ExternalLinkRow[];
+  clientHostRuleIds: number[];
+  wgPrivateKey: string;
+  wgPublicKey: string;
+  wgPreSharedKey: string;
+  wgAllowedIPs: string;
+  awgAllowedIPs: string;
+  awgForwardedPorts: string;
+  wgKeepAlive: number | string | undefined;
+  secret: string;
+  adTag: string;
+};
+
+const EMPTY: Values = {
+  email: '',
+  subId: '',
+  uuid: '',
+  password: '',
+  auth: '',
+  flow: '',
+  security: 'auto',
+  clientHostRuleIds: [],
+  reverseTag: '',
+  totalGB: 0,
+  expiryDate: 0,
+  delayedStart: false,
+  delayedDays: 0,
+  reset: 0,
+  resetDay: 0,
+  resetWeekday: 0,
+  resetMax: 0,
+  trafficReset: 'never' as const,
+  trafficResetDay: 1,
+  limitIp: 0,
+  limitHwid: 0,
+  tgId: 0,
+  group: '',
+  comment: '',
+  enable: true,
+  inboundIds: [],
+  externalLinks: [],
+  wgPrivateKey: '',
+  wgPublicKey: '',
+  wgPreSharedKey: '',
+  wgAllowedIPs: '',
+  awgAllowedIPs: '',
+  awgForwardedPorts: '',
+  wgKeepAlive: 25,
+  secret: '',
+  adTag: '',
+};
+
+function toExternalLinkRows(links: ExternalLink[] | undefined): ExternalLinkRow[] {
+  return (links || []).map((l) => ({
+    kind: l.kind === 'subscription' ? 'subscription' : 'link',
+    value: l.value || '',
+    remark: l.remark || '',
+    enable: l.enable !== false,
+    expiryTime: Number(l.expiryTime) || 0,
+    namePrefix: l.namePrefix || '',
+    lastFetchAt: Number(l.lastFetchAt) || 0,
+    lastFetchError: l.lastFetchError || '',
+  }));
+}
+
+function bytesToGB(bytes: number): number {
+  if (!bytes || bytes <= 0) return 0;
+  return Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100;
+}
+
+export function gbToBytes(gb: number): number {
+  if (!gb || gb <= 0) return 0;
+  return Math.round(gb * 1024 * 1024 * 1024);
+}
+
+export function parseAllowedIPsList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+// Maps each of the two AllowedIPs fields to the specific wg/awg inbound the
+// client is currently attached to, so a save with both protocols attached at
+// once can send each its own value instead of one shared field ambiguously
+// covering both (see model.Client.AllowedIPsByInbound on the Go side).
+// Absent from the result when the client isn't actually attached to that
+// protocol's inbound (e.g. mid-edit, before the attach takes effect).
+export function resolveTunnelAllowedIPsByInbound(
+  attachedInboundIds: number[],
+  wireguardInboundIds: Set<number>,
+  amneziawgInboundIds: Set<number>,
+  wgAllowedIPs: string[],
+  awgAllowedIPs: string[],
+): Record<number, string[]> {
+  const wgId = attachedInboundIds.find((id) => wireguardInboundIds.has(id));
+  const awgId = attachedInboundIds.find((id) => amneziawgInboundIds.has(id));
+  const result: Record<number, string[]> = {};
+  if (wgId != null) result[wgId] = wgAllowedIPs;
+  if (awgId != null) result[awgId] = awgAllowedIPs;
+  return result;
+}
+
+export function resolveTotalBytes(
+  originalBytes: number | null | undefined,
+  displayedGB: number,
+): number {
+  if (originalBytes != null && displayedGB === bytesToGB(originalBytes)) {
+    return originalBytes;
+  }
+  return gbToBytes(displayedGB);
+}
+
+export default function ClientFormModal({
+  open,
+  mode,
+  client,
+  inbounds,
+  attachedExternalLinks = [],
+  attachedIds = [],
+  tunnelAllowedIPs = {},
+  tgBotEnable = false,
+  groups = [],
+  save,
+  resetTraffic,
+  onOpenChange,
+}: ClientFormModalProps) {
+  const { t } = useTranslation();
+  const uid = useId();
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const isEdit = mode === 'edit';
+
+  const methods = useForm<Values>({ defaultValues: EMPTY });
+  const inboundIds = useWatch({ control: methods.control, name: 'inboundIds' });
+  const delayedStart = useWatch({ control: methods.control, name: 'delayedStart' });
+  const delayedDays = useWatch({ control: methods.control, name: 'delayedDays' });
+  const expiryDate = useWatch({ control: methods.control, name: 'expiryDate' });
+  const enable = useWatch({ control: methods.control, name: 'enable' });
+  const flow = useWatch({ control: methods.control, name: 'flow' });
+  const reverseTag = useWatch({ control: methods.control, name: 'reverseTag' });
+  const secret = useWatch({ control: methods.control, name: 'secret' });
+  const email = useWatch({ control: methods.control, name: 'email' });
+  const uuid = useWatch({ control: methods.control, name: 'uuid' });
+  const trafficReset = useWatch({ control: methods.control, name: 'trafficReset' });
+  const password = useWatch({ control: methods.control, name: 'password' });
+  const subId = useWatch({ control: methods.control, name: 'subId' });
+  const limitHwid = useWatch({ control: methods.control, name: 'limitHwid' });
+  const auth = useWatch({ control: methods.control, name: 'auth' });
+  const wgPrivateKey = useWatch({ control: methods.control, name: 'wgPrivateKey' });
+  const limitIp = useWatch({ control: methods.control, name: 'limitIp' });
+  const {
+    fields: externalLinkFields,
+    append: appendExternalLink,
+    remove: removeExternalLink,
+  } = useFieldArray({ control: methods.control, name: 'externalLinks' });
+
+  const [submitting, setSubmitting] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [clientIps, setClientIps] = useState<ClientIpInfo[]>([]);
+  const [ipsLoading, setIpsLoading] = useState(false);
+  const [ipsClearing, setIpsClearing] = useState(false);
+  const [ipsModalOpen, setIpsModalOpen] = useState(false);
+  const {
+    clientHwids,
+    hwidsLoading,
+    hwidsClearing,
+    deletingHwidId,
+    loadHwids,
+    clearHwids,
+    deleteHwid,
+  } = useClientHwids(client?.email);
+  const [hwidsModalOpen, setHwidsModalOpen] = useState(false);
+  const { datepicker } = useDatepicker();
+  const hwidDateLabel = (ts: number) =>
+    !ts || ts <= 0 ? '-' : IntlUtil.formatDate(ts, datepicker);
+  const fail2ban = useFail2banStatusQuery();
+  const limitIpDisabled = !fail2ban.usable;
+  const limitIpNotice = getLimitIpNotice(fail2ban, t);
+
+  // Declared ahead of the seeding effect below (which needs them to resolve
+  // which specific wg/awg inbound this client is attached to, for seeding
+  // wgAllowedIPs/awgAllowedIPs from tunnelAllowedIPs) -- both are pure
+  // derivations of the stable `inbounds` prop, so moving them earlier is
+  // just a declaration-order change, not a behavior change.
+  const wireguardIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of inbounds || []) {
+      if (row && row.protocol === 'wireguard') ids.add(row.id);
+    }
+    return ids;
+  }, [inbounds]);
+
+  const amneziawgIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of inbounds || []) {
+      if (row && row.protocol === 'amneziawg') ids.add(row.id);
+    }
+    return ids;
+  }, [inbounds]);
+
+  function addExternalLinkRow(kind: 'link' | 'subscription') {
+    appendExternalLink({
+      kind,
+      value: '',
+      remark: '',
+      enable: true,
+      expiryTime: 0,
+      namePrefix: '',
+      lastFetchAt: 0,
+      lastFetchError: '',
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    setIpsModalOpen(false);
+    setHwidsModalOpen(false);
+
+    if (isEdit && client) {
+      const et = Number(client.expiryTime) || 0;
+      const seedIds = Array.isArray(attachedIds) ? attachedIds : [];
+      const attachedWireguardId = seedIds.find((id) => wireguardIds.has(id));
+      const attachedAmneziawgId = seedIds.find((id) => amneziawgIds.has(id));
+      const wgTunnelIPs =
+        attachedWireguardId != null ? tunnelAllowedIPs[attachedWireguardId] : undefined;
+      const awgTunnelIPs =
+        attachedAmneziawgId != null ? tunnelAllowedIPs[attachedAmneziawgId] : undefined;
+      const seed: Values = {
+        ...EMPTY,
+        email: client.email || '',
+        subId: client.subId || '',
+        uuid: client.uuid || '',
+        password: client.password || '',
+        auth: client.auth || '',
+        flow: client.flow || '',
+        security:
+          !client.security || client.security === 'none' || client.security === 'zero'
+            ? 'auto'
+            : client.security,
+        reverseTag: client.reverse?.tag || '',
+        clientHostRuleIds: [
+          ...new Set(
+            (client.clientHostRuleIds || []).filter((id) => Number.isInteger(id) && id > 0),
+          ),
+        ],
+        totalGB: bytesToGB(client.totalGB || 0),
+        reset: Number(client.reset) || 0,
+        resetDay: Number(client.resetDay) || 0,
+        resetWeekday: Number(client.resetWeekday) || 0,
+        resetMax: Number(client.resetMax) || 0,
+        trafficReset: (client.trafficReset as ClientFormValues['trafficReset']) || 'never',
+        trafficResetDay: Number(client.trafficResetDay) || 1,
+        limitIp: client.limitIp || 0,
+        limitHwid: client.limitHwid || 0,
+        tgId: Number(client.tgId) || 0,
+        group: client.group || '',
+        comment: client.comment || '',
+        enable: !!client.enable,
+        inboundIds: Array.isArray(attachedIds) ? [...attachedIds] : [],
+        externalLinks: toExternalLinkRows(attachedExternalLinks),
+        wgPrivateKey: client.privateKey || '',
+        wgPublicKey: client.publicKey || '',
+        wgPreSharedKey: client.preSharedKey || '',
+        wgAllowedIPs: wgTunnelIPs ?? client.allowedIPs ?? '',
+        awgAllowedIPs: awgTunnelIPs ?? client.allowedIPs ?? '',
+        awgForwardedPorts: client.forwardedPorts || '',
+        wgKeepAlive: client.keepAlive,
+        secret: client.secret || '',
+        adTag: client.adTag || '',
+      };
+      if (et < 0) {
+        seed.delayedStart = true;
+        seed.delayedDays = Math.round(et / -86400000);
+        seed.expiryDate = 0;
+      } else {
+        seed.delayedStart = false;
+        seed.delayedDays = 0;
+        seed.expiryDate = et > 0 ? et : 0;
+      }
+      methods.reset(seed);
+      void loadIps();
+      void loadHwids();
+    } else {
+      const wgKeypair = Wireguard.generateKeypair();
+      methods.reset({
+        ...EMPTY,
+        email: RandomUtil.randomLowerAndNum(10),
+        uuid: RandomUtil.randomUUID(),
+        subId: RandomUtil.randomLowerAndNum(16),
+        password: RandomUtil.randomLowerAndNum(16),
+        auth: RandomUtil.randomLowerAndNum(16),
+        wgPrivateKey: wgKeypair.privateKey,
+        wgPublicKey: wgKeypair.publicKey,
+      });
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit]);
+
+  const flowCapableIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of inbounds || []) {
+      if (row?.tlsFlowCapable) ids.add(row.id);
+    }
+    return ids;
+  }, [inbounds]);
+
+  const vlessLikeIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of inbounds || []) {
+      if (row && row.protocol === 'vless') ids.add(row.id);
+    }
+    return ids;
+  }, [inbounds]);
+
+  const vmessIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of inbounds || []) {
+      if (row && row.protocol === 'vmess') ids.add(row.id);
+    }
+    return ids;
+  }, [inbounds]);
+
+  const mtprotoIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of inbounds || []) {
+      if (row && row.protocol === 'mtproto') ids.add(row.id);
+    }
+    return ids;
+  }, [inbounds]);
+
+  const mtprotoDomain = useMemo(() => {
+    for (const id of inboundIds || []) {
+      const ib = (inbounds || []).find((row) => row.id === id);
+      if (ib?.protocol === 'mtproto' && ib.mtprotoDomain) return ib.mtprotoDomain;
+    }
+    return 'www.cloudflare.com';
+  }, [inboundIds, inbounds]);
+
+  const ss2022Method = useMemo(() => {
+    for (const id of inboundIds || []) {
+      const ib = (inbounds || []).find((row) => row.id === id);
+      const method = ib?.ssMethod;
+      if (method && method.substring(0, 4) === '2022') return method;
+    }
+    return '';
+  }, [inboundIds, inbounds]);
+
+  function regeneratePassword() {
+    methods.setValue(
+      'password',
+      ss2022Method
+        ? RandomUtil.randomShadowsocksPassword(ss2022Method)
+        : RandomUtil.randomLowerAndNum(16),
+    );
+  }
+
+  const showFlow = useMemo(
+    () => (inboundIds || []).some((id) => flowCapableIds.has(id)),
+    [inboundIds, flowCapableIds],
+  );
+
+  const showReverseTag = useMemo(
+    () => (inboundIds || []).some((id) => vlessLikeIds.has(id)),
+    [inboundIds, vlessLikeIds],
+  );
+
+  const showSecurity = useMemo(
+    () => (inboundIds || []).some((id) => vmessIds.has(id)),
+    [inboundIds, vmessIds],
+  );
+
+  const showWireguard = useMemo(
+    () => (inboundIds || []).some((id) => wireguardIds.has(id)),
+    [inboundIds, wireguardIds],
+  );
+
+  const showAmneziawg = useMemo(
+    () => (inboundIds || []).some((id) => amneziawgIds.has(id)),
+    [inboundIds, amneziawgIds],
+  );
+
+  const showMtproto = useMemo(
+    () => (inboundIds || []).some((id) => mtprotoIds.has(id)),
+    [inboundIds, mtprotoIds],
+  );
+
+  function regenerateWireguardKeys() {
+    const kp = Wireguard.generateKeypair();
+    methods.setValue('wgPrivateKey', kp.privateKey);
+    methods.setValue('wgPublicKey', kp.publicKey);
+  }
+
+  function regenerateWireguardPresharedKey() {
+    methods.setValue('wgPreSharedKey', Wireguard.keyToBase64(Wireguard.generatePresharedKey()));
+  }
+
+  function regenerateMtprotoSecret() {
+    methods.setValue('secret', generateMtprotoSecret(mtprotoDomain));
+  }
+
+  useEffect(() => {
+    // Only clear the flow once we actually have inbound options to judge
+    // capability from. While the options list is momentarily empty (e.g. the
+    // options query is (re)loading and `inbounds` falls back to `[]`), showFlow
+    // is a false negative, so clearing here would silently drop a valid
+    // xtls-rprx-vision flow the user picked for a Reality/TLS inbound.
+    if (inbounds.length > 0 && !showFlow && flow) {
+      methods.setValue('flow', '');
+    }
+  }, [inbounds, showFlow, flow, methods]);
+
+  useEffect(() => {
+    if (!showReverseTag && reverseTag) {
+      methods.setValue('reverseTag', '');
+    }
+  }, [showReverseTag, reverseTag, methods]);
+
+  useEffect(() => {
+    if (!ss2022Method) return;
+    const current = methods.getValues('password');
+    if (!RandomUtil.isShadowsocks2022Password(current, ss2022Method)) {
+      methods.setValue('password', RandomUtil.randomShadowsocksPassword(ss2022Method));
+    }
+  }, [ss2022Method, methods]);
+
+  useEffect(() => {
+    if (showMtproto && !secret) {
+      methods.setValue('secret', generateMtprotoSecret(mtprotoDomain));
+    }
+  }, [showMtproto, secret, mtprotoDomain, methods]);
+
+  const inboundOptions = useMemo(
+    () =>
+      (inbounds || [])
+        .filter((ib) => MULTI_CLIENT_PROTOCOLS.has(ib.protocol || ''))
+        .filter((ib) => ib.enable || (inboundIds || []).includes(ib.id))
+        .map((ib) => ({
+          label: formatInboundLabel(ib.tag, ib.remark),
+          value: ib.id,
+          title: formatInboundLabel(ib.tag, ib.remark),
+        })),
+    [inbounds, inboundIds],
+  );
+
+  // Host options cover selected inbounds only; bound disabled hosts stay
+  // visible with a suffix so open+save never silently drops them.
+  const { hosts: rawHostRules } = useRawHostsQuery();
+  const clientHostRuleIds = useWatch({ control: methods.control, name: 'clientHostRuleIds' });
+  const hostRuleOptions = useMemo(() => {
+    const selected = new Set(inboundIds || []);
+    const bound = new Set(clientHostRuleIds || []);
+    const formatBase = (h: { id?: number; remark?: string; address?: string }) =>
+      h.remark || h.address
+        ? `${h.remark || h.address}${h.address && h.remark ? ` (${h.address})` : ''} (#${h.id})`
+        : `Host #${h.id}`;
+    const options: { value: number; label: string }[] = [];
+    const seen = new Set<number>();
+    for (const h of rawHostRules || []) {
+      if (h.id === undefined || h.inboundId === undefined || !selected.has(h.inboundId)) continue;
+      const id = h.id as number;
+      const base = formatBase(h);
+      if (!h.isDisabled) {
+        options.push({ value: id, label: base });
+        seen.add(id);
+      } else if (bound.has(id)) {
+        options.push({ value: id, label: t('pages.clients.hostRuleDisabled', { label: base }) });
+        seen.add(id);
+      }
+    }
+    for (const id of bound) {
+      if (seen.has(id)) continue;
+      const h = (rawHostRules || []).find((r) => r.id === id);
+      if (h) {
+        const base = formatBase(h);
+        options.push({
+          value: id,
+          label: h.isDisabled ? t('pages.clients.hostRuleDisabled', { label: base }) : base,
+        });
+      } else {
+        options.push({ value: id, label: `Host #${id}` });
+      }
+    }
+    return options;
+  }, [rawHostRules, inboundIds, clientHostRuleIds, t]);
+
+  // Prune only bindings whose inbound was just deselected, never on
+  // disabled state, so a temporarily disabled host survives untouched.
+  function handleInboundChange(next: number[]) {
+    const prevSelected = new Set(inboundIds || []);
+    const nextSelected = new Set(next || []);
+    const removed = new Set([...prevSelected].filter((id) => !nextSelected.has(id)));
+    methods.setValue('inboundIds', next);
+    if (removed.size === 0) return;
+    const current = methods.getValues('clientHostRuleIds') || [];
+    if (current.length === 0) return;
+    const byId = new Map((rawHostRules || []).map((h) => [h.id as number, h]));
+    const kept = current.filter((id) => {
+      const host = byId.get(id);
+      if (!host || host.inboundId === undefined) return true;
+      return !removed.has(host.inboundId);
+    });
+    if (kept.length !== current.length) methods.setValue('clientHostRuleIds', kept);
+  }
+
+  const expiryDayjs = useMemo<Dayjs | null>(
+    () => (expiryDate > 0 ? dayjs(expiryDate) : null),
+    [expiryDate],
+  );
+
+  const linkRows = externalLinkFields
+    .map((field, index) => ({ field, index }))
+    .filter((row) => row.field.kind === 'link');
+  const subscriptionRows = externalLinkFields
+    .map((field, index) => ({ field, index }))
+    .filter((row) => row.field.kind === 'subscription');
+
+  async function loadIps() {
+    if (!isEdit || !client?.email) return;
+    setIpsLoading(true);
+    try {
+      const msg = (await HttpUtil.post(
+        `/panel/api/clients/ips/${encodeURIComponent(client.email)}`,
+      )) as ApiMsg<unknown[]>;
+      if (!msg?.success) {
+        setClientIps([]);
+        return;
+      }
+      setClientIps(normalizeClientIps(msg.obj));
+    } finally {
+      setIpsLoading(false);
+    }
+  }
+
+  function openIpsModal() {
+    setIpsModalOpen(true);
+    if (clientIps.length === 0) void loadIps();
+  }
+
+  async function clearIps() {
+    if (!isEdit || !client?.email) return;
+    setIpsClearing(true);
+    try {
+      const msg = (await HttpUtil.post(
+        `/panel/api/clients/clearIps/${encodeURIComponent(client.email)}`,
+      )) as ApiMsg;
+      if (msg?.success) setClientIps([]);
+    } finally {
+      setIpsClearing(false);
+    }
+  }
+
+  function openHwidsModal() {
+    setHwidsModalOpen(true);
+    if (clientHwids.length === 0) void loadHwids();
+  }
+
+  function close() {
+    onOpenChange(false);
+  }
+
+  async function onResetTraffic() {
+    if (!isEdit || !client?.email || !resetTraffic) return;
+    setResetting(true);
+    try {
+      const msg = await resetTraffic(client);
+      if (msg?.success) {
+        messageApi.success(t('pages.clients.toasts.trafficReset'));
+      } else {
+        messageApi.error(msg?.msg || t('somethingWentWrong'));
+      }
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  async function onSubmit() {
+    const values = methods.getValues();
+    const unchangedLegacyKeepAlive =
+      isEdit &&
+      typeof client?.keepAlive === 'number' &&
+      client.keepAlive > 65535 &&
+      values.wgKeepAlive === client.keepAlive;
+    if (showAmneziawg && !unchangedLegacyKeepAlive) {
+      const keepAliveSchema = showWireguard
+        ? OptionalNumericKeepAliveInputSchema
+        : OptionalAmneziaWGKeepAliveInputSchema;
+      const keepAliveResult = keepAliveSchema.safeParse(values.wgKeepAlive);
+      if (!keepAliveResult.success) {
+        methods.setError('wgKeepAlive', {
+          type: 'validate',
+          message: keepAliveResult.error.issues[0]?.message ?? 'validation.invalid',
+        });
+        return;
+      }
+      methods.clearErrors('wgKeepAlive');
+    }
+    const schema = isEdit ? ClientFormSchema : ClientCreateFormSchema;
+    const validated = schema.safeParse({
+      email: values.email,
+      subId: values.subId,
+      uuid: values.uuid,
+      password: values.password,
+      auth: values.auth,
+      flow: values.flow,
+      security: values.security,
+      clientHostRuleIds: values.clientHostRuleIds,
+      reverseTag: values.reverseTag,
+      totalGB: values.totalGB,
+      delayedStart: values.delayedStart,
+      delayedDays: values.delayedDays,
+      reset: values.reset,
+      resetDay: values.resetDay,
+      resetWeekday: values.resetWeekday,
+      resetMax: values.resetMax,
+      trafficReset: values.trafficReset,
+      trafficResetDay: values.trafficResetDay,
+      limitIp: values.limitIp,
+      limitHwid: values.limitHwid,
+      tgId: values.tgId,
+      group: values.group,
+      comment: values.comment,
+      enable: values.enable,
+      inboundIds: values.inboundIds,
+    });
+    if (!validated.success) {
+      const issue = validated.error.issues[0];
+      messageApi.error(t(issue?.message ?? 'somethingWentWrong'));
+      return;
+    }
+    const expiryTime = values.delayedStart
+      ? -86400000 * (Number(values.delayedDays) || 0)
+      : values.expiryDate || 0;
+    const totalBytes = resolveTotalBytes(client ? (client.totalGB ?? 0) : null, values.totalGB);
+    const clientPayload: Record<string, unknown> = {
+      email: values.email.trim(),
+      subId: values.subId,
+      id: values.uuid,
+      uuid: values.uuid,
+      password: values.password,
+      auth: values.auth,
+      flow: showFlow ? values.flow || '' : '',
+      security: showSecurity ? values.security || 'auto' : 'auto',
+      // An empty list clears the override.
+      clientHostRuleIds: Array.isArray(values.clientHostRuleIds)
+        ? values.clientHostRuleIds.filter((id) => typeof id === 'number' && id > 0)
+        : [],
+      totalGB: totalBytes,
+      expiryTime,
+      reset: Number(values.reset) || 0,
+      resetDay: Number(values.resetDay) || 0,
+      resetWeekday: Number(values.resetWeekday) || 0,
+      resetMax: Number(values.resetMax) || 0,
+      trafficReset: values.trafficReset || 'never',
+      trafficResetDay: Number(values.trafficResetDay) || 1,
+      limitIp: Number(values.limitIp) || 0,
+      limitHwid: Number(values.limitHwid) || 0,
+      tgId: Number(values.tgId) || 0,
+      group: values.group,
+      comment: values.comment,
+      enable: !!values.enable,
+    };
+    // Sent even when empty, so clearing the tag never rests on how the server
+    // reads an omitted key.
+    const reverseTagValue = showReverseTag ? (values.reverseTag || '').trim() : '';
+    clientPayload.reverse = reverseTagValue ? { tag: reverseTagValue } : null;
+
+    if (showWireguard || showAmneziawg) {
+      // AmneziaWG peers are wire-identical to WireGuard peers (same
+      // privateKey/publicKey/preSharedKey/allowedIPs fields on model.Client),
+      // so both protocols share this one field set — see wgPrivateKey etc.
+      // below and the AmneziaWG-labeled variants of the same inputs.
+      clientPayload.privateKey = values.wgPrivateKey;
+      if (!unchangedLegacyKeepAlive && values.wgKeepAlive !== undefined) {
+        clientPayload.keepAlive = values.wgKeepAlive;
+      }
+      clientPayload.publicKey = values.wgPublicKey;
+      if (values.wgPreSharedKey) {
+        clientPayload.preSharedKey = values.wgPreSharedKey;
+      }
+      const wgAllowedIPs = parseAllowedIPsList(values.wgAllowedIPs);
+      if (showWireguard && showAmneziawg) {
+        // Both protocols are attached at once: the two fields hold genuinely
+        // different addresses, so each must land on its own inbound instead
+        // of one broadcast value overwriting the other's (allowedIPsByInbound
+        // is what Update/Create key their per-inbound override off of).
+        const awgAllowedIPs = parseAllowedIPsList(values.awgAllowedIPs);
+        clientPayload.allowedIPsByInbound = resolveTunnelAllowedIPsByInbound(
+          values.inboundIds || [],
+          wireguardIds,
+          amneziawgIds,
+          wgAllowedIPs,
+          awgAllowedIPs,
+        );
+        if (wgAllowedIPs.length > 0) {
+          clientPayload.allowedIPs = wgAllowedIPs;
+        }
+      } else if (wgAllowedIPs.length > 0) {
+        clientPayload.allowedIPs = wgAllowedIPs;
+      }
+      // Port-forwarding has no WireGuard equivalent — Xray-native WireGuard
+      // has no host-level iptables layer to hang per-client DNAT off of.
+      if (showAmneziawg) {
+        clientPayload.forwardedPorts = values.awgForwardedPorts.trim();
+      }
+    }
+
+    if (showMtproto) {
+      const adTag = values.adTag.trim();
+      if (adTag !== '' && !/^[0-9a-fA-F]{32}$/.test(adTag)) {
+        messageApi.error(t('pages.inbounds.form.mtgAdTagInvalid'));
+        return;
+      }
+      clientPayload.secret = values.secret;
+      clientPayload.adTag = adTag;
+    }
+
+    const externalLinks: ExternalLinkInput[] = values.externalLinks
+      .map((r) => ({
+        kind: r.kind,
+        value: r.value.trim(),
+        remark: (r.remark || '').trim(),
+        enable: r.enable !== false,
+        expiryTime: Number(r.expiryTime) || 0,
+        namePrefix: (r.namePrefix || '').trim(),
+      }))
+      .filter((r) => r.value !== '');
+
+    setSubmitting(true);
+    try {
+      let msg;
+      if (isEdit && client) {
+        const original = new Set(attachedIds || []);
+        const next = new Set(values.inboundIds || []);
+        const toAttach = [...next].filter((id) => !original.has(id));
+        const toDetach = [...original].filter((id) => !next.has(id));
+        msg = await save(clientPayload, {
+          isEdit: true,
+          email: client.email,
+          attach: toAttach,
+          detach: toDetach,
+          externalLinks,
+        });
+      } else {
+        msg = await save(
+          { client: clientPayload, inboundIds: values.inboundIds },
+          { isEdit: false, email: clientPayload.email as string, externalLinks },
+        );
+      }
+      if (msg?.success) close();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      {messageContextHolder}
+      <Modal
+        open={open}
+        title={isEdit ? t('pages.clients.editClient') : t('pages.clients.addClient')}
+        destroyOnHidden
+        className="client-form-modal"
+        width={720}
+        zIndex={CLIENT_FORM_MODAL_Z_INDEX}
+        style={{ top: 20 }}
+        styles={{
+          body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', overflowX: 'hidden' },
+        }}
+        onCancel={close}
+        footer={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isEdit && resetTraffic && (
+              <Popconfirm
+                title={t('pages.inbounds.resetTraffic')}
+                description={t('pages.inbounds.resetTrafficContent')}
+                okText={t('reset')}
+                cancelText={t('cancel')}
+                zIndex={CLIENT_IP_LOG_MODAL_Z_INDEX}
+                onConfirm={onResetTraffic}
+              >
+                <Button
+                  color="danger"
+                  variant="filled"
+                  icon={<RetweetOutlined aria-hidden />}
+                  loading={resetting}
+                >
+                  {t('pages.inbounds.resetTraffic')}
+                </Button>
+              </Popconfirm>
+            )}
+            <div style={{ marginInlineStart: 'auto', display: 'flex', gap: 8 }}>
+              <Button onClick={close}>{t('cancel')}</Button>
+              <Button type="primary" loading={submitting} onClick={onSubmit}>
+                {isEdit ? t('save') : t('create')}
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <FormProvider {...methods}>
+          <Form layout="vertical">
+            <Tabs
+              defaultActiveKey="basic"
+              items={[
+                {
+                  key: 'basic',
+                  label: t('pages.clients.tabBasics'),
+                  children: (
+                    <>
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            label={t('pages.clients.email')}
+                            required
+                            htmlFor={`${uid}-email`}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <Input
+                                id={`${uid}-email`}
+                                value={email}
+                                placeholder={t('pages.clients.email')}
+                                style={{ flex: 1 }}
+                                onChange={(e) => methods.setValue('email', e.target.value)}
+                              />
+                              {!isEdit && (
+                                <Button
+                                  aria-label={t('regenerate')}
+                                  icon={<ReloadOutlined aria-hidden />}
+                                  onClick={() =>
+                                    methods.setValue('email', RandomUtil.randomLowerAndNum(12))
+                                  }
+                                />
+                              )}
+                            </Space.Compact>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <FormField
+                            name="totalGB"
+                            label={t('pages.clients.totalGB')}
+                            tooltip={t('pages.clients.totalGBDesc')}
+                            transform={{ output: (v) => Number(v) || 0 }}
+                          >
+                            <InputNumber min={0} step={1} style={{ width: '100%' }} />
+                          </FormField>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            htmlFor={`${uid}-limit-ip`}
+                            label={t('pages.clients.limitIp')}
+                            tooltip={t('pages.clients.limitIpDesc')}
+                          >
+                            <Tooltip title={limitIpNotice || undefined}>
+                              <span style={{ display: 'flex', width: '100%' }}>
+                                <Space.Compact style={{ display: 'flex', flex: 1 }}>
+                                  <InputNumber
+                                    id={`${uid}-limit-ip`}
+                                    aria-describedby={`${uid}-limit-ip-hint`}
+                                    value={limitIp}
+                                    min={0}
+                                    disabled={limitIpDisabled}
+                                    style={{
+                                      flex: 1,
+                                      ...(limitIpDisabled ? { pointerEvents: 'none' } : null),
+                                    }}
+                                    onChange={(v) => methods.setValue('limitIp', Number(v) || 0)}
+                                  />
+                                  {isEdit && (
+                                    <Tooltip title={t('pages.clients.ipLog')}>
+                                      <Button
+                                        aria-label={t('pages.clients.ipLog')}
+                                        icon={<EyeOutlined aria-hidden />}
+                                        loading={ipsLoading}
+                                        onClick={openIpsModal}
+                                      >
+                                        {clientIps.length > 0 ? clientIps.length : ''}
+                                      </Button>
+                                    </Tooltip>
+                                  )}
+                                </Space.Compact>
+                              </span>
+                            </Tooltip>
+                            <span id={`${uid}-limit-ip-hint`} hidden>
+                              {t('pages.clients.limitIpDesc')}
+                            </span>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            htmlFor={`${uid}-limit-hwid`}
+                            label={t('pages.clients.limitHwid')}
+                            tooltip={t('pages.clients.limitHwidDesc')}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <InputNumber
+                                id={`${uid}-limit-hwid`}
+                                aria-describedby={`${uid}-limit-hwid-hint`}
+                                value={limitHwid}
+                                min={0}
+                                style={{ flex: 1 }}
+                                onChange={(v) => methods.setValue('limitHwid', Number(v) || 0)}
+                              />
+                              {isEdit && (
+                                <Tooltip title={t('pages.clients.hwidLog')}>
+                                  <Button
+                                    aria-label={t('pages.clients.hwidLog')}
+                                    icon={<EyeOutlined aria-hidden />}
+                                    loading={hwidsLoading}
+                                    onClick={openHwidsModal}
+                                  >
+                                    {clientHwids.length > 0 ? clientHwids.length : ''}
+                                  </Button>
+                                </Tooltip>
+                              )}
+                            </Space.Compact>
+                            <span id={`${uid}-limit-hwid-hint`} hidden>
+                              {t('pages.clients.limitHwidDesc')}
+                            </span>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          {delayedStart ? (
+                            <FormField
+                              name="delayedDays"
+                              label={t('pages.clients.expireDays')}
+                              transform={{ output: (v) => Number(v) || 0 }}
+                            >
+                              <InputNumber min={0} style={{ width: '100%' }} />
+                            </FormField>
+                          ) : (
+                            <Form.Item
+                              label={t('pages.clients.expiryTime')}
+                              htmlFor={`${uid}-expiry`}
+                            >
+                              <DateTimePicker
+                                id={`${uid}-expiry`}
+                                value={expiryDayjs}
+                                onChange={(d) =>
+                                  methods.setValue('expiryDate', d ? d.valueOf() : 0)
+                                }
+                              />
+                            </Form.Item>
+                          )}
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Form.Item
+                            label={t('pages.clients.delayedStart')}
+                            htmlFor={`${uid}-delayed-start`}
+                          >
+                            <Switch
+                              id={`${uid}-delayed-start`}
+                              checked={delayedStart}
+                              onChange={(v) => {
+                                methods.setValue('delayedStart', v);
+                                if (v) methods.setValue('expiryDate', 0);
+                                else methods.setValue('delayedDays', 0);
+                              }}
+                            />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <FormField
+                            name="trafficReset"
+                            label={t('pages.inbounds.periodicTrafficResetTitle')}
+                          >
+                            <Select
+                              options={TRAFFIC_RESETS.map((r) => ({
+                                value: r,
+                                label: t(`pages.inbounds.periodicTrafficReset.${r}`),
+                              }))}
+                            />
+                          </FormField>
+                        </Col>
+                        {trafficReset === 'monthly' && (
+                          <Col xs={24} md={12}>
+                            <FormField
+                              name="trafficResetDay"
+                              label={t('pages.inbounds.periodicTrafficResetDay')}
+                              transform={{ output: (v) => Number(v) || 1 }}
+                            >
+                              <InputNumber min={1} max={31} style={{ width: '100%' }} />
+                            </FormField>
+                          </Col>
+                        )}
+                      </Row>
+
+                      <ClientRenewalFields
+                        active={open}
+                        delayedStart={delayedStart}
+                        expiryTime={delayedStart ? -86400000 * (delayedDays || 0) : expiryDate || 0}
+                        resetCount={client?.traffic?.resetCount || 0}
+                        setExpiry={(expiry) => methods.setValue('expiryDate', expiry)}
+                      />
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <FormField name="comment" label={t('pages.clients.comment')}>
+                            <Input />
+                          </FormField>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <FormField
+                            name="group"
+                            label={t('pages.clients.group')}
+                            tooltip={t('pages.clients.groupDesc')}
+                            transform={{ output: (v) => v ?? '' }}
+                          >
+                            <AutoComplete
+                              placeholder={t('pages.clients.groupPlaceholder')}
+                              options={groups.map((g) => ({ value: g }))}
+                              allowClear
+                            />
+                          </FormField>
+                        </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            label={t('pages.clients.hostRuleOverride')}
+                            htmlFor={`${uid}-host-rule-override`}
+                          >
+                            <Select
+                              id={`${uid}-host-rule-override`}
+                              mode="multiple"
+                              tagRender={selectTagRender}
+                              value={clientHostRuleIds || []}
+                              onChange={(v) => methods.setValue('clientHostRuleIds', v)}
+                              options={hostRuleOptions}
+                              placeholder={t('pages.clients.hostRuleOverridePlaceholder')}
+                              placement="topLeft"
+                              listHeight={220}
+                              allowClear
+                              showSearch={{
+                                filterOption: (input, option) =>
+                                  ((option?.label as string) || '')
+                                    .toLowerCase()
+                                    .includes(input.toLowerCase()),
+                              }}
+                            />
+                          </Form.Item>
+                        </Col>
+                        {showReverseTag && (
+                          <Col xs={24} md={12}>
+                            <FormField name="reverseTag" label={t('pages.clients.reverseTag')}>
+                              <Input placeholder={t('pages.clients.reverseTagPlaceholder')} />
+                            </FormField>
+                          </Col>
+                        )}
+                      </Row>
+
+                      {tgBotEnable && (
+                        <Row gutter={16}>
+                          <Col xs={24} md={12}>
+                            <FormField
+                              name="tgId"
+                              label={t('pages.clients.telegramId')}
+                              transform={{ output: (v) => Number(v) || 0 }}
+                            >
+                              <InputNumber
+                                min={0}
+                                controls={false}
+                                placeholder={t('pages.clients.telegramIdPlaceholder')}
+                                style={{ width: '100%' }}
+                              />
+                            </FormField>
+                          </Col>
+                        </Row>
+                      )}
+
+                      <Form.Item
+                        label={t('pages.clients.attachedInbounds')}
+                        required={!isEdit}
+                        htmlFor={`${uid}-inbounds`}
+                      >
+                        <SelectAllClearButtons
+                          options={inboundOptions}
+                          value={inboundIds}
+                          onChange={handleInboundChange}
+                        />
+                        <Select
+                          id={`${uid}-inbounds`}
+                          mode="multiple"
+                          tagRender={selectTagRender}
+                          value={inboundIds}
+                          onChange={handleInboundChange}
+                          options={inboundOptions}
+                          placeholder={t('pages.clients.selectInbound')}
+                          placement="topLeft"
+                          listHeight={220}
+                          showSearch={{
+                            filterOption: (input, option) =>
+                              ((option?.label as string) || '')
+                                .toLowerCase()
+                                .includes(input.toLowerCase()),
+                          }}
+                        />
+                      </Form.Item>
+
+                      <Form.Item>
+                        <Switch
+                          aria-label={t('enable')}
+                          checked={enable}
+                          onChange={(v) => methods.setValue('enable', v)}
+                        />
+                        <span style={{ marginLeft: 8 }}>{t('enable')}</span>
+                      </Form.Item>
+                    </>
+                  ),
+                },
+                {
+                  key: 'config',
+                  label: t('pages.clients.tabCredentials'),
+                  children: (
+                    <>
+                      <Form.Item label={t('pages.clients.uuid')} htmlFor={`${uid}-uuid`}>
+                        <Space.Compact style={{ display: 'flex' }}>
+                          <Input
+                            id={`${uid}-uuid`}
+                            value={uuid}
+                            style={{ flex: 1 }}
+                            onChange={(e) => methods.setValue('uuid', e.target.value)}
+                          />
+                          <Button
+                            aria-label={t('regenerate')}
+                            icon={<ReloadOutlined aria-hidden />}
+                            onClick={() => methods.setValue('uuid', RandomUtil.randomUUID())}
+                          />
+                        </Space.Compact>
+                      </Form.Item>
+
+                      <Form.Item
+                        htmlFor={`${uid}-password`}
+                        label={t('pages.clients.password')}
+                        tooltip={t('pages.clients.passwordDesc')}
+                      >
+                        <Space.Compact style={{ display: 'flex' }}>
+                          <Input
+                            id={`${uid}-password`}
+                            aria-describedby={`${uid}-password-hint`}
+                            value={password}
+                            style={{ flex: 1 }}
+                            onChange={(e) => methods.setValue('password', e.target.value)}
+                          />
+                          <Button
+                            aria-label={t('regenerate')}
+                            icon={<ReloadOutlined aria-hidden />}
+                            onClick={regeneratePassword}
+                          />
+                        </Space.Compact>
+                        <span id={`${uid}-password-hint`} hidden>
+                          {t('pages.clients.passwordDesc')}
+                        </span>
+                      </Form.Item>
+
+                      <Form.Item
+                        htmlFor={`${uid}-sub-id`}
+                        label={t('pages.clients.subId')}
+                        tooltip={t('pages.clients.subIdDesc')}
+                      >
+                        <Space.Compact style={{ display: 'flex' }}>
+                          <Input
+                            id={`${uid}-sub-id`}
+                            aria-describedby={`${uid}-sub-id-hint`}
+                            value={subId}
+                            style={{ flex: 1 }}
+                            onChange={(e) => methods.setValue('subId', e.target.value)}
+                          />
+                          <Button
+                            aria-label={t('regenerate')}
+                            icon={<ReloadOutlined aria-hidden />}
+                            onClick={() =>
+                              methods.setValue('subId', RandomUtil.randomLowerAndNum(16))
+                            }
+                          />
+                        </Space.Compact>
+                        <span id={`${uid}-sub-id-hint`} hidden>
+                          {t('pages.clients.subIdDesc')}
+                        </span>
+                      </Form.Item>
+
+                      <Form.Item
+                        htmlFor={`${uid}-auth`}
+                        label={t('pages.clients.hysteriaAuth')}
+                        tooltip={t('pages.clients.hysteriaAuthDesc')}
+                      >
+                        <Space.Compact style={{ display: 'flex' }}>
+                          <Input
+                            id={`${uid}-auth`}
+                            aria-describedby={`${uid}-auth-hint`}
+                            value={auth}
+                            style={{ flex: 1 }}
+                            onChange={(e) => methods.setValue('auth', e.target.value)}
+                          />
+                          <Button
+                            aria-label={t('regenerate')}
+                            icon={<ReloadOutlined aria-hidden />}
+                            onClick={() =>
+                              methods.setValue('auth', RandomUtil.randomLowerAndNum(16))
+                            }
+                          />
+                        </Space.Compact>
+                        <span id={`${uid}-auth-hint`} hidden>
+                          {t('pages.clients.hysteriaAuthDesc')}
+                        </span>
+                      </Form.Item>
+
+                      {showFlow && (
+                        <FormField name="flow" label={t('pages.clients.flow')}>
+                          <Select
+                            options={[
+                              { value: '', label: t('none') },
+                              ...FLOW_OPTIONS.map((k) => ({ value: k, label: k })),
+                            ]}
+                          />
+                        </FormField>
+                      )}
+                      {showSecurity && (
+                        <FormField name="security" label={t('pages.clients.vmessSecurity')}>
+                          <Select
+                            options={VMESS_SECURITY_OPTIONS.map((k) => ({ value: k, label: k }))}
+                          />
+                        </FormField>
+                      )}
+                      {(showWireguard || showAmneziawg) && (
+                        <>
+                          <Form.Item
+                            htmlFor={`${uid}-wg-private-key`}
+                            label={t(
+                              showAmneziawg
+                                ? 'pages.clients.amneziaWgPrivateKey'
+                                : 'pages.clients.wireguardPrivateKey',
+                            )}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <Input
+                                id={`${uid}-wg-private-key`}
+                                value={wgPrivateKey}
+                                style={{ flex: 1 }}
+                                onChange={(e) => {
+                                  const priv = e.target.value;
+                                  methods.setValue('wgPrivateKey', priv);
+                                  methods.setValue(
+                                    'wgPublicKey',
+                                    priv ? Wireguard.generateKeypair(priv).publicKey : '',
+                                  );
+                                }}
+                              />
+                              <Button
+                                aria-label={t('regenerate')}
+                                icon={<ReloadOutlined aria-hidden />}
+                                onClick={regenerateWireguardKeys}
+                              />
+                            </Space.Compact>
+                          </Form.Item>
+                          <FormField
+                            name="wgPublicKey"
+                            label={t(
+                              showAmneziawg
+                                ? 'pages.clients.amneziaWgPublicKey'
+                                : 'pages.clients.wireguardPublicKey',
+                            )}
+                          >
+                            <Input disabled />
+                          </FormField>
+                          <Form.Item
+                            htmlFor={`${uid}-wg-psk`}
+                            label={t(
+                              showAmneziawg
+                                ? 'pages.clients.amneziaWgPreSharedKey'
+                                : 'pages.clients.wireguardPreSharedKey',
+                            )}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <FormField name="wgPreSharedKey" noStyle>
+                                <Input id={`${uid}-wg-psk`} style={{ flex: 1 }} />
+                              </FormField>
+                              <Button
+                                aria-label={t('regenerate')}
+                                icon={<ReloadOutlined aria-hidden />}
+                                onClick={regenerateWireguardPresharedKey}
+                              />
+                            </Space.Compact>
+                          </Form.Item>
+                          {showWireguard && showAmneziawg ? (
+                            <>
+                              <FormField
+                                name="wgAllowedIPs"
+                                label={t('pages.clients.wireguardAllowedIPs')}
+                                extra={t('pages.clients.wireguardAllowedIPsHint')}
+                              >
+                                <Input placeholder="10.0.0.2/32" />
+                              </FormField>
+                              <FormField
+                                name="awgAllowedIPs"
+                                label={t('pages.clients.amneziaWgAllowedIPs')}
+                                extra={t('pages.clients.amneziaWgAllowedIPsHint')}
+                              >
+                                <Input placeholder="10.8.1.2/32" />
+                              </FormField>
+                            </>
+                          ) : (
+                            <FormField
+                              name="wgAllowedIPs"
+                              label={t(
+                                showAmneziawg
+                                  ? 'pages.clients.amneziaWgAllowedIPs'
+                                  : 'pages.clients.wireguardAllowedIPs',
+                              )}
+                              extra={t(
+                                showAmneziawg
+                                  ? 'pages.clients.amneziaWgAllowedIPsHint'
+                                  : 'pages.clients.wireguardAllowedIPsHint',
+                              )}
+                            >
+                              <Input placeholder="10.8.1.2/32" />
+                            </FormField>
+                          )}
+                          <FormField
+                            name="wgKeepAlive"
+                            label={t('pages.clients.tunnelKeepAlive')}
+                            extra={t(
+                              showAmneziawg && !showWireguard
+                                ? 'pages.clients.amneziaWgKeepAliveHint'
+                                : 'pages.clients.tunnelKeepAliveHint',
+                            )}
+                            transform={{
+                              output:
+                                showAmneziawg && !showWireguard
+                                  ? keepAliveInputValue
+                                  : (value) => Number(value) || 0,
+                            }}
+                            rules={
+                              showAmneziawg
+                                ? {
+                                    validate: rhfZodValidate(
+                                      showWireguard
+                                        ? OptionalNumericKeepAliveInputSchema
+                                        : OptionalAmneziaWGKeepAliveInputSchema,
+                                    ),
+                                  }
+                                : undefined
+                            }
+                          >
+                            {showAmneziawg && !showWireguard ? (
+                              <Input placeholder="25" />
+                            ) : (
+                              <InputNumber min={0} max={65535} style={{ width: '100%' }} />
+                            )}
+                          </FormField>
+                          {showAmneziawg && (
+                            <FormField
+                              name="awgForwardedPorts"
+                              label={t('pages.clients.amneziaWgForwardedPorts')}
+                              extra={t('pages.clients.amneziaWgForwardedPortsHint')}
+                            >
+                              <Input placeholder="80, 443, 8000-8100" />
+                            </FormField>
+                          )}
+                        </>
+                      )}
+                      {showMtproto && (
+                        <>
+                          <Form.Item
+                            htmlFor={`${uid}-mtproto-secret`}
+                            label={t('pages.clients.mtprotoSecret')}
+                            extra={t('pages.clients.mtprotoSecretHint')}
+                          >
+                            <Space.Compact style={{ display: 'flex' }}>
+                              <Input
+                                id={`${uid}-mtproto-secret`}
+                                value={secret}
+                                style={{ flex: 1 }}
+                                onChange={(e) => methods.setValue('secret', e.target.value)}
+                              />
+                              <Button
+                                aria-label={t('regenerate')}
+                                icon={<ReloadOutlined aria-hidden />}
+                                onClick={regenerateMtprotoSecret}
+                              />
+                            </Space.Compact>
+                          </Form.Item>
+                          <FormField
+                            name="adTag"
+                            label={t('pages.clients.mtprotoAdTag')}
+                            extra={t('pages.clients.mtprotoAdTagHint')}
+                          >
+                            <Input allowClear placeholder="0123456789abcdef0123456789abcdef" />
+                          </FormField>
+                        </>
+                      )}
+                    </>
+                  ),
+                },
+                {
+                  key: 'links',
+                  label: t('pages.clients.tabLinks'),
+                  children: (
+                    <>
+                      <Typography.Paragraph type="secondary" style={{ marginTop: 4 }}>
+                        {t('pages.clients.linksHint')}
+                      </Typography.Paragraph>
+
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined aria-hidden />}
+                        onClick={() => addExternalLinkRow('link')}
+                      >
+                        {t('pages.clients.addExternalLink')}
+                      </Button>
+                      <div style={{ marginTop: 12, marginBottom: 24 }}>
+                        {linkRows.length === 0 ? (
+                          <Typography.Text type="secondary">
+                            {t('pages.clients.noExternalLinks')}
+                          </Typography.Text>
+                        ) : (
+                          linkRows.map(({ field, index }) => (
+                            <div key={field.id} className="external-link-card">
+                              <div className="external-link-row">
+                                <div className="external-link-enable">
+                                  <FormField
+                                    name={`externalLinks.${index}.enable`}
+                                    valueProp="checked"
+                                    noStyle
+                                  >
+                                    <Switch size="small" aria-label={t('enable')} />
+                                  </FormField>
+                                  <span>{t('enable')}</span>
+                                </div>
+                                <FormField name={`externalLinks.${index}.value`} noStyle>
+                                  <Input
+                                    aria-label="vless:// · vmess:// · trojan:// · ss:// · hysteria2:// · wireguard://"
+                                    placeholder="vless:// · vmess:// · trojan:// · ss:// · hysteria2:// · wireguard://"
+                                  />
+                                </FormField>
+                                <Tooltip title={t('delete')}>
+                                  <Button
+                                    aria-label={t('delete')}
+                                    danger
+                                    icon={<DeleteOutlined aria-hidden />}
+                                    onClick={() => removeExternalLink(index)}
+                                  />
+                                </Tooltip>
+                              </div>
+                              <div className="external-link-details two-cols">
+                                <FormField name={`externalLinks.${index}.remark`} noStyle>
+                                  <Input aria-label={t('remark')} placeholder={t('remark')} />
+                                </FormField>
+                                <Controller
+                                  control={methods.control}
+                                  name={`externalLinks.${index}.expiryTime`}
+                                  render={({ field: expiryField }) => {
+                                    const displayedExpiry = resolveExternalLinkExpiry(
+                                      expiryField.value,
+                                      expiryDate,
+                                    );
+                                    const hasSpecificExpiry = Number(expiryField.value) > 0;
+                                    return (
+                                      <DateTimePicker
+                                        aria-label={t('pages.clients.expiryTime')}
+                                        value={displayedExpiry > 0 ? dayjs(displayedExpiry) : null}
+                                        onChange={(v) => expiryField.onChange(v ? v.valueOf() : 0)}
+                                        placeholder={t('pages.inbounds.leaveBlankToNeverExpire')}
+                                        allowClear={hasSpecificExpiry}
+                                        maxDate={expiryDate > 0 ? dayjs(expiryDate) : undefined}
+                                      />
+                                    );
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined aria-hidden />}
+                        onClick={() => addExternalLinkRow('subscription')}
+                      >
+                        {t('pages.clients.addExternalSubscription')}
+                      </Button>
+                      <div style={{ marginTop: 12 }}>
+                        {subscriptionRows.length === 0 ? (
+                          <Typography.Text type="secondary">
+                            {t('pages.clients.noExternalSubscriptions')}
+                          </Typography.Text>
+                        ) : (
+                          subscriptionRows.map(({ field, index }) => (
+                            <div key={field.id} className="external-link-card">
+                              <div className="external-link-row">
+                                <div className="external-link-enable">
+                                  <FormField
+                                    name={`externalLinks.${index}.enable`}
+                                    valueProp="checked"
+                                    noStyle
+                                  >
+                                    <Switch size="small" aria-label={t('enable')} />
+                                  </FormField>
+                                  <span>{t('enable')}</span>
+                                </div>
+                                <FormField name={`externalLinks.${index}.value`} noStyle>
+                                  <Input
+                                    aria-label="https://provider.example/sub/…"
+                                    placeholder="https://provider.example/sub/…"
+                                  />
+                                </FormField>
+                                <Tooltip title={t('delete')}>
+                                  <Button
+                                    aria-label={t('delete')}
+                                    danger
+                                    icon={<DeleteOutlined aria-hidden />}
+                                    onClick={() => removeExternalLink(index)}
+                                  />
+                                </Tooltip>
+                              </div>
+                              <div className="external-link-details three-cols">
+                                <FormField name={`externalLinks.${index}.remark`} noStyle>
+                                  <Input aria-label={t('remark')} placeholder={t('remark')} />
+                                </FormField>
+                                <FormField name={`externalLinks.${index}.namePrefix`} noStyle>
+                                  <Input
+                                    aria-label={t('pages.clients.namePrefix')}
+                                    placeholder={t('pages.clients.namePrefix')}
+                                  />
+                                </FormField>
+                                <Controller
+                                  control={methods.control}
+                                  name={`externalLinks.${index}.expiryTime`}
+                                  render={({ field: expiryField }) => {
+                                    const displayedExpiry = resolveExternalLinkExpiry(
+                                      expiryField.value,
+                                      expiryDate,
+                                    );
+                                    const hasSpecificExpiry = Number(expiryField.value) > 0;
+                                    return (
+                                      <DateTimePicker
+                                        aria-label={t('pages.clients.expiryTime')}
+                                        value={displayedExpiry > 0 ? dayjs(displayedExpiry) : null}
+                                        onChange={(v) => expiryField.onChange(v ? v.valueOf() : 0)}
+                                        placeholder={t('pages.inbounds.leaveBlankToNeverExpire')}
+                                        allowClear={hasSpecificExpiry}
+                                        maxDate={expiryDate > 0 ? dayjs(expiryDate) : undefined}
+                                      />
+                                    );
+                                  }}
+                                />
+                              </div>
+                              <Typography.Text
+                                type={field.lastFetchError ? 'danger' : 'secondary'}
+                                className="external-link-fetch-status"
+                              >
+                                {field.lastFetchError
+                                  ? `${t('pages.clients.lastFetchError')}: ${field.lastFetchError}`
+                                  : field.lastFetchAt > 0
+                                    ? `${t('pages.clients.lastFetchAt')}: ${dayjs(field.lastFetchAt).format('YYYY-MM-DD HH:mm:ss')}`
+                                    : t('pages.clients.neverFetched')}
+                              </Typography.Text>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  ),
+                },
+              ]}
+            />
+          </Form>
+        </FormProvider>
+      </Modal>
+
+      <Modal
+        open={ipsModalOpen}
+        title={`${t('pages.clients.ipLog')}${client?.email ? ` — ${client.email}` : ''}`}
+        width={440}
+        zIndex={CLIENT_IP_LOG_MODAL_Z_INDEX}
+        onCancel={() => setIpsModalOpen(false)}
+        footer={[
+          <Button
+            key="refresh"
+            icon={<ReloadOutlined aria-hidden />}
+            loading={ipsLoading}
+            onClick={loadIps}
+          >
+            {t('refresh')}
+          </Button>,
+          <Button
+            key="clear"
+            danger
+            loading={ipsClearing}
+            disabled={clientIps.length === 0}
+            onClick={clearIps}
+          >
+            {t('pages.clients.clearAll')}
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setIpsModalOpen(false)}>
+            {t('close')}
+          </Button>,
+        ]}
+      >
+        {clientIps.length > 0 ? (
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {clientIps.map((entry, idx) => (
+              <Tag
+                key={idx}
+                color="blue"
+                style={{
+                  display: 'block',
+                  width: 'fit-content',
+                  maxWidth: '100%',
+                  marginBottom: 6,
+                  padding: '2px 8px',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                }}
+              >
+                {entry.ip}
+                {entry.time ? ` (${entry.time})` : ''}
+                {entry.node ? (
+                  <span style={{ marginInlineStart: 6, opacity: 0.85, fontWeight: 600 }}>
+                    @ {entry.node}
+                  </span>
+                ) : null}
+              </Tag>
+            ))}
+          </div>
+        ) : (
+          <Tag>{t('tgbot.noIpRecord')}</Tag>
+        )}
+      </Modal>
+
+      <ClientHwidListModal
+        open={hwidsModalOpen}
+        email={client?.email}
+        zIndex={CLIENT_IP_LOG_MODAL_Z_INDEX}
+        hwids={clientHwids}
+        loading={hwidsLoading}
+        clearing={hwidsClearing}
+        deletingId={deletingHwidId}
+        formatDate={hwidDateLabel}
+        onRefresh={loadHwids}
+        onClearAll={clearHwids}
+        onDelete={deleteHwid}
+        onClose={() => setHwidsModalOpen(false)}
+      />
+    </>
+  );
+}

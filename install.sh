@@ -1,5 +1,4 @@
 #!/bin/bash
-# coinman-dev/3ax-ui
 
 red='\033[0;31m'
 green='\033[0;32m'
@@ -7,42 +6,8 @@ blue='\033[0;34m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
-cur_dir=$(pwd)
-
 xui_folder="${XUI_MAIN_FOLDER:=/usr/local/x-ui}"
 xui_service="${XUI_SERVICE:=/etc/systemd/system}"
-
-# Resolve the directory the script lives in. When the script is piped via
-# `bash <(curl ...)` this resolves to /dev/fd/N — that's fine, the local-source
-# detector below will simply find no source files and fall back to GitHub.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
-
-# Returns 0 (true) when install.sh is being run from inside a cloned 3ax-ui
-# git checkout. The script then builds the panel binary from the local source
-# instead of downloading a prebuilt release. Conditions:
-#   - BASH_SOURCE points to a real install.sh on disk (rejects curl|bash and
-#     bash <(curl ...) flows where BASH_SOURCE is "bash" or /dev/fd/*).
-#   - Required source files (main.go, go.mod, web/, .git/) exist next to it.
-is_local_source_install() {
-    local src_name
-    src_name="$(basename "${BASH_SOURCE[0]:-}")"
-    [[ "$src_name" == "install.sh" ]] || return 1
-    [[ -n "$SCRIPT_DIR" ]] || return 1
-    [[ -f "$SCRIPT_DIR/install.sh" ]] || return 1
-    [[ -f "$SCRIPT_DIR/main.go" ]] || return 1
-    [[ -f "$SCRIPT_DIR/go.mod" ]] || return 1
-    [[ -d "$SCRIPT_DIR/web" ]] || return 1
-    [[ -d "$SCRIPT_DIR/.git" ]] || return 1
-    return 0
-}
-
-# Branch to fetch auxiliary files (x-ui.sh, service files) from.
-# --beta / --pre → dev branch; otherwise → main
-if [[ "$1" == "--beta" || "$1" == "--pre" ]]; then
-    REPO_BRANCH="dev"
-else
-    REPO_BRANCH="main"
-fi
 
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}Fatal error: ${plain} Please run this script with root privilege \n " && exit 1
@@ -51,7 +16,7 @@ fi
 if [[ -f /etc/os-release ]]; then
     source /etc/os-release
     release=$ID
-    elif [[ -f /usr/lib/os-release ]]; then
+elif [[ -f /usr/lib/os-release ]]; then
     source /usr/lib/os-release
     release=$ID
 else
@@ -69,11 +34,21 @@ arch() {
         armv6* | armv6) echo 'armv6' ;;
         armv5* | armv5) echo 'armv5' ;;
         s390x) echo 's390x' ;;
-        *) echo -e "${green}Unsupported CPU architecture! ${plain}" && rm -f install.sh && exit 1 ;;
+        *) echo -e "${green}Unsupported CPU architecture! ${plain}" && rm -f "$(realpath "$0")" && exit 1 ;;
     esac
 }
 
 echo "Arch: $(arch)"
+
+# Non-interactive mode: triggered explicitly via XUI_NONINTERACTIVE=1, or
+# implicitly when stdin is not a TTY (e.g. `curl ... | bash`, cloud-init).
+# In this mode every prompt below is replaced by an env var or a sane default.
+if [[ "${XUI_NONINTERACTIVE:-0}" == "1" ]] || [[ ! -t 0 ]]; then
+    NONINTERACTIVE=1
+else
+    NONINTERACTIVE=0
+fi
+export NONINTERACTIVE
 
 # Simple helpers
 is_ipv4() {
@@ -89,160 +64,428 @@ is_domain() {
     [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+(xn--[a-z0-9]{2,}|[A-Za-z]{2,})$ ]] && return 0 || return 1
 }
 
-# List certificate identifiers known to acme.sh (main domain of each cert)
-acme_cert_domains() {
-    [[ -f ~/.acme.sh/acme.sh ]] || return 1
-    ~/.acme.sh/acme.sh --list 2>/dev/null | awk 'NR>1 && NF && $1 != "Main_Domain" {print $1}'
+# acme.sh's standalone server binds IPv4 by default; --listen-v6 makes it
+# v6-only, which breaks HTTP-01 validation when the domain's A record points
+# at this host's IPv4 (#4994). Only force IPv6 when the host has no global
+# IPv4 address at all.
+acme_listen_flag() {
+    if ip -4 addr show scope global 2> /dev/null | grep -q "inet "; then
+        echo ""
+    else
+        echo "--listen-v6"
+    fi
 }
 
 # Port helpers
 is_port_in_use() {
     local port="$1"
-    if command -v ss >/dev/null 2>&1; then
-        ss -H -ltn 2>/dev/null | grep -Eq "(^|[[:space:]])[^[:space:]]*:${port}([[:space:]]|$)" && return 0
-        ss -H -lun 2>/dev/null | grep -Eq "(^|[[:space:]])[^[:space:]]*:${port}([[:space:]]|$)" && return 0
-        return 1
+    if command -v ss > /dev/null 2>&1; then
+        ss -ltn 2> /dev/null | awk -v p=":${port}$" '$4 ~ p {found = 1} END {exit !found}'
+        return
     fi
-    if command -v netstat >/dev/null 2>&1; then
-        netstat -lnt 2>/dev/null | awk -v p=":${port}$" '$4 ~ p {found=1} END {exit !found}' && return 0
-        netstat -lnu 2>/dev/null | awk -v p=":${port}$" '$4 ~ p {found=1} END {exit !found}' && return 0
-        return 1
+    if command -v netstat > /dev/null 2>&1; then
+        netstat -lnt 2> /dev/null | awk -v p=":${port}$" '$4 ~ p {found = 1} END {exit !found}'
+        return
     fi
-    if command -v lsof >/dev/null 2>&1; then
-        lsof -nP -iTCP:${port} -sTCP:LISTEN >/dev/null 2>&1 && return 0
-        lsof -nP -iUDP:${port} >/dev/null 2>&1 && return 0
+    if command -v lsof > /dev/null 2>&1; then
+        lsof -nP -iTCP:${port} -sTCP:LISTEN > /dev/null 2>&1 && return 0
     fi
     return 1
 }
 
-random_port_candidate() {
-    local min_port="${1:-10000}"
-    local max_port="${2:-65535}"
-    local span=$((max_port - min_port + 1))
-    echo $((min_port + ((((RANDOM << 15) | RANDOM)) % span)))
+normalize_panel_port() {
+    local port="$1"
+    [[ "$port" =~ ^[0-9]+$ ]] || return 1
+    # Strip leading zeros before bounding the length and doing arithmetic:
+    # Bash and the Go flag parser otherwise interpret leading zeros as octal.
+    port="${port#"${port%%[!0]*}"}"
+    [[ -n "$port" && ${#port} -le 5 ]] || return 1
+    ((10#$port <= 65535)) || return 1
+    printf '%s\n' "$port"
 }
 
-# Returns 0 if the URL host responds within a short timeout, non-zero on
-# connection / DNS / TLS failure. Uses HEAD so we don't pull the full
-# asset just to test reachability — important for the multi-MB xray-core
-# zip and geo data files. We deliberately do NOT pass -f: a 404 still
-# means the network path works, and the actual download (or apt-get
-# update) will surface the real error if a path is wrong.
-url_reachable() {
-    curl --connect-timeout 5 --max-time 10 -sSIL -o /dev/null "$1" 2>/dev/null
-}
-
-# Probes URL reachability before downloading. If unreachable, prints a
-# clear error naming the broken URL, asks the user whether to continue
-# without that resource (default Y = skip and proceed), and returns 1.
-# Aborts the script on N. Returns 0 on success so callers can guard
-# their download blocks behind a single if-statement.
-check_url_or_skip() {
-    local url="$1"
-    local label="$2"
-    if url_reachable "$url"; then
-        return 0
+# Print only the selected decimal port to stdout; prompts/notices use stderr.
+select_panel_port() {
+    local confirm=n port attempt
+    if [[ "$NONINTERACTIVE" == 1 ]]; then
+        [[ -z "${XUI_PANEL_PORT+x}" ]] || confirm=y
+    else
+        while true; do
+            if ! IFS= read -rp "Would you like to customize the Panel Port settings? (If not, a random port will be applied) [y/N]: " confirm; then
+                echo 'Cannot read the panel port confirmation; aborting.' >&2
+                return 1
+            fi
+            confirm="${confirm#"${confirm%%[![:space:]]*}"}"
+            confirm="${confirm%"${confirm##*[![:space:]]}"}"
+            case "${confirm,,}" in
+                y | yes) break ;;
+                n | no | '') confirm=n; break ;;
+                *) echo 'Please answer yes or no (Enter defaults to No).' >&2 ;;
+            esac
+        done
     fi
-    echo ""
-    echo -e "${yellow}══════════════════════════════════════════════════════${plain}"
-    echo -e "${yellow}  Failed to reach: ${url}${plain}"
-    echo -e "${yellow}  Module / file:   ${label}${plain}"
-    echo -e "${yellow}══════════════════════════════════════════════════════${plain}"
-    read -rp "Continue without it? [Y/n]: " __skip_choice
-    case "${__skip_choice,,}" in
-        n|no)
-            echo -e "${red}Aborted by user.${plain}"
-            exit 1
-            ;;
-        *)
-            echo -e "${yellow}Skipping ${label}.${plain}"
+
+    if [[ "$confirm" == n ]]; then
+        for ((attempt = 0; attempt < 100; attempt++)); do
+            if ! port=$(shuf -i 1024-62000 -n 1); then
+                echo 'Failed to generate a random panel port.' >&2
+                return 1
+            fi
+            if port=$(normalize_panel_port "$port") && ! is_port_in_use "$port"; then
+                echo "Generated random port: $port" >&2
+                printf '%s\n' "$port"
+                return 0
+            fi
+        done
+        echo 'Could not find an available random panel port; aborting.' >&2
+        return 1
+    fi
+
+    while true; do
+        if [[ "$NONINTERACTIVE" == 1 ]]; then
+            port="$XUI_PANEL_PORT"
+        elif ! read -rp 'Please set up the panel port: ' port; then
+            echo 'Cannot read the custom panel port; aborting.' >&2
             return 1
-            ;;
-    esac
-}
-
-pick_random_port() {
-    local min_port="${1:-10000}"
-    local max_port="${2:-65535}"
-    shift 2
-    local excluded_ports=("$@")
-    local attempts=0
-    local candidate=""
-    local excluded=""
-    local skip=0
-
-    while [[ "$attempts" -lt 256 ]]; do
-        candidate=$(random_port_candidate "$min_port" "$max_port")
-        skip=0
-        for excluded in "${excluded_ports[@]}"; do
-            if [[ -n "$excluded" && "$candidate" -eq "$excluded" ]]; then
-                skip=1
-                break
-            fi
-        done
-        if [[ "$skip" -eq 0 ]] && ! is_port_in_use "$candidate"; then
-            echo "$candidate"
+        fi
+        if ! port=$(normalize_panel_port "$port"); then
+            echo 'Invalid port. Enter a number between 1 and 65535.' >&2
+        elif is_port_in_use "$port"; then
+            echo "Port $port is already in use. Choose another panel port." >&2
+        else
+            echo "Your Panel Port is: $port" >&2
+            printf '%s\n' "$port"
             return 0
         fi
-        attempts=$((attempts + 1))
+        [[ "$NONINTERACTIVE" != 1 ]] || return 1
     done
-
-    for ((candidate=min_port; candidate<=max_port; candidate++)); do
-        skip=0
-        for excluded in "${excluded_ports[@]}"; do
-            if [[ -n "$excluded" && "$candidate" -eq "$excluded" ]]; then
-                skip=1
-                break
-            fi
-        done
-        if [[ "$skip" -eq 0 ]] && ! is_port_in_use "$candidate"; then
-            echo "$candidate"
-            return 0
-        fi
-    done
-
-    return 1
 }
 
 install_base() {
     case "${release}" in
         ubuntu | debian | armbian)
-            apt-get update && apt-get install -y -q cron curl tar tzdata socat ca-certificates
-        ;;
+            apt-get update && apt-get install -y -q cron curl tar tzdata socat ca-certificates openssl
+            ;;
         fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
-            dnf -y update && dnf install -y -q curl tar tzdata socat ca-certificates
-        ;;
+            dnf makecache -y && dnf install -y -q cronie curl tar tzdata socat ca-certificates openssl
+            ;;
         centos)
             if [[ "${VERSION_ID}" =~ ^7 ]]; then
-                yum -y update && yum install -y curl tar tzdata socat ca-certificates
+                yum makecache -y && yum install -y cronie curl tar tzdata socat ca-certificates openssl
             else
-                dnf -y update && dnf install -y -q curl tar tzdata socat ca-certificates
+                dnf makecache -y && dnf install -y -q cronie curl tar tzdata socat ca-certificates openssl
             fi
-        ;;
+            ;;
         arch | manjaro | parch)
-            pacman -Syu && pacman -Syu --noconfirm curl tar tzdata socat ca-certificates
-        ;;
+            pacman -Sy --noconfirm cronie curl tar tzdata socat ca-certificates openssl
+            ;;
         opensuse-tumbleweed | opensuse-leap)
-            zypper refresh && zypper -q install -y curl tar timezone socat ca-certificates
-        ;;
+            zypper refresh && zypper -q install -y cron curl tar timezone socat ca-certificates openssl
+            ;;
         alpine)
-            apk update && apk add curl tar tzdata socat ca-certificates
-        ;;
+            apk update && apk add dcron curl tar tzdata socat ca-certificates openssl
+            ;;
         *)
-            apt-get update && apt-get install -y -q curl tar tzdata socat ca-certificates
-        ;;
+            apt-get update && apt-get install -y -q cron curl tar tzdata socat ca-certificates openssl
+            ;;
     esac
 }
 
 gen_random_string() {
     local length="$1"
-    local random_string=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom | fold -w "$length" | head -n 1)
-    echo "$random_string"
+    openssl rand -base64 $((length * 2)) \
+        | tr -dc 'a-zA-Z0-9' \
+        | head -c "$length"
+}
+
+# prompt_or_default VARNAME "prompt text" "default" [ENV_NAME]
+# Interactive: read into VARNAME. Non-interactive: VARNAME = ${ENV_NAME:-default}.
+# ENV_NAME defaults to VARNAME when omitted. Keeps every interactive prompt
+# string byte-for-byte identical to the original `read -rp`.
+prompt_or_default() {
+    local __var="$1" __prompt="$2" __default="$3" __env="${4:-$1}"
+    if [[ "$NONINTERACTIVE" == "1" ]]; then
+        printf -v "$__var" '%s' "${!__env:-$__default}"
+    else
+        # shellcheck disable=SC2229
+        read -rp "$__prompt" "$__var"
+    fi
+}
+
+# write_install_result <user> <pass> <port> <webpath> <scheme> <host> <token> <dbtype>
+# Persists a parseable, root-only credentials file consumed by cloud-init/MOTD.
+# Values are written with printf '%q' so a pinned password/username containing
+# spaces, quotes, $(...) or backticks is shell-escaped and the file stays safely
+# source-able (consumers do '. install-result.env'). For the alphanumeric random
+# values gen_random_string emits, %q is a no-op. This is a DIFFERENT file from the
+# Postgres env file (/etc/default/x-ui).
+write_install_result() {
+    local u="$1" p="$2" port="$3" wbp="$4" scheme="$5" host="$6" token="$7" dbtype="$8"
+    local result_file="/etc/x-ui/install-result.env"
+    local url_host="${host:-SERVER_IP_UNKNOWN}"
+    install -d -m 700 /etc/x-ui 2> /dev/null
+    local prev_umask
+    prev_umask=$(umask)
+    umask 077
+    if ! {
+        printf 'XUI_USERNAME=%q\n' "$u"
+        printf 'XUI_PASSWORD=%q\n' "$p"
+        printf 'XUI_PANEL_PORT=%q\n' "$port"
+        printf 'XUI_WEB_BASE_PATH=%q\n' "$wbp"
+        printf 'XUI_ACCESS_URL=%q\n' "${scheme}://${url_host}:${port}/${wbp}"
+        printf 'XUI_API_TOKEN=%q\n' "$token"
+        printf 'XUI_DB_TYPE=%q\n' "$dbtype"
+    } > "$result_file"; then
+        umask "$prev_umask"
+        echo -e "${yellow}Warning: failed to write ${result_file}.${plain}" >&2
+        return 1
+    fi
+    umask "$prev_umask"
+    chmod 600 "$result_file" 2> /dev/null
+    chown root:root "$result_file" 2> /dev/null || true
+    echo -e "${green}Install result written to ${result_file} (mode 600).${plain}"
+}
+
+# RHEL-family initdb writes pg_hba.conf host rules with ident auth, which
+# compares the OS username against the Postgres role and always rejects the
+# randomly generated panel role over TCP (#5806). Prepend password-auth rules
+# scoped to the panel database; first match wins, and md5 also accepts
+# scram-sha-256-stored verifiers, so this works on every supported distro.
+pg_ensure_hba_password_auth() {
+    local pg_db="$1"
+    local hba_file
+    hba_file=$(sudo -u postgres psql -tAc 'SHOW hba_file' 2> /dev/null | tr -d '[:space:]')
+    [[ -n "${hba_file}" && -f "${hba_file}" ]] || return 0
+    grep -Eq "^host[[:space:]]+${pg_db}[[:space:]]" "${hba_file}" && return 0
+    local tmp
+    tmp=$(mktemp) || return 1
+    {
+        echo "# Added by 3x-ui: allow password logins for the panel database."
+        echo "host    ${pg_db}    all    127.0.0.1/32    md5"
+        echo "host    ${pg_db}    all    ::1/128         md5"
+        cat "${hba_file}"
+    } > "${tmp}" || {
+        rm -f "${tmp}"
+        return 1
+    }
+    cat "${tmp}" > "${hba_file}" || {
+        rm -f "${tmp}"
+        return 1
+    }
+    rm -f "${tmp}"
+    sudo -u postgres psql -tAc 'SELECT pg_reload_conf()' > /dev/null 2>&1 || true
+}
+
+# New installs get this PostgreSQL major from the official PGDG repository; distros or
+# CPU architectures PGDG does not build for fall back to the distribution's own package.
+PG_TARGET_MAJOR=18
+
+pg_has_debian_cluster() {
+    command -v pg_lsclusters > /dev/null 2>&1 && [[ -n "$(pg_lsclusters -h 2> /dev/null)" ]]
+}
+
+# Installs postgresql-${PG_TARGET_MAJOR} from apt.postgresql.org. On failure it removes the
+# repository it added, so an unsupported release cannot break later `apt-get update` runs.
+pg_apt_install_pgdg_server() {
+    local list added_lists=()
+    for list in /etc/apt/sources.list.d/pgdg.list /etc/apt/sources.list.d/pgdg.sources; do
+        [[ -e "${list}" ]] || added_lists+=("${list}")
+    done
+    if apt-get install -y -q postgresql-common ca-certificates gnupg >&2 \
+        && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >&2 \
+        && apt-get install -y -q "postgresql-${PG_TARGET_MAJOR}" >&2; then
+        return 0
+    fi
+    for list in "${added_lists[@]}"; do
+        rm -f "${list}"
+    done
+    apt-get update >&2 || true
+    echo -e "${yellow}PostgreSQL ${PG_TARGET_MAJOR} is not available for this system; installing the distribution's PostgreSQL instead.${plain}" >&2
+    return 1
+}
+
+# Installs postgresql${PG_TARGET_MAJOR}-server from the PGDG yum repository (EL 8+ only); on
+# failure it undoes the repository and module changes it made. The caller runs initdb.
+pg_el_install_pgdg_server() {
+    local elver
+    elver=$(rpm -E %rhel 2> /dev/null)
+    [[ "${elver}" =~ ^[0-9]+$ && "${elver}" -ge 8 ]] && command -v dnf > /dev/null 2>&1 || return 1
+    [[ -f /var/lib/pgsql/data/PG_VERSION ]] && return 1
+    local added_repo=false
+    if ! rpm -q pgdg-redhat-repo > /dev/null 2>&1; then
+        if dnf install -y -q "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${elver}-$(uname -m)/pgdg-redhat-repo-latest.noarch.rpm" >&2; then
+            added_repo=true
+            dnf -qy module disable postgresql > /dev/null 2>&1 || true
+        fi
+    fi
+    if rpm -q pgdg-redhat-repo > /dev/null 2>&1 \
+        && dnf install -y -q "postgresql${PG_TARGET_MAJOR}-server" "postgresql${PG_TARGET_MAJOR}-contrib" >&2; then
+        return 0
+    fi
+    if [[ "${added_repo}" == "true" ]]; then
+        dnf -qy module reset postgresql > /dev/null 2>&1 || true
+        dnf remove -y -q pgdg-redhat-repo >&2 || true
+    fi
+    echo -e "${yellow}PostgreSQL ${PG_TARGET_MAJOR} is not available for this system; installing the distribution's PostgreSQL instead.${plain}" >&2
+    return 1
+}
+
+install_postgres_local() {
+    local pg_user pg_pass
+    pg_pass=$(gen_random_string 24)
+    local pg_db="xui"
+    local pg_host="127.0.0.1"
+    local pg_port="5432"
+
+    local pg_service="postgresql"
+    case "${release}" in
+        ubuntu | debian | armbian)
+            apt-get update >&2 || return 1
+            if pg_has_debian_cluster || ! pg_apt_install_pgdg_server; then
+                apt-get install -y -q postgresql >&2 || return 1
+            fi
+            ;;
+        fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol | centos)
+            if [[ "${release}" != "fedora" && "${release}" != "amzn" ]] && pg_el_install_pgdg_server; then
+                pg_service="postgresql-${PG_TARGET_MAJOR}"
+                [[ -f "/var/lib/pgsql/${PG_TARGET_MAJOR}/data/PG_VERSION" ]] \
+                    || "/usr/pgsql-${PG_TARGET_MAJOR}/bin/postgresql-${PG_TARGET_MAJOR}-setup" initdb >&2 || return 1
+            else
+                if [[ "${release}" == "centos" && "${VERSION_ID}" =~ ^7 ]]; then
+                    yum install -y postgresql-server postgresql-contrib >&2 || return 1
+                else
+                    dnf install -y -q postgresql-server postgresql-contrib >&2 || return 1
+                fi
+                [[ -d /var/lib/pgsql/data && -f /var/lib/pgsql/data/PG_VERSION ]] || postgresql-setup --initdb >&2 || return 1
+            fi
+            ;;
+        arch | manjaro | parch)
+            pacman -Sy --noconfirm postgresql >&2 || return 1
+            if [[ ! -f /var/lib/postgres/data/PG_VERSION ]]; then
+                sudo -u postgres initdb -D /var/lib/postgres/data >&2 || return 1
+            fi
+            ;;
+        opensuse-tumbleweed | opensuse-leap)
+            zypper -q install -y postgresql-server postgresql-contrib >&2 || return 1
+            if [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
+                install -d -o postgres -g postgres -m 700 /var/lib/pgsql/data >&2 || return 1
+                su - postgres -c "initdb -D /var/lib/pgsql/data" >&2 || return 1
+            fi
+            ;;
+        alpine)
+            apk add --no-cache postgresql postgresql-contrib >&2 || return 1
+            if [[ ! -f /var/lib/postgresql/data/PG_VERSION ]]; then
+                /etc/init.d/postgresql setup >&2 || return 1
+            fi
+            rc-update add postgresql default >&2 2> /dev/null || true
+            rc-service postgresql start >&2 || return 1
+            ;;
+        *)
+            echo -e "${red}Unsupported distro for automatic PostgreSQL install: ${release}${plain}" >&2
+            return 1
+            ;;
+    esac
+
+    if [[ "${release}" != "alpine" ]]; then
+        systemctl enable --now "${pg_service}" >&2 || return 1
+    fi
+
+    # Wait briefly for the server to accept connections.
+    local i
+    for i in 1 2 3 4 5; do
+        sudo -u postgres psql -tAc 'SELECT 1' > /dev/null 2>&1 && break
+        sleep 1
+    done
+
+    local existing_owner=""
+    existing_owner=$(sudo -u postgres psql -tAc \
+        "SELECT pg_catalog.pg_get_userbyid(datdba) FROM pg_database WHERE datname='${pg_db}'" 2> /dev/null \
+        | tr -d '[:space:]')
+    if [[ -n "${existing_owner}" && "${existing_owner}" != "postgres" ]]; then
+        pg_user="${existing_owner}"
+    else
+        pg_user=$(gen_random_string 8)
+    fi
+
+    # Idempotent role/db creation. Identifiers are double-quoted because a
+    # random username may start with a digit, which Postgres rejects unquoted.
+    sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${pg_user}'" 2> /dev/null \
+        | grep -q 1 \
+        || sudo -u postgres psql -c "CREATE USER \"${pg_user}\" WITH PASSWORD '${pg_pass}';" >&2 || return 1
+
+    sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${pg_db}'" 2> /dev/null \
+        | grep -q 1 \
+        || sudo -u postgres psql -c "CREATE DATABASE \"${pg_db}\" OWNER \"${pg_user}\";" >&2 || return 1
+
+    sudo -u postgres psql -c "ALTER USER \"${pg_user}\" WITH PASSWORD '${pg_pass}';" >&2 || return 1
+
+    pg_ensure_hba_password_auth "${pg_db}" \
+        || echo -e "${yellow}Warning: could not update pg_hba.conf; PostgreSQL may reject the panel's TCP login (ident auth).${plain}" >&2
+
+    local pg_pass_enc
+    pg_pass_enc=$(printf '%s' "${pg_pass}" | sed -e 's/%/%25/g' -e 's/:/%3A/g' -e 's/@/%40/g' -e 's|/|%2F|g' -e 's/?/%3F/g' -e 's/#/%23/g')
+
+    if [[ -n "${PG_CRED_FILE:-}" ]]; then
+        local prev_umask
+        prev_umask=$(umask)
+        umask 077
+        if ! cat > "${PG_CRED_FILE}" << EOF; then
+PG_USER=${pg_user}
+PG_PASS=${pg_pass}
+PG_HOST=${pg_host}
+PG_PORT=${pg_port}
+PG_DB=${pg_db}
+EOF
+            umask "${prev_umask}"
+            echo -e "${red}Failed to write PostgreSQL credentials to ${PG_CRED_FILE}${plain}" >&2
+            return 1
+        fi
+        umask "${prev_umask}"
+    fi
+
+    echo "postgres://${pg_user}:${pg_pass_enc}@${pg_host}:${pg_port}/${pg_db}?sslmode=disable"
+    return 0
+}
+
+ensure_pg_client() {
+    if command -v pg_dump > /dev/null 2>&1 && command -v pg_restore > /dev/null 2>&1; then
+        return 0
+    fi
+    echo -e "${yellow}Installing PostgreSQL client tools (pg_dump/pg_restore) for in-panel backup...${plain}" >&2
+    case "${release}" in
+        ubuntu | debian | armbian)
+            apt-get update >&2 && apt-get install -y -q postgresql-client >&2 || return 1
+            ;;
+        fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
+            dnf install -y -q postgresql >&2 || return 1
+            ;;
+        centos)
+            if [[ "${VERSION_ID}" =~ ^7 ]]; then
+                yum install -y postgresql >&2 || return 1
+            else
+                dnf install -y -q postgresql >&2 || return 1
+            fi
+            ;;
+        arch | manjaro | parch)
+            pacman -Sy --noconfirm postgresql >&2 || return 1
+            ;;
+        opensuse-tumbleweed | opensuse-leap)
+            zypper -q install -y postgresql >&2 || return 1
+            ;;
+        alpine)
+            apk add --no-cache postgresql-client >&2 || return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    command -v pg_dump > /dev/null 2>&1 && command -v pg_restore > /dev/null 2>&1
 }
 
 install_acme() {
     echo -e "${green}Installing acme.sh for SSL certificate management...${plain}"
-    (cd ~ && curl -s https://get.acme.sh | sh >/dev/null 2>&1)
+    cd ~ || return 1
+    curl -s https://get.acme.sh | sh > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo -e "${red}Failed to install acme.sh${plain}"
         return 1
@@ -261,7 +504,7 @@ setup_ssl_certificate() {
     echo -e "${green}Setting up SSL certificate...${plain}"
 
     # Check if acme.sh is installed
-    if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
+    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
         install_acme
         if [ $? -ne 0 ]; then
             echo -e "${yellow}Failed to install acme.sh, skipping SSL setup${plain}"
@@ -277,35 +520,40 @@ setup_ssl_certificate() {
     echo -e "${green}Issuing SSL certificate for ${domain}...${plain}"
     echo -e "${yellow}Note: Port 80 must be open and accessible from the internet${plain}"
 
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force >/dev/null 2>&1
-    ~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport 80 --force
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force > /dev/null 2>&1
+    ~/.acme.sh/acme.sh --issue -d ${domain} $(acme_listen_flag) --standalone --httpport 80 --force
 
     if [ $? -ne 0 ]; then
         echo -e "${yellow}Failed to issue certificate for ${domain}${plain}"
         echo -e "${yellow}Please ensure port 80 is open and try again later with: x-ui${plain}"
-        rm -rf ~/.acme.sh/${domain} 2>/dev/null
-        rm -rf "$certPath" 2>/dev/null
+        rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc 2> /dev/null
+        rm -rf "$certPath" 2> /dev/null
         return 1
     fi
 
-    # Install certificate (|| true in reloadcmd: service may not exist yet during first install)
-    ~/.acme.sh/acme.sh --installcert -d ${domain} \
+    # Install certificate
+    ~/.acme.sh/acme.sh --installcert --force -d ${domain} \
         --key-file /root/cert/${domain}/privkey.pem \
         --fullchain-file /root/cert/${domain}/fullchain.pem \
-        --reloadcmd "systemctl restart x-ui 2>/dev/null || true" >/dev/null 2>&1
+        --reloadcmd "systemctl restart x-ui" > /dev/null 2>&1
+
+    if [ $? -ne 0 ]; then
+        echo -e "${yellow}Failed to install certificate${plain}"
+        return 1
+    fi
 
     # Enable auto-renew
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1
+    ~/.acme.sh/acme.sh --upgrade --auto-upgrade > /dev/null 2>&1
     # Secure permissions: private key readable only by owner
-    chmod 600 $certPath/privkey.pem 2>/dev/null
-    chmod 644 $certPath/fullchain.pem 2>/dev/null
+    chmod 600 $certPath/privkey.pem 2> /dev/null
+    chmod 644 $certPath/fullchain.pem 2> /dev/null
 
     # Set certificate for panel
     local webCertFile="/root/cert/${domain}/fullchain.pem"
     local webKeyFile="/root/cert/${domain}/privkey.pem"
 
     if [[ -f "$webCertFile" && -f "$webKeyFile" ]]; then
-        ${xui_folder}/x-ui cert -webCert "$webCertFile" -webCertKey "$webKeyFile" >/dev/null 2>&1
+        ${xui_folder}/x-ui cert -webCert "$webCertFile" -webCertKey "$webKeyFile" > /dev/null 2>&1
         echo -e "${green}SSL certificate installed and configured successfully!${plain}"
         return 0
     else
@@ -318,14 +566,14 @@ setup_ssl_certificate() {
 # Requires acme.sh and port 80 open for HTTP-01 challenge
 setup_ip_certificate() {
     local ipv4="$1"
-    local ipv6="$2"  # optional
+    local ipv6="$2" # optional
 
     echo -e "${green}Setting up Let's Encrypt IP certificate (shortlived profile)...${plain}"
     echo -e "${yellow}Note: IP certificates are valid for ~6 days and will auto-renew.${plain}"
     echo -e "${yellow}Default listener is port 80. If you choose another port, ensure external port 80 forwards to it.${plain}"
 
     # Check for acme.sh
-    if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
+    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
         install_acme
         if [ $? -ne 0 ]; then
             echo -e "${red}Failed to install acme.sh${plain}"
@@ -360,7 +608,7 @@ setup_ip_certificate() {
 
     # Choose port for HTTP-01 listener (default 80, prompt override)
     local WebPort=""
-    read -rp "Port to use for ACME HTTP-01 listener (default 80): " WebPort
+    prompt_or_default WebPort "Port to use for ACME HTTP-01 listener (default 80): " "80" XUI_ACME_HTTP_PORT
     WebPort="${WebPort:-80}"
     if ! [[ "${WebPort}" =~ ^[0-9]+$ ]] || ((WebPort < 1 || WebPort > 65535)); then
         echo -e "${red}Invalid port provided. Falling back to 80.${plain}"
@@ -377,6 +625,10 @@ setup_ip_certificate() {
             echo -e "${yellow}Port ${WebPort} is in use.${plain}"
 
             local alt_port=""
+            if [[ "$NONINTERACTIVE" == "1" ]]; then
+                echo -e "${red}Port ${WebPort} is busy; cannot proceed in non-interactive mode.${plain}"
+                return 1
+            fi
             read -rp "Enter another port for acme.sh standalone listener (leave empty to abort): " alt_port
             alt_port="${alt_port// /}"
             if [[ -z "${alt_port}" ]]; then
@@ -397,7 +649,8 @@ setup_ip_certificate() {
 
     # Issue certificate with shortlived profile
     echo -e "${green}Issuing IP certificate for ${ipv4}...${plain}"
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force >/dev/null 2>&1
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force > /dev/null 2>&1
+    [[ -n "${XUI_ACME_EMAIL:-}" ]] && ~/.acme.sh/acme.sh --register-account -m "${XUI_ACME_EMAIL}" > /dev/null 2>&1
 
     ~/.acme.sh/acme.sh --issue \
         ${domain_args} \
@@ -412,9 +665,9 @@ setup_ip_certificate() {
         echo -e "${red}Failed to issue IP certificate${plain}"
         echo -e "${yellow}Please ensure port ${WebPort} is reachable (or forwarded from external port 80)${plain}"
         # Cleanup acme.sh data for both IPv4 and IPv6 if specified
-        rm -rf ~/.acme.sh/${ipv4} 2>/dev/null
-        [[ -n "$ipv6" ]] && rm -rf ~/.acme.sh/${ipv6} 2>/dev/null
-        rm -rf ${certDir} 2>/dev/null
+        rm -rf ~/.acme.sh/${ipv4} ~/.acme.sh/${ipv4}_ecc 2> /dev/null
+        [[ -n "$ipv6" ]] && rm -rf ~/.acme.sh/${ipv6} ~/.acme.sh/${ipv6}_ecc 2> /dev/null
+        rm -rf ${certDir} 2> /dev/null
         return 1
     fi
 
@@ -423,7 +676,7 @@ setup_ip_certificate() {
     # Install certificate
     # Note: acme.sh may report "Reload error" and exit non-zero if reloadcmd fails,
     # but the cert files are still installed. We check for files instead of exit code.
-    ~/.acme.sh/acme.sh --installcert -d ${ipv4} \
+    ~/.acme.sh/acme.sh --installcert --force -d ${ipv4} \
         --key-file "${certDir}/privkey.pem" \
         --fullchain-file "${certDir}/fullchain.pem" \
         --reloadcmd "${reloadCmd}" 2>&1 || true
@@ -432,20 +685,20 @@ setup_ip_certificate() {
     if [[ ! -f "${certDir}/fullchain.pem" || ! -f "${certDir}/privkey.pem" ]]; then
         echo -e "${red}Certificate files not found after installation${plain}"
         # Cleanup acme.sh data for both IPv4 and IPv6 if specified
-        rm -rf ~/.acme.sh/${ipv4} 2>/dev/null
-        [[ -n "$ipv6" ]] && rm -rf ~/.acme.sh/${ipv6} 2>/dev/null
-        rm -rf ${certDir} 2>/dev/null
+        rm -rf ~/.acme.sh/${ipv4} ~/.acme.sh/${ipv4}_ecc 2> /dev/null
+        [[ -n "$ipv6" ]] && rm -rf ~/.acme.sh/${ipv6} ~/.acme.sh/${ipv6}_ecc 2> /dev/null
+        rm -rf ${certDir} 2> /dev/null
         return 1
     fi
 
     echo -e "${green}Certificate files installed successfully${plain}"
 
     # Enable auto-upgrade for acme.sh (ensures cron job runs)
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1
+    ~/.acme.sh/acme.sh --upgrade --auto-upgrade > /dev/null 2>&1
 
     # Secure permissions: private key readable only by owner
-    chmod 600 ${certDir}/privkey.pem 2>/dev/null
-    chmod 644 ${certDir}/fullchain.pem 2>/dev/null
+    chmod 600 ${certDir}/privkey.pem 2> /dev/null
+    chmod 644 ${certDir}/fullchain.pem 2> /dev/null
 
     # Configure panel to use the certificate
     echo -e "${green}Setting certificate paths for the panel...${plain}"
@@ -466,42 +719,16 @@ setup_ip_certificate() {
     return 0
 }
 
-generate_self_signed_cert() {
-    local host="$1"
-    local certPath="/root/cert/self-signed"
-    mkdir -p "$certPath"
-    local certFile="${certPath}/fullchain.cer"
-    local keyFile="${certPath}/private.key"
-
-    echo -e "${yellow}Generating self-signed SSL certificate for ${host}...${plain}"
-    openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout "$keyFile" \
-        -out "$certFile" \
-        -days 3650 \
-        -subj "/CN=${host}" \
-        -addext "subjectAltName=IP:${host}" \
-        2>/dev/null
-
-    if [[ $? -eq 0 ]]; then
-        ${xui_folder}/x-ui cert -webCert "$certFile" -webCertKey "$keyFile" >/dev/null 2>&1
-        echo -e "${green}✓ Self-signed certificate generated (valid 10 years).${plain}"
-        echo -e "${yellow}  Note: Browser will show a security warning — this is expected for self-signed certs.${plain}"
-        return 0
-    else
-        echo -e "${red}Failed to generate self-signed certificate.${plain}"
-        return 1
-    fi
-}
-
 # Comprehensive manual SSL certificate issuance via acme.sh
 ssl_cert_issue() {
     local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep 'webBasePath:' | awk -F': ' '{print $2}' | tr -d '[:space:]' | sed 's#^/##')
     local existing_port=$(${xui_folder}/x-ui setting -show true | grep 'port:' | awk -F': ' '{print $2}' | tr -d '[:space:]')
 
     # check for acme.sh first
-    if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
+    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
         echo "acme.sh could not be found. Installing now..."
-        (cd ~ && curl -s https://get.acme.sh | sh)
+        cd ~ || return 1
+        curl -s https://get.acme.sh | sh
         if [ $? -ne 0 ]; then
             echo -e "${red}Failed to install acme.sh${plain}"
             return 1
@@ -512,37 +739,57 @@ ssl_cert_issue() {
 
     # get the domain here, and we need to verify it
     local domain=""
-    while true; do
-        read -rp "Please enter your domain name: " domain
-        domain="${domain// /}"  # Trim whitespace
-
-        if [[ -z "$domain" ]]; then
-            echo -e "${red}Domain name cannot be empty. Please try again.${plain}"
-            continue
-        fi
-
-        if ! is_domain "$domain"; then
-            echo -e "${red}Invalid domain format: ${domain}. Please enter a valid domain name.${plain}"
-            continue
-        fi
-
-        break
-    done
-    echo -e "${green}Your domain is: ${domain}, checking it...${plain}"
-
-    # remember the domain for the caller (Access URL)
-    ISSUED_DOMAIN="${domain}"
-
-    # check if there already exists a certificate
-    if acme_cert_domains | grep -Fxq "${domain}"; then
-        echo -e "${yellow}acme.sh already has a certificate for ${domain}:${plain}"
-        ~/.acme.sh/acme.sh --list
-        read -rp "Re-issue it now (the existing certificate will be overwritten)? (y/n): " reissue
-        if [[ "$reissue" != "y" && "$reissue" != "Y" ]]; then
-            echo -e "${green}Keeping the existing certificate.${plain}"
-            return 0
+    if [[ "$NONINTERACTIVE" == "1" ]]; then
+        domain="${XUI_DOMAIN// /}"
+        if [[ -z "$domain" ]] || ! is_domain "$domain"; then
+            echo -e "${red}XUI_SSL_MODE=domain requires a valid XUI_DOMAIN (got: '${XUI_DOMAIN:-}').${plain}"
+            return 1
         fi
     else
+        while true; do
+            read -rp "Please enter your domain name: " domain
+            domain="${domain// /}" # Trim whitespace
+
+            if [[ -z "$domain" ]]; then
+                echo -e "${red}Domain name cannot be empty. Please try again.${plain}"
+                continue
+            fi
+
+            if ! is_domain "$domain"; then
+                echo -e "${red}Invalid domain format: ${domain}. Please enter a valid domain name.${plain}"
+                continue
+            fi
+
+            break
+        done
+    fi
+    echo -e "${green}Your domain is: ${domain}, checking it...${plain}"
+    SSL_ISSUED_DOMAIN="${domain}"
+
+    # detect existing certificate and reuse it only if its files are actually
+    # present and non-empty. acme.sh stores ECC certs under ${domain}_ecc and RSA
+    # certs under ${domain}; a failed issuance can leave a domain entry in --list
+    # with no usable cert files, which must not be reused (it produces a 0-byte
+    # fullchain.pem). Broken partial state is cleaned up so issuance can proceed.
+    local cert_exists=0
+    if ~/.acme.sh/acme.sh --list 2> /dev/null | awk '{print $1}' | grep -Fxq "${domain}"; then
+        local acmeCertDir=""
+        if [[ -s ~/.acme.sh/${domain}_ecc/fullchain.cer && -s ~/.acme.sh/${domain}_ecc/${domain}.key ]]; then
+            acmeCertDir=~/.acme.sh/${domain}_ecc
+        elif [[ -s ~/.acme.sh/${domain}/fullchain.cer && -s ~/.acme.sh/${domain}/${domain}.key ]]; then
+            acmeCertDir=~/.acme.sh/${domain}
+        fi
+        if [[ -n "${acmeCertDir}" ]]; then
+            cert_exists=1
+            local certInfo=$(~/.acme.sh/acme.sh --list 2> /dev/null | grep -F "${domain}")
+            echo -e "${yellow}Existing certificate found for ${domain}, will reuse it.${plain}"
+            [[ -n "${certInfo}" ]] && echo "$certInfo"
+        else
+            echo -e "${yellow}Found incomplete acme.sh state for ${domain} (no valid certificate files); cleaning it up and re-issuing.${plain}"
+            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc
+        fi
+    fi
+    if [[ ${cert_exists} -eq 0 ]]; then
         echo -e "${green}Your domain is ready for issuing certificates now...${plain}"
     fi
 
@@ -556,75 +803,89 @@ ssl_cert_issue() {
     fi
 
     # get the port number for the standalone server
-    local WebPort=""
-    read -rp "Please choose which port to use (default is 80): " WebPort
-    WebPort="${WebPort// /}"
-    WebPort="${WebPort:-80}"
-    if ! [[ "${WebPort}" =~ ^[0-9]+$ ]] || ((WebPort < 1 || WebPort > 65535)); then
-        echo -e "${yellow}Your input '${WebPort}' is invalid, will use default port 80.${plain}"
+    local WebPort=80
+    prompt_or_default WebPort "Please choose which port to use (default is 80): " "80" XUI_ACME_HTTP_PORT
+    if [[ -z ${WebPort} ]]; then
+        WebPort=80
+    elif [[ ! ${WebPort} =~ ^[1-9][0-9]*$ || ${WebPort} -gt 65535 ]]; then
+        echo -e "${yellow}Your input ${WebPort} is invalid, will use default port 80.${plain}"
         WebPort=80
     fi
     echo -e "${green}Will use port: ${WebPort} to issue certificates. Please make sure this port is open.${plain}"
 
     # Stop panel temporarily
     echo -e "${yellow}Stopping panel temporarily...${plain}"
-    systemctl stop x-ui 2>/dev/null || rc-service x-ui stop 2>/dev/null
+    systemctl stop x-ui 2> /dev/null || rc-service x-ui stop 2> /dev/null
 
-    # issue the certificate
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-    ~/.acme.sh/acme.sh --issue -d ${domain} --listen-v6 --standalone --httpport ${WebPort} --force
-    if [ $? -ne 0 ]; then
-        echo -e "${red}Issuing certificate failed, please check logs.${plain}"
-        rm -rf ~/.acme.sh/${domain}
-        systemctl start x-ui 2>/dev/null || rc-service x-ui start 2>/dev/null
-        ISSUED_DOMAIN=""
-        return 1
+    if [[ ${cert_exists} -eq 0 ]]; then
+        # issue the certificate
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
+        [[ -n "${XUI_ACME_EMAIL:-}" ]] && ~/.acme.sh/acme.sh --register-account -m "${XUI_ACME_EMAIL}" > /dev/null 2>&1
+        ~/.acme.sh/acme.sh --issue -d ${domain} $(acme_listen_flag) --standalone --httpport ${WebPort} --force
+        if [ $? -ne 0 ]; then
+            echo -e "${red}Issuing certificate failed, please check logs.${plain}"
+            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc
+            systemctl start x-ui 2> /dev/null || rc-service x-ui start 2> /dev/null
+            return 1
+        else
+            echo -e "${green}Issuing certificate succeeded, installing certificates...${plain}"
+        fi
     else
-        echo -e "${green}Issuing certificate succeeded, installing certificates...${plain}"
+        echo -e "${green}Using existing certificate, installing certificates...${plain}"
     fi
 
-    # Setup reload command (|| true ensures installcert doesn't fail if x-ui service
-    # doesn't exist yet during first install — it gets created later in the script)
-    reloadCmd="systemctl restart x-ui 2>/dev/null || rc-service x-ui restart 2>/dev/null || true"
-    echo -e "${green}Default --reloadcmd for ACME is: ${yellow}systemctl restart x-ui${plain}"
+    # Setup reload command
+    reloadCmd="systemctl restart x-ui || rc-service x-ui restart"
+    echo -e "${green}Default --reloadcmd for ACME is: ${yellow}systemctl restart x-ui || rc-service x-ui restart${plain}"
     echo -e "${green}This command will run on every certificate issue and renew.${plain}"
-    read -rp "Would you like to modify --reloadcmd for ACME? (y/n): " setReloadcmd
+    if [[ "$NONINTERACTIVE" == "1" ]]; then
+        setReloadcmd="n"
+    else
+        read -rp "Would you like to modify --reloadcmd for ACME? (y/n): " setReloadcmd
+    fi
     if [[ "$setReloadcmd" == "y" || "$setReloadcmd" == "Y" ]]; then
         echo -e "\n${green}\t1.${plain} Preset: systemctl reload nginx ; systemctl restart x-ui"
         echo -e "${green}\t2.${plain} Input your own command"
         echo -e "${green}\t0.${plain} Keep default reloadcmd"
         read -rp "Choose an option: " choice
         case "$choice" in
-        1)
-            if systemctl list-unit-files 2>/dev/null | grep -q '^nginx\.service' || command -v nginx >/dev/null 2>&1; then
+            1)
+                echo -e "${green}Reloadcmd is: systemctl reload nginx ; systemctl restart x-ui${plain}"
                 reloadCmd="systemctl reload nginx ; systemctl restart x-ui"
+                ;;
+            2)
+                echo -e "${yellow}It's recommended to put x-ui restart at the end${plain}"
+                read -rp "Please enter your custom reloadcmd: " reloadCmd
                 echo -e "${green}Reloadcmd is: ${reloadCmd}${plain}"
-            else
-                echo -e "${yellow}nginx is not installed on this system, its reload would fail on every renewal.${plain}"
-                echo -e "${green}Keeping default reloadcmd: ${reloadCmd}${plain}"
-            fi
-            ;;
-        2)
-            echo -e "${yellow}It's recommended to put x-ui restart at the end${plain}"
-            read -rp "Please enter your custom reloadcmd: " reloadCmd
-            echo -e "${green}Reloadcmd is: ${reloadCmd}${plain}"
-            ;;
-        *)
-            echo -e "${green}Keeping default reloadcmd${plain}"
-            ;;
+                ;;
+            *)
+                echo -e "${green}Keeping default reloadcmd${plain}"
+                ;;
         esac
     fi
 
     # install the certificate
-    ~/.acme.sh/acme.sh --installcert -d ${domain} \
+    local installOutput=""
+    installOutput=$(~/.acme.sh/acme.sh --installcert --force -d ${domain} \
         --key-file /root/cert/${domain}/privkey.pem \
-        --fullchain-file /root/cert/${domain}/fullchain.pem --reloadcmd "${reloadCmd}"
+        --fullchain-file /root/cert/${domain}/fullchain.pem --reloadcmd "${reloadCmd}" 2>&1)
+    local installRc=$?
+    echo "${installOutput}"
 
-    if [ $? -ne 0 ]; then
-        echo -e "${yellow}Certificate reload command had issues (service may not be running yet).${plain}"
-        echo -e "${yellow}Certificate files are installed — the panel will pick them up on start.${plain}"
-    else
+    local installWroteFiles=0
+    if echo "${installOutput}" | grep -q "Installing key to:" && echo "${installOutput}" | grep -q "Installing full chain to:"; then
+        installWroteFiles=1
+    fi
+
+    if [[ -f "/root/cert/${domain}/privkey.pem" && -f "/root/cert/${domain}/fullchain.pem" && (${installRc} -eq 0 || ${installWroteFiles} -eq 1) ]]; then
         echo -e "${green}Installing certificate succeeded, enabling auto renew...${plain}"
+    else
+        echo -e "${red}Installing certificate failed, exiting.${plain}"
+        if [[ ${cert_exists} -eq 0 ]]; then
+            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc
+        fi
+        systemctl start x-ui 2> /dev/null || rc-service x-ui start 2> /dev/null
+        return 1
     fi
 
     # enable auto-renew
@@ -633,25 +894,26 @@ ssl_cert_issue() {
         echo -e "${yellow}Auto renew setup had issues, certificate details:${plain}"
         ls -lah /root/cert/${domain}/
         # Secure permissions: private key readable only by owner
-        chmod 600 $certPath/privkey.pem 2>/dev/null
-        chmod 644 $certPath/fullchain.pem 2>/dev/null
+        chmod 600 $certPath/privkey.pem 2> /dev/null
+        chmod 644 $certPath/fullchain.pem 2> /dev/null
     else
         echo -e "${green}Auto renew succeeded, certificate details:${plain}"
         ls -lah /root/cert/${domain}/
         # Secure permissions: private key readable only by owner
-        chmod 600 $certPath/privkey.pem 2>/dev/null
-        chmod 644 $certPath/fullchain.pem 2>/dev/null
+        chmod 600 $certPath/privkey.pem 2> /dev/null
+        chmod 644 $certPath/fullchain.pem 2> /dev/null
     fi
 
     # start panel
-    systemctl start x-ui 2>/dev/null || rc-service x-ui start 2>/dev/null
+    systemctl start x-ui 2> /dev/null || rc-service x-ui start 2> /dev/null
 
     # Prompt user to set panel paths after successful certificate installation
-    read -rp "Would you like to set this certificate for the panel? (Y/n): " setPanel
-    # Empty answer means yes: a certificate that was just issued for this
-    # panel is almost always meant to be used by it, and skipping the step
-    # silently leaves the panel serving the previous certificate.
-    if [[ -z "$setPanel" || "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
+    if [[ "$NONINTERACTIVE" == "1" ]]; then
+        setPanel="y"
+    else
+        read -rp "Would you like to set this certificate for the panel? (y/n): " setPanel
+    fi
+    if [[ "$setPanel" == "y" || "$setPanel" == "Y" ]]; then
         local webCertFile="/root/cert/${domain}/fullchain.pem"
         local webKeyFile="/root/cert/${domain}/privkey.pem"
 
@@ -663,7 +925,7 @@ ssl_cert_issue() {
             echo ""
             echo -e "${green}Access URL: https://${domain}:${existing_port}/${existing_webBasePath}${plain}"
             echo -e "${yellow}Panel will restart to apply SSL certificate...${plain}"
-            systemctl restart x-ui 2>/dev/null || rc-service x-ui restart 2>/dev/null
+            systemctl restart x-ui 2> /dev/null || rc-service x-ui restart 2> /dev/null
         else
             echo -e "${red}Error: Certificate or private key file not found for domain: $domain.${plain}"
         fi
@@ -678,199 +940,229 @@ ssl_cert_issue() {
 # Sets global `SSL_HOST` to the chosen domain/IP for Access URL usage
 prompt_and_setup_ssl() {
     local panel_port="$1"
-    local web_base_path="$2"   # expected without leading slash
+    local web_base_path="$2"
     local server_ip="$3"
 
     local ssl_choice=""
+    SSL_SCHEME="https"
 
     echo -e "${yellow}Choose SSL certificate setup method:${plain}"
     echo -e "${green}1.${plain} Let's Encrypt for Domain (90-day validity, auto-renews)"
     echo -e "${green}2.${plain} Let's Encrypt for IP Address (6-day validity, auto-renews)"
     echo -e "${green}3.${plain} Custom SSL Certificate (Path to existing files)"
+    echo -e "${green}4.${plain} Skip SSL (advanced — behind reverse proxy / SSH tunnel only)"
     echo -e "${blue}Note:${plain} Options 1 & 2 require port 80 open. Option 3 requires manual paths."
-    read -rp "Choose an option (default 2 for IP): " ssl_choice
-    ssl_choice="${ssl_choice// /}"  # Trim whitespace
+    echo -e "${blue}Note:${plain} Option 4 serves the panel over plain HTTP — only safe behind nginx/Caddy or an SSH tunnel."
+    if [[ "$NONINTERACTIVE" == "1" ]]; then
+        case "${XUI_SSL_MODE:-none}" in
+            domain) ssl_choice="1" ;;
+            ip) ssl_choice="2" ;;
+            none | "") ssl_choice="4" ;;
+            *)
+                echo -e "${yellow}Unknown XUI_SSL_MODE='${XUI_SSL_MODE}', defaulting to none (HTTP).${plain}"
+                ssl_choice="4"
+                ;;
+        esac
+    else
+        read -rp "Choose an option (default 2 for IP): " ssl_choice
+        ssl_choice="${ssl_choice// /}" # Trim whitespace
 
-    # Default to 2 (IP cert) if input is empty or invalid (not 1 or 3)
-    if [[ "$ssl_choice" != "1" && "$ssl_choice" != "3" ]]; then
-        ssl_choice="2"
+        # Default to 2 (IP cert) if input is empty or invalid (not 1, 3 or 4)
+        if [[ "$ssl_choice" != "1" && "$ssl_choice" != "3" && "$ssl_choice" != "4" ]]; then
+            ssl_choice="2"
+        fi
     fi
 
     case "$ssl_choice" in
-    1)
-        # User chose Let's Encrypt domain option
-        echo -e "${green}Using Let's Encrypt for domain certificate...${plain}"
-        ISSUED_DOMAIN=""
-        ssl_cert_issue
-        # ssl_cert_issue reports the domain it worked on via ISSUED_DOMAIN
-        local cert_domain="${ISSUED_DOMAIN}"
-        if [[ -n "${cert_domain}" ]]; then
-            SSL_HOST="${cert_domain}"
-            echo -e "${green}✓ SSL certificate configured successfully with domain: ${cert_domain}${plain}"
-        else
-            echo -e "${yellow}No certificate was issued; using the IP address for the Access URL${plain}"
-            SSL_HOST="${server_ip}"
-        fi
-        ;;
-    2)
-        # User chose Let's Encrypt IP certificate option
-        echo -e "${green}Using Let's Encrypt for IP certificate (shortlived profile)...${plain}"
+        1)
+            # User chose Let's Encrypt domain option
+            echo -e "${green}Using Let's Encrypt for domain certificate...${plain}"
+            if ssl_cert_issue; then
+                local cert_domain="${SSL_ISSUED_DOMAIN}"
+                if [[ -z "${cert_domain}" ]]; then
+                    cert_domain=$(~/.acme.sh/acme.sh --list 2> /dev/null | tail -1 | awk '{print $1}')
+                fi
 
-        # Auto-detect IPv6 and offer to include it
-        local ipv6_addr=""
-        local detected_ipv6=""
-        detected_ipv6=$(ip -6 addr show scope global 2>/dev/null \
-            | grep -oP 'inet6\s+\K[0-9a-f:]+(?=/\d+)' | grep -v '^fe80' | head -1)
-        if [[ -n "$detected_ipv6" ]]; then
-            echo -e "${green}IPv6 address detected: ${detected_ipv6}${plain}"
-            read -rp "Include it in the certificate? (Y/n, default: y): " ipv6_choice
-            if [[ -z "${ipv6_choice}" || "${ipv6_choice,,}" == "y" ]]; then
-                ipv6_addr="$detected_ipv6"
-            fi
-        fi
-
-        # Stop panel if running (port 80 needed)
-        if [[ $release == "alpine" ]]; then
-            rc-service x-ui stop >/dev/null 2>&1
-        else
-            systemctl stop x-ui >/dev/null 2>&1
-        fi
-
-        setup_ip_certificate "${server_ip}" "${ipv6_addr}"
-        if [ $? -eq 0 ]; then
-            SSL_HOST="${server_ip}"
-            echo -e "${green}✓ Let's Encrypt IP certificate configured successfully${plain}"
-        else
-            echo -e "${red}✗ IP certificate setup failed. Falling back to self-signed certificate.${plain}"
-            generate_self_signed_cert "${server_ip}"
-            SSL_HOST="${server_ip}"
-        fi
-        ;;
-    3)
-        # User chose Custom Paths (User Provided) option
-        echo -e "${green}Using custom existing certificate...${plain}"
-        local custom_cert=""
-        local custom_key=""
-        local custom_domain=""
-
-        # 3.1 Request Domain to compose Panel URL later
-        read -rp "Please enter domain name certificate issued for: " custom_domain
-        custom_domain="${custom_domain// /}" # Убираем пробелы
-
-        # 3.2 Loop for Certificate Path
-        while true; do
-            read -rp "Input certificate path (keywords: .crt / fullchain): " custom_cert
-            # Strip quotes if present
-            custom_cert=$(echo "$custom_cert" | tr -d '"' | tr -d "'")
-
-            if [[ -f "$custom_cert" && -r "$custom_cert" && -s "$custom_cert" ]]; then
-                break
-            elif [[ ! -f "$custom_cert" ]]; then
-                echo -e "${red}Error: File does not exist! Try again.${plain}"
-            elif [[ ! -r "$custom_cert" ]]; then
-                echo -e "${red}Error: File exists but is not readable (check permissions)!${plain}"
+                if [[ -n "${cert_domain}" ]]; then
+                    SSL_HOST="${cert_domain}"
+                    echo -e "${green}✓ SSL certificate configured successfully with domain: ${cert_domain}${plain}"
+                else
+                    echo -e "${yellow}SSL setup may have completed, but domain extraction failed${plain}"
+                    SSL_HOST="${server_ip}"
+                fi
             else
-                echo -e "${red}Error: File is empty!${plain}"
+                echo -e "${red}SSL certificate setup failed for domain mode.${plain}"
+                SSL_HOST="${server_ip}"
             fi
-        done
+            ;;
+        2)
+            # User chose Let's Encrypt IP certificate option
+            echo -e "${green}Using Let's Encrypt for IP certificate (shortlived profile)...${plain}"
 
-        # 3.3 Loop for Private Key Path
-        while true; do
-            read -rp "Input private key path (keywords: .key / privatekey): " custom_key
-            # Strip quotes if present
-            custom_key=$(echo "$custom_key" | tr -d '"' | tr -d "'")
+            # Confirm the auto-detected IP before issuing for it: with asymmetric
+            # routing / multi-WAN the echo services can return a transit address.
+            if [[ "$NONINTERACTIVE" != "1" ]]; then
+                local ip_confirm=""
+                read -rp "Is ${server_ip} the correct incoming public IPv4 address for this server? [Default y]: " ip_confirm
+                if [[ -n "$ip_confirm" && "$ip_confirm" != "y" && "$ip_confirm" != "Y" ]]; then
+                    server_ip=""
+                    while [[ -z "$server_ip" ]]; do
+                        read -rp "Please enter your server's public IPv4 address: " server_ip
+                        server_ip="${server_ip// /}"
+                        if [[ ! "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                            echo -e "${red}Invalid IPv4 address. Please try again.${plain}"
+                            server_ip=""
+                        fi
+                    done
+                fi
+            fi
 
-            if [[ -f "$custom_key" && -r "$custom_key" && -s "$custom_key" ]]; then
-                break
-            elif [[ ! -f "$custom_key" ]]; then
-                echo -e "${red}Error: File does not exist! Try again.${plain}"
-            elif [[ ! -r "$custom_key" ]]; then
-                echo -e "${red}Error: File exists but is not readable (check permissions)!${plain}"
+            # Ask for optional IPv6
+            local ipv6_addr=""
+            prompt_or_default ipv6_addr "Do you have an IPv6 address to include? (leave empty to skip): " "" XUI_SSL_IPV6
+            ipv6_addr="${ipv6_addr// /}" # Trim whitespace
+
+            # Stop panel if running (port 80 needed)
+            if [[ $release == "alpine" ]]; then
+                rc-service x-ui stop > /dev/null 2>&1
             else
-                echo -e "${red}Error: File is empty!${plain}"
+                systemctl stop x-ui > /dev/null 2>&1
             fi
-        done
 
-        # 3.4 Apply Settings via x-ui binary
-        ${xui_folder}/x-ui cert -webCert "$custom_cert" -webCertKey "$custom_key" >/dev/null 2>&1
+            setup_ip_certificate "${server_ip}" "${ipv6_addr}"
+            if [ $? -eq 0 ]; then
+                SSL_HOST="${server_ip}"
+                echo -e "${green}✓ Let's Encrypt IP certificate configured successfully${plain}"
+            else
+                echo -e "${red}✗ IP certificate setup failed. Please check port 80 is open.${plain}"
+                SSL_HOST="${server_ip}"
+            fi
+            ;;
+        3)
+            # User chose Custom Paths (User Provided) option
+            echo -e "${green}Using custom existing certificate...${plain}"
+            local custom_cert=""
+            local custom_key=""
+            local custom_domain=""
 
-        # Set SSL_HOST for composing Panel URL
-        if [[ -n "$custom_domain" ]]; then
-            SSL_HOST="$custom_domain"
-        else
+            # 3.1 Request Domain to compose Panel URL later
+            read -rp "Please enter domain name certificate issued for: " custom_domain
+            custom_domain="${custom_domain// /}" # Remove spaces
+
+            # 3.2 Loop for Certificate Path
+            while true; do
+                read -rp "Input certificate path (keywords: .crt / fullchain): " custom_cert
+                # Strip quotes if present
+                custom_cert=$(echo "$custom_cert" | tr -d '"' | tr -d "'")
+
+                if [[ -f "$custom_cert" && -r "$custom_cert" && -s "$custom_cert" ]]; then
+                    break
+                elif [[ ! -f "$custom_cert" ]]; then
+                    echo -e "${red}Error: File does not exist! Try again.${plain}"
+                elif [[ ! -r "$custom_cert" ]]; then
+                    echo -e "${red}Error: File exists but is not readable (check permissions)!${plain}"
+                else
+                    echo -e "${red}Error: File is empty!${plain}"
+                fi
+            done
+
+            # 3.3 Loop for Private Key Path
+            while true; do
+                read -rp "Input private key path (keywords: .key / privatekey): " custom_key
+                # Strip quotes if present
+                custom_key=$(echo "$custom_key" | tr -d '"' | tr -d "'")
+
+                if [[ -f "$custom_key" && -r "$custom_key" && -s "$custom_key" ]]; then
+                    break
+                elif [[ ! -f "$custom_key" ]]; then
+                    echo -e "${red}Error: File does not exist! Try again.${plain}"
+                elif [[ ! -r "$custom_key" ]]; then
+                    echo -e "${red}Error: File exists but is not readable (check permissions)!${plain}"
+                else
+                    echo -e "${red}Error: File is empty!${plain}"
+                fi
+            done
+
+            # 3.4 Apply Settings via x-ui binary
+            ${xui_folder}/x-ui cert -webCert "$custom_cert" -webCertKey "$custom_key" > /dev/null 2>&1
+
+            # Set SSL_HOST for composing Panel URL
+            if [[ -n "$custom_domain" ]]; then
+                SSL_HOST="$custom_domain"
+            else
+                SSL_HOST="${server_ip}"
+            fi
+
+            echo -e "${green}✓ Custom certificate paths applied.${plain}"
+            echo -e "${yellow}Note: You are responsible for renewing these files externally.${plain}"
+
+            systemctl restart x-ui > /dev/null 2>&1 || rc-service x-ui restart > /dev/null 2>&1
+            ;;
+        4)
+            echo ""
+            echo -e "${red}⚠ Panel will be installed WITHOUT SSL/TLS.${plain}"
+            echo -e "${yellow}Login credentials and cookies will travel as plain HTTP.${plain}"
+            echo -e "${yellow}Only safe when:${plain}"
+            echo -e "${yellow}  • A reverse proxy (nginx, Caddy, Traefik) terminates TLS for you, or${plain}"
+            echo -e "${yellow}  • You access the panel exclusively via SSH tunnel${plain}"
+            echo ""
+
+            SSL_SCHEME="http"
             SSL_HOST="${server_ip}"
-        fi
 
-        echo -e "${green}✓ Custom certificate paths applied.${plain}"
-        echo -e "${yellow}Note: You are responsible for renewing these files externally.${plain}"
+            local bind_local=""
+            if [[ "$NONINTERACTIVE" == "1" ]]; then
+                # Cloud images must stay reachable on their public interface.
+                bind_local="n"
+            else
+                read -rp "Bind the panel to 127.0.0.1 only? (recommended — forces SSH tunnel / reverse-proxy access) [y/N]: " bind_local
+            fi
+            if [[ "$bind_local" == "y" || "$bind_local" == "Y" ]]; then
+                ${xui_folder}/x-ui setting -listenIP "127.0.0.1" > /dev/null 2>&1
+                SSL_HOST="127.0.0.1"
+                echo -e "${green}✓ Panel bound to 127.0.0.1 only. It is now unreachable from the public internet.${plain}"
+                echo ""
+                echo -e "${green}SSH Port Forwarding — open the panel from your local machine via:${plain}"
+                echo -e "  Standard SSH command:"
+                echo -e "  ${yellow}ssh -L 2222:127.0.0.1:${panel_port} root@${server_ip}${plain}"
+                echo -e "  If using an SSH key:"
+                echo -e "  ${yellow}ssh -i <sshkeypath> -L 2222:127.0.0.1:${panel_port} root@${server_ip}${plain}"
+                echo -e "  Then open in your browser:"
+                echo -e "  ${yellow}http://localhost:2222/${web_base_path}${plain}"
+                echo ""
+                echo -e "${yellow}Alternative: point a reverse proxy (nginx/Caddy) at 127.0.0.1:${panel_port} and let it terminate TLS.${plain}"
+            else
+                echo -e "${yellow}Panel will listen on all interfaces over plain HTTP. Make sure something else is terminating TLS in front of it.${plain}"
+            fi
 
-        systemctl restart x-ui >/dev/null 2>&1 || rc-service x-ui restart >/dev/null 2>&1
-        ;;
-    *)
-        echo -e "${red}Invalid option. Skipping SSL setup.${plain}"
-        SSL_HOST="${server_ip}"
-        ;;
+            systemctl restart x-ui > /dev/null 2>&1 || rc-service x-ui restart > /dev/null 2>&1
+            echo -e "${green}✓ SSL setup skipped.${plain}"
+            ;;
+        *)
+            echo -e "${red}Invalid option. Skipping SSL setup.${plain}"
+            SSL_HOST="${server_ip}"
+            ;;
     esac
 }
 
-# Localhost-only debug install. Plain HTTP, listen=127.0.0.1, port and
-# credentials decided up-front by prompt_debug_mode(), no SSL prompt,
-# no public-IP detection, no IPv6.
-config_debug_mode() {
-    local existing_hasDefaultCredential=$(${xui_folder}/x-ui setting -show true | grep -Eo 'hasDefaultCredential: .+' | awk '{print $2}')
-    local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep -Eo 'webBasePath: .+' | awk '{print $2}' | sed 's#^/##')
-
-    local config_port="${XUI_DEBUG_PORT:-8080}"
-
-    local config_username
-    local config_password
-    local config_webBasePath
-    if [[ "$existing_hasDefaultCredential" == "true" || ${#existing_webBasePath} -lt 4 ]]; then
-        config_username=$(gen_random_string 10)
-        config_password=$(gen_random_string 10)
-        config_webBasePath=$(gen_random_string 18)
-        ${xui_folder}/x-ui setting -username "${config_username}" -password "${config_password}" -port "${config_port}" -webBasePath "${config_webBasePath}"
-    else
-        config_webBasePath="${existing_webBasePath}"
-        ${xui_folder}/x-ui setting -port "${config_port}"
-    fi
-
-    # Bind to loopback only.
-    ${xui_folder}/x-ui setting -listenIP "127.0.0.1"
-
-    ${xui_folder}/x-ui migrate
-
-    echo ""
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-    echo -e "${green}  Panel installed in DEBUG / localhost mode  ${plain}"
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-    if [[ -n "${config_username}" ]]; then
-        echo -e "${green}Username:    ${config_username}${plain}"
-        echo -e "${green}Password:    ${config_password}${plain}"
-    else
-        echo -e "${yellow}Username/password unchanged from previous install.${plain}"
-    fi
-    echo -e "${green}Port:        ${config_port}${plain}"
-    echo -e "${green}WebBasePath: ${config_webBasePath}${plain}"
-    echo -e "${green}Listen:      127.0.0.1 (loopback only)${plain}"
-    echo -e "${green}Access URL:  http://127.0.0.1:${config_port}/${config_webBasePath}${plain}"
-    echo -e "${green}             http://localhost:${config_port}/${config_webBasePath}${plain}"
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-    echo -e "${yellow}⚠ Plain HTTP, no certificate, no remote access. For local diagnostics only.${plain}"
-}
-
 config_after_install() {
-    # Debug / localhost-only mode short-circuits the SSL + public-IP +
-    # IPv6 logic below. The panel binds to 127.0.0.1, listens on plain
-    # HTTP, defaults to port 8080, and exposes no remote endpoints.
-    if [[ "${XUI_DEBUG_MODE:-}" == "1" ]]; then
-        config_debug_mode
-        return
+    local settings existing_webBasePath
+    if ! settings=$("${xui_folder}/x-ui" setting -show true) ||
+        ! existing_webBasePath=$(printf '%s\n' "$settings" | awk '
+            /^get .* failed, error info:/ { failed = 1 }
+            /^hasDefaultCredential: (true|false)$/ { credentials++ }
+            /^port: [0-9]+$/ { ports++ }
+            /^webBasePath:/ { paths++; sub(/^webBasePath: ?/, ""); path = $0 }
+            END {
+                if (failed || credentials != 1 || ports != 1 || paths != 1 || (path != "" && path !~ /^\//)) exit 1
+                print path
+            }'); then
+        echo -e "${red}Unable to read webBasePath; leaving existing settings unchanged.${plain}" >&2
+        return 1
     fi
-
-    local existing_hasDefaultCredential=$(${xui_folder}/x-ui setting -show true | grep -Eo 'hasDefaultCredential: .+' | awk '{print $2}')
-    local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep -Eo 'webBasePath: .+' | awk '{print $2}' | sed 's#^/##')
-    local existing_port=$(${xui_folder}/x-ui setting -show true | grep -Eo 'port: .+' | awk '{print $2}')
+    existing_webBasePath=${existing_webBasePath#/}
+    local existing_hasDefaultCredential=$(printf '%s\n' "$settings" | awk '/^hasDefaultCredential: / {print $2}')
+    local existing_port=$(printf '%s\n' "$settings" | awk '/^port: / {print $2}')
     # Properly detect empty cert by checking if cert: line exists and has content after it
     local existing_cert=$(${xui_folder}/x-ui setting -getCert true | grep 'cert:' | awk -F': ' '{print $2}' | tr -d '[:space:]')
     local URL_lists=(
@@ -883,46 +1175,196 @@ config_after_install() {
     )
     local server_ip=""
     for ip_address in "${URL_lists[@]}"; do
-        local response=$(curl -s -w "\n%{http_code}" --max-time 3 "${ip_address}" 2>/dev/null)
+        local response=$(curl -s -w "\n%{http_code}" --max-time 3 "${ip_address}" 2> /dev/null)
         local http_code=$(echo "$response" | tail -n1)
-        local ip_result=$(echo "$response" | head -n-1 | tr -d '[:space:]')
-        if [[ "${http_code}" == "200" && -n "${ip_result}" ]]; then
+        local ip_result=$(echo "$response" | head -n-1 | tr -d '[:space:]"')
+        if [[ "${http_code}" == "200" && "${ip_result}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             server_ip="${ip_result}"
             break
         fi
     done
 
-    # Detect public IPv6 address
-    local server_ipv6=""
-    server_ipv6=$(ip -6 addr show scope global 2>/dev/null \
-        | grep -oP 'inet6\s+\K[0-9a-f:]+(?=/\d+)' | grep -v '^fe80' | head -1)
+    if [[ -z "$server_ip" ]]; then
+        if [[ "$NONINTERACTIVE" == "1" ]]; then
+            # Panel binds 0.0.0.0 regardless; the IP is only used to compose the
+            # displayed access URL. Fall back to XUI_SERVER_IP or leave blank.
+            server_ip="${XUI_SERVER_IP:-}"
+        else
+            echo -e "${yellow}Could not auto-detect server IP from any provider.${plain}"
+            while [[ -z "$server_ip" ]]; do
+                read -rp "Please enter your server's public IPv4 address: " server_ip
+                server_ip="${server_ip// /}"
+                if [[ ! "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo -e "${red}Invalid IPv4 address. Please try again.${plain}"
+                    server_ip=""
+                fi
+            done
+        fi
+    fi
 
-    if [[ ${#existing_webBasePath} -lt 4 ]]; then
+    if [[ -z "$existing_webBasePath" ]]; then
         if [[ "$existing_hasDefaultCredential" == "true" ]]; then
-            local config_webBasePath=$(gen_random_string 18)
-            local config_username=$(gen_random_string 10)
-            local config_password=$(gen_random_string 10)
+            local config_webBasePath="${XUI_WEB_BASE_PATH:-$(gen_random_string 18)}"
+            local config_username="${XUI_USERNAME:-$(gen_random_string 10)}"
+            local config_password="${XUI_PASSWORD:-$(gen_random_string 10)}"
+            local config_port=""
 
-            read -rp "Would you like to customize the Panel Port settings? (If not, a random port will be applied) [y/n]: " config_confirm
-            if [[ "${config_confirm}" == "y" || "${config_confirm}" == "Y" ]]; then
-                read -rp "Please set up the panel port: " config_port
-                echo -e "${yellow}Your Panel Port is: ${config_port}${plain}"
+            local db_label="SQLite (/etc/x-ui/x-ui.db)"
+            echo ""
+            echo -e "${green}═══════════════════════════════════════════${plain}"
+            echo -e "${green}     Database Selection                    ${plain}"
+            echo -e "${green}═══════════════════════════════════════════${plain}"
+            echo -e "  1) SQLite     (default — recommended for < 500 clients)"
+            echo -e "  2) PostgreSQL (recommended for high client counts / many nodes)"
+            if [[ "$NONINTERACTIVE" == "1" ]]; then
+                if [[ "${XUI_DB_TYPE:-sqlite}" == "postgres" ]]; then
+                    db_choice="2"
+                else
+                    db_choice="1"
+                fi
             else
-                local config_port=$(shuf -i 1024-62000 -n 1)
-                echo -e "${yellow}Generated random port: ${config_port}${plain}"
+                read -rp "Choose [1]: " db_choice
+                db_choice="${db_choice:-1}"
+            fi
+            if [[ "$db_choice" == "2" ]]; then
+                local xui_env_file
+                case "${release}" in
+                    ubuntu | debian | armbian)
+                        xui_env_file="/etc/default/x-ui"
+                        ;;
+                    arch | manjaro | parch | alpine)
+                        xui_env_file="/etc/conf.d/x-ui"
+                        ;;
+                    *)
+                        xui_env_file="/etc/sysconfig/x-ui"
+                        ;;
+                esac
+
+                local xui_dsn=""
+                local pg_mode=""
+                local pg_local_installed=0
+                while [[ -z "$xui_dsn" ]]; do
+                    if [[ "$NONINTERACTIVE" == "1" ]]; then
+                        if [[ -n "${XUI_DB_DSN:-}" ]]; then
+                            xui_dsn="${XUI_DB_DSN}"
+                            db_label="PostgreSQL (external)"
+                            break
+                        fi
+                        echo -e "${yellow}Installing PostgreSQL locally (non-interactive)...${plain}"
+                        local pg_cred_file
+                        pg_cred_file=$(mktemp 2> /dev/null) || pg_cred_file=$(mktemp -t x-ui-pg-creds.XXXXXXXX)
+                        if [[ -n "${pg_cred_file}" ]] && xui_dsn=$(PG_CRED_FILE="${pg_cred_file}" install_postgres_local); then
+                            pg_local_installed=1
+                            if [[ -r "${pg_cred_file}" ]]; then
+                                # shellcheck disable=SC1090
+                                source "${pg_cred_file}"
+                            fi
+                            rm -f "${pg_cred_file}"
+                            db_label="PostgreSQL (${PG_USER}@${PG_HOST}:${PG_PORT}/${PG_DB})"
+                            break
+                        fi
+                        rm -f "${pg_cred_file}"
+                        echo -e "${red}PostgreSQL installation failed in non-interactive mode; aborting.${plain}"
+                        echo -e "${yellow}Set XUI_DB_DSN to use an existing server, or XUI_DB_TYPE=sqlite.${plain}"
+                        exit 1
+                    fi
+                    echo ""
+                    echo -e "  1) Install PostgreSQL locally and create a dedicated user/db (recommended)"
+                    echo -e "  2) Use an existing PostgreSQL server (enter DSN)"
+                    read -rp "Choose [1]: " pg_mode
+                    pg_mode="${pg_mode:-1}"
+                    if [[ "$pg_mode" == "2" ]]; then
+                        while [[ -z "$xui_dsn" ]]; do
+                            read -rp "Enter PostgreSQL DSN (postgres://user:pass@host:port/dbname?sslmode=disable): " xui_dsn
+                            xui_dsn="${xui_dsn// /}"
+                        done
+                        db_label="PostgreSQL (external)"
+                    else
+                        echo -e "${yellow}Installing PostgreSQL — this may take a moment...${plain}"
+                        local pg_cred_file
+                        pg_cred_file=$(mktemp 2> /dev/null) || pg_cred_file=$(mktemp -t x-ui-pg-creds.XXXXXXXX)
+                        if [[ -z "${pg_cred_file}" ]]; then
+                            echo -e "${red}Failed to create temporary credentials file.${plain}"
+                            xui_dsn=""
+                            continue
+                        fi
+                        if xui_dsn=$(PG_CRED_FILE="${pg_cred_file}" install_postgres_local); then
+                            pg_local_installed=1
+                            if [[ -r "${pg_cred_file}" ]]; then
+                                # shellcheck disable=SC1090
+                                source "${pg_cred_file}"
+                            fi
+                            rm -f "${pg_cred_file}"
+                            db_label="PostgreSQL (${PG_USER}@${PG_HOST}:${PG_PORT}/${PG_DB})"
+                        else
+                            rm -f "${pg_cred_file}"
+                            echo ""
+                            echo -e "${red}PostgreSQL installation failed.${plain}"
+                            echo -e "  1) Retry local install"
+                            echo -e "  2) Enter an external DSN instead"
+                            echo -e "  3) Abort install"
+                            echo -e "  4) Fall back to SQLite"
+                            read -rp "Choose [1]: " pg_fail
+                            pg_fail="${pg_fail:-1}"
+                            case "$pg_fail" in
+                                2) pg_mode="2" ;;
+                                3)
+                                    echo -e "${red}Install aborted.${plain}"
+                                    exit 1
+                                    ;;
+                                4)
+                                    db_choice="1"
+                                    xui_dsn=""
+                                    break
+                                    ;;
+                                *) xui_dsn="" ;;
+                            esac
+                        fi
+                    fi
+                done
+                if [[ -n "$xui_dsn" ]]; then
+                    install -d -m 755 "$(dirname "$xui_env_file")"
+                    umask 077
+                    cat > "$xui_env_file" << EOF
+XUI_DB_TYPE=postgres
+XUI_DB_DSN=${xui_dsn}
+EOF
+                    chmod 600 "$xui_env_file"
+                    umask 022
+                    export XUI_DB_TYPE=postgres
+                    export XUI_DB_DSN="${xui_dsn}"
+                    ensure_pg_client || echo -e "${yellow}⚠ Could not install pg_dump/pg_restore. In-panel database backup/restore will be unavailable until you install the postgresql-client package.${plain}"
+                fi
             fi
 
-            ${xui_folder}/x-ui setting -username "${config_username}" -password "${config_password}" -port "${config_port}" -webBasePath "${config_webBasePath}"
+            config_port=$(select_panel_port) || exit 1
+
+            local settings_output settings_status=0
+            settings_output=$("${xui_folder}/x-ui" setting -username "${config_username}" -password "${config_password}" -port "${config_port}" -webBasePath "${config_webBasePath}" 2>&1) || settings_status=$?
+            printf '%s\n' "$settings_output"
+            # Released CLIs may print a settings/database error and still exit 0.
+            # Require all three existing success messages before claiming success.
+            if [[ "$settings_status" != 0 ]] ||
+                ! grep -Fxq "Port set successfully: ${config_port}" <<< "$settings_output" ||
+                ! grep -Fxq 'Username and password updated successfully' <<< "$settings_output" ||
+                ! grep -Fxq 'Base URI path set successfully' <<< "$settings_output"; then
+                echo 'Failed to configure panel settings; installation aborted.' >&2
+                exit 1
+            fi
 
             echo ""
             echo -e "${green}═══════════════════════════════════════════${plain}"
-            echo -e "${green}     SSL Certificate Setup (MANDATORY)     ${plain}"
+            echo -e "${green}     SSL Certificate Setup (RECOMMENDED)   ${plain}"
             echo -e "${green}═══════════════════════════════════════════${plain}"
-            echo -e "${yellow}For security, SSL certificate is required for all panels.${plain}"
+            echo -e "${yellow}SSL is strongly recommended. Skip only if a reverse proxy${plain}"
+            echo -e "${yellow}or SSH tunnel handles TLS for you.${plain}"
             echo -e "${yellow}Let's Encrypt now supports both domains and IP addresses!${plain}"
             echo ""
 
             prompt_and_setup_ssl "${config_port}" "${config_webBasePath}" "${server_ip}"
+
+            # Retrieve the API token for display
+            local config_apiToken=$(${xui_folder}/x-ui setting -getApiToken | grep -Eo 'apiToken: .+' | awk '{print $2}')
 
             # Display final credentials and access information
             echo ""
@@ -933,18 +1375,56 @@ config_after_install() {
             echo -e "${green}Password:    ${config_password}${plain}"
             echo -e "${green}Port:        ${config_port}${plain}"
             echo -e "${green}WebBasePath: ${config_webBasePath}${plain}"
-            if [[ -n "$server_ipv6" ]]; then
-                echo -e "${green}Access URL IPv4: https://${SSL_HOST}:${config_port}/${config_webBasePath}${plain}"
-                echo -e "${green}Access URL IPv6: https://[${server_ipv6}]:${config_port}/${config_webBasePath}${plain}"
-            else
-                echo -e "${green}Access URL:  https://${SSL_HOST}:${config_port}/${config_webBasePath}${plain}"
-            fi
+            echo -e "${green}Database:    ${db_label}${plain}"
+            echo -e "${green}Access URL:  ${SSL_SCHEME}://${SSL_HOST}:${config_port}/${config_webBasePath}${plain}"
+            echo -e "${green}API Token:   ${config_apiToken}${plain}"
             echo -e "${green}═══════════════════════════════════════════${plain}"
             echo -e "${yellow}⚠ IMPORTANT: Save these credentials securely!${plain}"
-            echo -e "${yellow}⚠ SSL Certificate: Enabled and configured${plain}"
+            if [[ "$SSL_SCHEME" == "https" ]]; then
+                echo -e "${yellow}⚠ SSL Certificate: Enabled and configured${plain}"
+            else
+                echo -e "${yellow}⚠ SSL Certificate: Skipped — panel is HTTP-only. Use a reverse proxy or SSH tunnel.${plain}"
+            fi
+
+            if [[ "$db_choice" == "2" ]]; then
+                echo ""
+                echo -e "${green}PostgreSQL backup & restore is built into the panel:${plain}"
+                echo -e "  ${blue}${SSL_SCHEME}://${SSL_HOST}:${config_port}/${config_webBasePath}${plain} → Backup & Restore"
+                echo -e "${yellow}  Back Up downloads a pg_dump .dump file; Restore reloads it via pg_restore.${plain}"
+            fi
+
+            if [[ "$db_choice" == "2" && "$pg_local_installed" == "1" ]]; then
+                echo ""
+                echo -e "${green}═══════════════════════════════════════════${plain}"
+                echo -e "${green}     PostgreSQL Credentials               ${plain}"
+                echo -e "${green}═══════════════════════════════════════════${plain}"
+                echo -e "${green}DB Name:    ${PG_DB}${plain}"
+                echo -e "${green}Username:   ${PG_USER}${plain}"
+                echo -e "${green}Password:   ${PG_PASS}${plain}"
+                echo -e "${green}Host:       ${PG_HOST}${plain}"
+                echo -e "${green}Port:       ${PG_PORT}${plain}"
+                echo -e "${green}DSN:        ${xui_dsn}${plain}"
+                echo -e "${green}Env file:   ${xui_env_file}${plain}"
+                echo -e "${green}-------------------------------------------${plain}"
+                echo -e "${green}Connect from this server:${plain}"
+                echo -e "  ${blue}sudo -u postgres psql -d ${PG_DB}${plain}      (as the postgres superuser)"
+                echo -e "  ${blue}PGPASSWORD='${PG_PASS}' psql -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USER} -d ${PG_DB}${plain}"
+                echo -e "${green}═══════════════════════════════════════════${plain}"
+                echo -e "${yellow}⚠ The panel reads these credentials from ${xui_env_file}.${plain}"
+                echo -e "${yellow}⚠ Save the password — it is not stored anywhere else in plain text.${plain}"
+                unset PG_USER PG_PASS PG_HOST PG_PORT PG_DB
+            fi
+
+            # Persist a machine-parseable credentials file for cloud-init / MOTD.
+            : "${SSL_SCHEME:=https}"
+            : "${SSL_HOST:=${server_ip}}"
+            local db_type_out="sqlite"
+            [[ "$db_choice" == "2" ]] && db_type_out="postgres"
+            write_install_result "${config_username}" "${config_password}" "${config_port}" \
+                "${config_webBasePath}" "${SSL_SCHEME}" "${SSL_HOST}" "${config_apiToken}" "${db_type_out}"
         else
             local config_webBasePath=$(gen_random_string 18)
-            echo -e "${yellow}WebBasePath is missing or too short. Generating a new one...${plain}"
+            echo -e "${yellow}WebBasePath is missing or set to root. Generating a new one...${plain}"
             ${xui_folder}/x-ui setting -webBasePath "${config_webBasePath}"
             echo -e "${green}New WebBasePath: ${config_webBasePath}${plain}"
 
@@ -957,7 +1437,7 @@ config_after_install() {
                 echo -e "${yellow}Let's Encrypt now supports both domains and IP addresses!${plain}"
                 echo ""
                 prompt_and_setup_ssl "${existing_port}" "${config_webBasePath}" "${server_ip}"
-                echo -e "${green}Access URL:  https://${SSL_HOST}:${existing_port}/${config_webBasePath}${plain}"
+                echo -e "${green}Access URL:  ${SSL_SCHEME}://${SSL_HOST}:${existing_port}/${config_webBasePath}${plain}"
             else
                 # If a cert already exists, just show the access URL
                 echo -e "${green}Access URL: https://${server_ip}:${existing_port}/${config_webBasePath}${plain}"
@@ -965,8 +1445,8 @@ config_after_install() {
         fi
     else
         if [[ "$existing_hasDefaultCredential" == "true" ]]; then
-            local config_username=$(gen_random_string 10)
-            local config_password=$(gen_random_string 10)
+            local config_username="${XUI_USERNAME:-$(gen_random_string 10)}"
+            local config_password="${XUI_PASSWORD:-$(gen_random_string 10)}"
 
             echo -e "${yellow}Default credentials detected. Security update required...${plain}"
             ${xui_folder}/x-ui setting -username "${config_username}" -password "${config_password}"
@@ -975,6 +1455,14 @@ config_after_install() {
             echo -e "${green}Username: ${config_username}${plain}"
             echo -e "${green}Password: ${config_password}${plain}"
             echo -e "###############################################"
+
+            # Persist a machine-parseable credentials file for cloud-init / MOTD.
+            local config_apiToken
+            config_apiToken=$(${xui_folder}/x-ui setting -getApiToken | grep -Eo 'apiToken: .+' | awk '{print $2}')
+            : "${SSL_SCHEME:=https}"
+            : "${SSL_HOST:=${server_ip}}"
+            write_install_result "${config_username}" "${config_password}" "${existing_port}" \
+                "${existing_webBasePath}" "${SSL_SCHEME}" "${SSL_HOST}" "${config_apiToken}" "${XUI_DB_TYPE:-sqlite}"
         else
             echo -e "${green}Username, Password, and WebBasePath are properly set.${plain}"
         fi
@@ -990,7 +1478,7 @@ config_after_install() {
             echo -e "${yellow}Let's Encrypt now supports both domains and IP addresses!${plain}"
             echo ""
             prompt_and_setup_ssl "${existing_port}" "${existing_webBasePath}" "${server_ip}"
-            echo -e "${green}Access URL:  https://${SSL_HOST}:${existing_port}/${existing_webBasePath}${plain}"
+            echo -e "${green}Access URL:  ${SSL_SCHEME}://${SSL_HOST}:${existing_port}/${existing_webBasePath}${plain}"
         else
             echo -e "${green}SSL certificate already configured. No action needed.${plain}"
         fi
@@ -999,1288 +1487,505 @@ config_after_install() {
     ${xui_folder}/x-ui migrate
 }
 
-# ensure_amneziawg_current upgrades the AmneziaWG packages and says so when the
-# kernel module and the userspace tools disagree about their generation.
-#
-# The two halves come from one PPA but not always from one upstream commit: in
-# August 2026 the tools shipped 3.1 while the module was still 3.0. The panel
-# asks the tools what generation the host supports, wrote the 3.0 parameters
-# they advertise, and the module refused them — «awg setconf: Unable to modify
-# interface: Invalid argument», with the tunnel down and nothing in the log
-# naming the cause. Keeping both current is the only state that is coherent,
-# and when they still differ the operator needs to be told in words.
-#
-# Nothing here is fatal. A server whose PPA is unreachable keeps the AmneziaWG
-# it already has.
-ensure_amneziawg_current() {
-    command -v awg &>/dev/null || return 0
-    case "${release}" in
-        ubuntu | debian | armbian) ;;
-        *) return 0 ;;
-    esac
-
-    local pkgs=() p
-    for p in amneziawg amneziawg-dkms amneziawg-tools; do
-        dpkg -s "$p" &>/dev/null && pkgs+=("$p")
-    done
-    [[ ${#pkgs[@]} -gt 0 ]] || return 0
-
-    echo -e "${green}Checking AmneziaWG for updates...${plain}"
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -q &>/dev/null || true
-    # All of them in one transaction: upgrading the tools without the module is
-    # exactly the split this function exists to prevent.
-    apt-get install -y -q --only-upgrade "${pkgs[@]}" &>/dev/null || true
-
-    reload_amneziawg_module
-    warn_amneziawg_version_split
-}
-
-# reload_amneziawg_module swaps in a freshly built module without a reboot.
-#
-# A DKMS build lands on disk, but the running kernel goes on using the module it
-# already loaded — so an upgrade appears to do nothing until the machine is
-# restarted. Reloading is only safe while nothing is using it; when a tunnel is
-# up we say what is needed instead of tearing it down underneath the operator.
-reload_amneziawg_module() {
-    local users
-    users=$(lsmod 2>/dev/null | awk '$1 == "amneziawg" {print $3}')
-    [[ -n "$users" ]] || { modprobe amneziawg &>/dev/null || true; return 0; }
-
-    if [[ "$users" == "0" ]]; then
-        modprobe -r amneziawg &>/dev/null && modprobe amneziawg &>/dev/null || true
+# setup_fail2ban auto-installs and configures fail2ban for the IP Limit feature
+# by invoking the freshly installed x-ui CLI. IP Limit is load-bearing on
+# fail2ban (without it the panel disables the limitIp field and zeroes existing
+# limits), so a fresh install should make it work out of the box, just like the
+# Docker image already does. Non-fatal by design: a fail2ban failure must never
+# abort the panel install.
+setup_fail2ban() {
+    if [[ -n "${XUI_ENABLE_FAIL2BAN+x}" && "${XUI_ENABLE_FAIL2BAN}" != "true" ]]; then
+        echo -e "${yellow}XUI_ENABLE_FAIL2BAN=${XUI_ENABLE_FAIL2BAN}, skipping Fail2ban auto-setup.${plain}"
         return 0
     fi
-    echo -e "${yellow}The AmneziaWG module is in use, so the running kernel keeps the old one.${plain}"
-    echo -e "${yellow}It is picked up on the next reboot, or after: awg-quick down awg0 && modprobe -r amneziawg && modprobe amneziawg${plain}"
+
+    if [[ ! -x /usr/bin/x-ui ]]; then
+        echo -e "${yellow}x-ui CLI not found; skipping Fail2ban auto-setup.${plain}"
+        return 0
+    fi
+
+    # Scripts older than v3.4.0 have no setup-fail2ban and exit 0 from the
+    # usage banner, which would read as success here.
+    if ! grep -q '"setup-fail2ban")' /usr/bin/x-ui; then
+        echo -e "${yellow}This x-ui.sh predates 'x-ui setup-fail2ban'; skipping Fail2ban auto-setup.${plain}"
+        return 0
+    fi
+
+    echo -e "${green}Setting up Fail2ban for the IP Limit feature...${plain}"
+    if /usr/bin/x-ui setup-fail2ban; then
+        echo -e "${green}Fail2ban setup complete.${plain}"
+    else
+        echo -e "${yellow}Fail2ban setup did not finish; IP Limit stays disabled until you run 'x-ui' and open the IP Limit menu. Continuing.${plain}"
+    fi
+    return 0
 }
 
-# warn_amneziawg_version_split reports a module and tools that are not the same
-# generation, which the panel cannot tell from the outside.
-warn_amneziawg_version_split() {
-    local mod tools mod_gen tools_gen
-    mod=$(cat /sys/module/amneziawg/version 2>/dev/null ||
-        modinfo -F version amneziawg 2>/dev/null)
-    tools=$(awg --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-    [[ -n "$mod" && -n "$tools" ]] || return 0
-
-    # Compare major.minor only: the trailing build date moves on its own.
-    mod_gen=$(echo "$mod" | cut -d. -f1,2)
-    tools_gen=$(echo "$tools" | cut -d. -f1,2)
-    [[ "$mod_gen" == "$tools_gen" ]] && return 0
-
-    echo -e "${yellow}AmneziaWG halves are out of step: kernel module ${mod}, tools ${tools}.${plain}"
-    echo -e "${yellow}The panel offers whatever the older half supports, so the tunnel keeps working —${plain}"
-    echo -e "${yellow}but the newer features stay off until both are on the same generation.${plain}"
+# Major version of the local systemd, 0 when it cannot be determined. The
+# SystemCallFilter=@system-service group only exists from systemd 239 on (other
+# @-named groups exist since 231); on older versions an unknown group is not
+# ignored safely, the filter stays in force and leaves a whitelist the panel
+# cannot run under.
+_xui_systemd_major_version() {
+    local version=""
+    if command -v systemctl > /dev/null 2>&1; then
+        version="$(systemctl --version 2>/dev/null | awk 'NR == 1 {print $2}')"
+    fi
+    if [[ ! "$version" =~ ^[0-9]+$ ]]; then
+        echo 0
+        return 0
+    fi
+    echo "$version"
 }
 
-# prune_stale_amneziawg_dkms drops every amneziawg build in the DKMS tree except
-# the newest one.
-#
-# Upgrading the package normally removes its own predecessor, but a version left
-# behind by an interrupted upgrade — or a module someone built by hand before
-# the panel was installed — stays in the tree, gets rebuilt for every new kernel
-# from then on, and leaves two amneziawg.ko for depmod to choose between. The
-# symptom is a tunnel that works until a kernel update and then loads the wrong
-# module.
-prune_stale_amneziawg_dkms() {
-    command -v dkms &>/dev/null || return 0
-
-    local versions count newest
-    # dkms 2.x prints "amneziawg, 1.0.0, <kernel>, ..."; 3.x prints
-    # "amneziawg/1.0.0, <kernel>, ...". Both reduce to the version alone.
-    versions=$(dkms status amneziawg 2>/dev/null |
-        sed -E 's#^amneziawg[/,][[:space:]]*([^,]+),.*#\1#' | sort -Vu)
-    count=$(echo "$versions" | grep -c '[^[:space:]]')
-    [[ "$count" -gt 1 ]] || return 0
-
-    newest=$(echo "$versions" | tail -n1)
-    echo -e "${yellow}Several amneziawg versions found in the DKMS tree, keeping ${newest}:${plain}"
-    while read -r v; do
-        [[ -n "$v" && "$v" != "$newest" ]] || continue
-        echo -e "${yellow}  removing amneziawg/${v}${plain}"
-        dkms remove "amneziawg/${v}" --all &>/dev/null ||
-            dkms remove -m amneziawg -v "${v}" --all &>/dev/null || true
-    done <<<"$versions"
-    depmod -a &>/dev/null || true
+# The shipped units list hardening that older systemd does not know: the
+# directive is logged and ignored at load time rather than rejected, so the
+# panel still starts, only without that protection. Each entry is the systemd
+# release that introduced the directive (systemd.exec(5)); everything else in
+# the unit predates the oldest systemd install.sh supports (CentOS 7 has 219).
+# SystemCallFilter= is listed because the drop-in only writes it from 239 on.
+_xui_warn_unsupported_hardening() {
+    local version entry missing=""
+    version="$(_xui_systemd_major_version)"
+    [[ "$version" -gt 0 ]] || return 0
+    for entry in RestrictRealtime:231 ReadWritePaths:231 ProtectKernelTunables:232 \
+        ProtectKernelModules:232 RestrictNamespaces:233 LockPersonality:235 \
+        SystemCallFilter:239 ProtectHostname:242 RestrictSUIDSGID:242 \
+        ProtectKernelLogs:244 ProtectClock:245; do
+        if [[ "$version" -lt "${entry##*:}" ]]; then
+            missing="${missing:+$missing, }${entry%%:*} (${entry##*:})"
+        fi
+    done
+    [[ -n "$missing" ]] || return 0
+    echo -e "${yellow}Note: systemd ${version} ignores part of the hardening in x-ui.service; the panel still starts.${plain}"
+    echo "      Not applied, needs a newer systemd: ${missing}."
+    if [[ "$version" -lt 231 ]]; then
+        echo "      The panel's folders stay writable through ReadWriteDirectories=, the alias this script installs."
+    fi
+    echo "      The rest of the hardening is in force. Upgrade systemd to apply the above."
+    return 0
 }
 
-install_amneziawg() {
-    echo -e "${green}Installing AmneziaWG...${plain}"
+# ProtectSystem=full makes /usr, /boot, /efi and /etc read-only. ProtectSystem=
+# strict would make the whole hierarchy read-only (only the kernel API
+# filesystems stay as they are), and that would break the panel's own use of
+# /tmp. The panel's stores are configurable (XUI_DB_FOLDER, XUI_LOG_FOLDER,
+# XUI_BIN_FOLDER), and XUI_MAIN_FOLDER is the folder install.sh/update.sh place
+# the files in -- the unit's WorkingDirectory on a stock install, and what a
+# relative XUI_BIN_FOLDER is resolved against. So a hard-coded list in the unit
+# either misses a relocated store -- the panel then cannot write its own SQLite
+# database and sits in a Restart=on-failure loop -- or forces the operator to
+# edit a file that every install/update overwrites from the release tarball.
+# install.sh and update.sh therefore regenerate the drop-in from the folders
+# actually in use, and the unit's own ReadWritePaths only carry the
+# plain-install defaults. A relocated store means re-running install or update:
+# the drop-in is only written here.
+_xui_service_write_paths_dropin() {
+    # $1 is the env file to resolve the XUI_* folders from; callers pass nothing
+    # and get the OS-specific path the unit itself uses.
+    local env_file="${1:-}"
+    local dropin_dir dropin temp_file
+    local db_folder log_folder bin_folder main_folder
+    local path line="" whitespace_paths="" seen_paths="" escaped_path
 
-    # Install ndppd for IPv6 NDP proxy (needed for native public IPv6 to clients)
-    install_ndppd() {
+    if [[ -z "$env_file" ]]; then
         case "${release}" in
             ubuntu | debian | armbian)
-                apt-get install -y -q ndppd 2>/dev/null || true
-            ;;
-            fedora | amzn | rhel | almalinux | rocky | ol | centos)
-                dnf install -y ndppd 2>/dev/null || yum install -y ndppd 2>/dev/null || true
-            ;;
-            arch | manjaro | parch)
-                pacman -Syu --noconfirm ndppd 2>/dev/null || true
-            ;;
-        esac
-    }
-
-    # Enable IPv6 forwarding persistently
-    enable_ipv6_forwarding() {
-        if ! grep -q "net.ipv6.conf.all.forwarding" /etc/sysctl.conf 2>/dev/null; then
-            echo "net.ipv6.conf.all.forwarding = 1" >> /etc/sysctl.conf
-        fi
-        if ! grep -q "net.ipv4.ip_forward" /etc/sysctl.conf 2>/dev/null; then
-            echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-        fi
-        sysctl -p >/dev/null 2>&1 || true
-    }
-
-    # Suppress interactive prompts (including Secure Boot MOK dialog)
-    export DEBIAN_FRONTEND=noninteractive
-    export DEBCONF_NONINTERACTIVE_SEEN=true
-
-    # Try to install AmneziaWG kernel module + tools
-    # Method 1: official AmneziaVPN apt repo (Debian/Ubuntu)
-    if [[ "${release}" == "ubuntu" || "${release}" == "debian" || "${release}" == "armbian" ]]; then
-        if ! command -v awg &>/dev/null; then
-            # Pre-flight check: Launchpad PPA host is frequently blocked by
-            # hosting providers (especially Russian VPS). Probe before adding
-            # the PPA so the user gets a clear "skip or abort" prompt instead
-            # of waiting through several apt timeouts.
-            if ! check_url_or_skip "https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu/dists/focal/Release" "AmneziaWG (ppa.launchpadcontent.net)"; then
-                echo -e "${yellow}AmneziaWG installation skipped — install it manually later if needed:${plain}"
-                echo -e "${yellow}  https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
-                install_ndppd
-                return
-            fi
-            echo -e "${yellow}Installing amneziawg from ppa:amnezia/ppa...${plain}"
-            apt-get install -y -q software-properties-common python3-launchpadlib gnupg2 linux-headers-$(uname -r) 2>/dev/null || true
-            # Ensure deb-src is present (required for PPA DKMS build)
-            if ! grep -q "^deb-src" /etc/apt/sources.list 2>/dev/null; then
-                grep "^deb " /etc/apt/sources.list | sed 's/^deb /deb-src /' >> /etc/apt/sources.list
-            fi
-            if [[ "${release}" == "ubuntu" ]]; then
-                add-apt-repository -y ppa:amnezia/ppa 2>/dev/null && \
-                apt-get update -q && \
-                apt-get install -y amneziawg && \
-                echo -e "${green}AmneziaWG installed successfully via PPA.${plain}" || \
-                echo -e "${red}PPA install failed. Install amneziawg manually: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
-            elif [[ "${release}" == "debian" || "${release}" == "armbian" ]]; then
-                apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 57290828 2>/dev/null || true
-                echo "deb https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" >> /etc/apt/sources.list
-                echo "deb-src https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" >> /etc/apt/sources.list
-                apt-get update -q && \
-                apt-get install -y amneziawg && \
-                echo -e "${green}AmneziaWG installed successfully.${plain}" || \
-                echo -e "${red}Install failed. Install amneziawg manually: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
-            fi
-            if ! command -v awg &>/dev/null; then
-                echo -e "${yellow}Warning: 'awg' binary not found after installation.${plain}"
-                echo -e "${yellow}The panel will work but the tunnel will not start until you install amneziawg manually.${plain}"
-                echo -e "${yellow}See: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
-            fi
-            # Load kernel module immediately without requiring reboot
-            modprobe amneziawg 2>/dev/null || true
-        else
-            echo -e "${green}AmneziaWG (awg) already installed.${plain}"
-            # Already installed is not the same as up to date. Skipping here is
-            # how a server sat for a month on a kernel module older than its own
-            # tools, with the tunnel refusing to come up.
-            ensure_amneziawg_current
-        fi
-        install_ndppd
-    # Method 2: other distros — try to install wireguard as fallback
-    elif [[ "${release}" == "fedora" || "${release}" == "rhel" || "${release}" == "almalinux" || "${release}" == "rocky" || "${release}" == "ol" ]]; then
-        if ! command -v awg &>/dev/null; then
-            echo -e "${yellow}AmneziaWG not found. Installing WireGuard as fallback...${plain}"
-            dnf install -y wireguard-tools 2>/dev/null || yum install -y wireguard-tools 2>/dev/null || true
-            echo -e "${yellow}Note: For full AmneziaWG support install amneziawg-tools manually.${plain}"
-        fi
-        install_ndppd
-    elif [[ "${release}" == "arch" || "${release}" == "manjaro" || "${release}" == "parch" ]]; then
-        if ! command -v awg &>/dev/null; then
-            pacman -Syu --noconfirm wireguard-tools 2>/dev/null || true
-            # Try AUR amneziawg-dkms if yay/paru available
-            if command -v yay &>/dev/null; then
-                yay -S --noconfirm amneziawg-dkms amneziawg-tools 2>/dev/null || true
-            elif command -v paru &>/dev/null; then
-                paru -S --noconfirm amneziawg-dkms amneziawg-tools 2>/dev/null || true
-            fi
-        fi
-        install_ndppd
-    else
-        echo -e "${yellow}Unknown OS. Please install amneziawg-tools manually: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
-    fi
-
-    # Final check
-    if command -v awg &>/dev/null; then
-        echo -e "${green}awg: $(awg --version 2>/dev/null || echo 'installed')${plain}"
-    else
-        echo -e "${yellow}Warning: 'awg' binary not found. AmneziaWG panel features will work but${plain}"
-        echo -e "${yellow}the tunnel will not start until you install amneziawg-tools manually.${plain}"
-        echo -e "${yellow}See: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module${plain}"
-    fi
-
-    prune_stale_amneziawg_dkms
-    enable_ipv6_forwarding
-}
-
-config_awg_defaults() {
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-    echo -e "${green}     AmneziaWG Auto-Configuration          ${plain}"
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-
-    local db_path="/etc/x-ui/x-ui.db"
-    if [[ ! -f "$db_path" ]]; then
-        echo -e "${yellow}Database not found yet, skipping AWG auto-config.${plain}"
-        return
-    fi
-
-    # Check if sqlite3 is available, install if not
-    if ! command -v sqlite3 &>/dev/null; then
-        case "${release}" in
-            ubuntu | debian | armbian) apt-get install -y -q sqlite3 2>/dev/null ;;
-            fedora | amzn | rhel | almalinux | rocky | ol | centos) dnf install -y sqlite 2>/dev/null || yum install -y sqlite 2>/dev/null ;;
-            arch | manjaro | parch) pacman -Syu --noconfirm sqlite 2>/dev/null ;;
-            alpine) apk add sqlite 2>/dev/null ;;
-            *) apt-get install -y -q sqlite3 2>/dev/null ;;
-        esac
-    fi
-
-    if ! command -v sqlite3 &>/dev/null; then
-        echo -e "${yellow}sqlite3 not available, skipping AWG auto-config.${plain}"
-        return
-    fi
-
-    # Check if awg_servers table exists (may not exist on original 3AX-UI)
-    local table_exists=$(sqlite3 "$db_path" "SELECT name FROM sqlite_master WHERE type='table' AND name='awg_servers';" 2>/dev/null)
-    if [[ -z "$table_exists" ]]; then
-        echo -e "${yellow}AWG tables not found (new migration). They will be created on panel start.${plain}"
-        echo -e "${yellow}Skipping AWG auto-config — open the AmneziaWG page in the panel to configure.${plain}"
-        return
-    fi
-
-    # Skip if AWG server already configured (update scenario — do not overwrite)
-    local existing=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM awg_servers;" 2>/dev/null)
-    if [[ "$existing" -gt 0 ]]; then
-        echo -e "${green}AmneziaWG already configured, skipping.${plain}"
-        return
-    fi
-
-    # --- Detect server public IPv4 ---
-    local server_ipv4=""
-    local ipv4_urls=("https://api4.ipify.org" "https://ipv4.icanhazip.com" "https://4.ident.me")
-    for url in "${ipv4_urls[@]}"; do
-        server_ipv4=$(curl -4 -s --max-time 3 "$url" 2>/dev/null | tr -d '[:space:]')
-        if [[ -n "$server_ipv4" ]]; then break; fi
-    done
-    echo -e "  Detected server IPv4: ${green}${server_ipv4:-not found}${plain}"
-
-    # --- Detect default network interfaces ---
-    # IPv4 and IPv6 may be on different interfaces (e.g. eth0=IPv4, eth1=IPv6)
-    local ext_iface=""
-    local ext_iface_ipv4=""
-    local ext_iface_ipv6=""
-
-    ext_iface_ipv4=$(ip route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
-    ext_iface_ipv6=$(ip -6 route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
-
-    # If no IPv6 default route, scan all interfaces for global IPv6
-    if [[ -z "$ext_iface_ipv6" ]]; then
-        ext_iface_ipv6=$(ip -o -6 addr show scope global 2>/dev/null \
-            | awk '{print $2}' | grep -v '^lo$' | head -1)
-    fi
-
-    # Primary external interface: prefer the one with IPv6
-    ext_iface="${ext_iface_ipv6:-${ext_iface_ipv4:-eth0}}"
-
-    echo -e "  IPv4 interface:       ${green}${ext_iface_ipv4:-none}${plain}"
-    echo -e "  IPv6 interface:       ${green}${ext_iface_ipv6:-none}${plain}"
-    echo -e "  External interface:   ${green}${ext_iface}${plain}"
-
-    # --- Detect IPv6 ---
-    local server_ipv6=""
-    local ipv6_prefix=""
-    local ipv6_addr_on_iface=""
-    local ipv6_enabled=0
-
-    # Get the global (non-link-local) IPv6 address — try IPv6 interface first, then all
-    local ipv6_search_iface="${ext_iface_ipv6:-$ext_iface}"
-    ipv6_addr_on_iface=$(ip -6 addr show dev "$ipv6_search_iface" scope global 2>/dev/null \
-        | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
-    # If not found on specific iface, try any interface
-    if [[ -z "$ipv6_addr_on_iface" ]]; then
-        ipv6_addr_on_iface=$(ip -6 addr show scope global 2>/dev/null \
-            | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
-        # Update ext_iface_ipv6 to the interface where we found it
-        if [[ -n "$ipv6_addr_on_iface" ]]; then
-            local ipv6_bare="${ipv6_addr_on_iface%%/*}"
-            ext_iface_ipv6=$(ip -o -6 addr show scope global 2>/dev/null \
-                | grep "$ipv6_bare" | awk '{print $2}' | head -1)
-            ext_iface="${ext_iface_ipv6:-$ext_iface}"
-        fi
-    fi
-
-    if [[ -n "$ipv6_addr_on_iface" ]]; then
-        ipv6_enabled=1
-        server_ipv6="$ipv6_addr_on_iface"
-
-        # Extract base address and prefix length
-        local ipv6_base="${ipv6_addr_on_iface%%/*}"
-        local ipv6_mask="${ipv6_addr_on_iface##*/}"
-
-        echo -e "  Detected server IPv6: ${green}${server_ipv6}${plain}"
-
-        # Determine AWG IPv6 pool
-        # If server has /64 or larger, we allocate a /112 from it for AWG clients
-        # If server has /112 or smaller, we use the whole subnet
-        if [[ "$ipv6_mask" -le 64 ]]; then
-            # Use a /112 within the /64 for AWG
-            # Take the /64 prefix and append ::a00:0/112 to avoid conflicts with the main server address
-            local prefix64=$(echo "$ipv6_base" | sed -E 's/:[0-9a-f]*:[0-9a-f]*:[0-9a-f]*:[0-9a-f]*$//; s/::.*/::/;')
-            # Normalize: use sipcalc or manual approach
-            # Simpler: take first 4 groups of the IPv6 address for the /64 prefix
-            prefix64=$(python3 -c "
-import ipaddress
-addr = ipaddress.ip_address('${ipv6_base}')
-net = ipaddress.ip_network(str(addr) + '/${ipv6_mask}', strict=False)
-# Get the network address of the /64
-net64 = ipaddress.ip_network(str(net.network_address) + '/64', strict=False)
-print(str(net64.network_address))
-" 2>/dev/null)
-            if [[ -n "$prefix64" ]]; then
-                ipv6_prefix="${prefix64%::}:a00::/112"
-                local awg_server_ipv6="${prefix64%::}:a00::1/112"
-            else
-                # Fallback: disable IPv6 auto-config
-                ipv6_enabled=0
-                echo -e "  ${yellow}Could not parse IPv6 prefix, disabling IPv6 auto-config.${plain}"
-            fi
-        else
-            # Subnet is /112 or smaller — use it directly
-            ipv6_prefix=$(python3 -c "
-import ipaddress
-net = ipaddress.ip_network('${ipv6_addr_on_iface}', strict=False)
-print(str(net))
-" 2>/dev/null)
-            local awg_server_ipv6=$(python3 -c "
-import ipaddress
-net = ipaddress.ip_network('${ipv6_addr_on_iface}', strict=False)
-first = net.network_address + 1
-print(str(first) + '/' + str(net.prefixlen))
-" 2>/dev/null)
-        fi
-
-        if [[ "$ipv6_enabled" -eq 1 ]]; then
-            echo -e "  AWG IPv6 pool:        ${green}${ipv6_prefix}${plain}"
-            echo -e "  AWG IPv6 server addr: ${green}${awg_server_ipv6}${plain}"
-        fi
-    else
-        echo -e "  IPv6: ${yellow}not detected on any interface${plain}"
-    fi
-
-    # --- Detect IPv6 gateway ---
-    local ipv6_gateway=""
-    if [[ "$ipv6_enabled" -eq 1 ]]; then
-        ipv6_gateway=$(ip -6 route show default 2>/dev/null | grep -oP 'via \K\S+' | head -1)
-        if [[ -n "$ipv6_gateway" ]]; then
-            echo -e "  IPv6 gateway:         ${green}${ipv6_gateway}${plain}"
-        fi
-    fi
-
-    # --- Generate WireGuard keys for server ---
-    local server_privkey=""
-    local server_pubkey=""
-    if command -v awg &>/dev/null; then
-        server_privkey=$(awg genkey 2>/dev/null)
-        server_pubkey=$(echo "$server_privkey" | awg pubkey 2>/dev/null)
-    elif command -v wg &>/dev/null; then
-        server_privkey=$(wg genkey 2>/dev/null)
-        server_pubkey=$(echo "$server_privkey" | wg pubkey 2>/dev/null)
-    fi
-
-    if [[ -z "$server_privkey" ]]; then
-        echo -e "  ${yellow}Cannot generate keys (awg/wg not found). Keys will be generated by the panel on first access.${plain}"
-    else
-        echo -e "  Server keys:          ${green}generated${plain}"
-    fi
-
-    # --- Find random free port for AWG ---
-    local awg_port
-    awg_port=$(pick_random_port 10000 65535)
-    if [[ -z "$awg_port" ]]; then
-        echo -e "  ${red}Failed to select a free AWG listen port.${plain}"
-        return 1
-    fi
-    echo -e "  AWG listen port:      ${green}${awg_port}${plain}"
-
-    # --- Endpoint ---
-    local endpoint="${server_ipv4}"
-    if [[ -z "$endpoint" ]]; then
-        endpoint=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
-    fi
-
-    local ipv4_iface="${ext_iface_ipv4:-$ext_iface}"
-    local ipv6_iface="${ext_iface_ipv6:-$ext_iface}"
-
-    # PostUp/PostDown are left empty in the DB — the Go code auto-generates
-    # them dynamically (including NDP proxy entries per client) each time
-    # the server config is applied. This ensures rules are always correct
-    # and include NDP proxy for every active client.
-
-    # --- Write defaults to DB ---
-    echo -e ""
-    echo -e "${green}Writing AmneziaWG defaults to database...${plain}"
-
-    local now_ms=$(date +%s%3N 2>/dev/null || echo "$(date +%s)000")
-
-    # Delete any default row the panel may have auto-created at startup,
-    # then insert the properly configured one.
-    sqlite3 "$db_path" "DELETE FROM awg_servers;" 2>/dev/null
-    sqlite3 "$db_path" "INSERT INTO awg_servers (
-        enable, interface_name, listen_port, mtu,
-        private_key, public_key,
-        ipv4_address, ipv4_pool,
-        ipv6_enabled, ipv6_address, ipv6_pool, ipv6_gateway,
-        jc, jmin, jmax, s1, s2, h1, h2, h3, h4,
-        dns_ipv4, dns_ipv6, external_interface, ipv6_external_interface,
-        post_up, post_down, endpoint,
-        created_at, updated_at
-    ) VALUES (
-        0, 'awg0', ${awg_port}, 1420,
-        '${server_privkey}', '${server_pubkey}',
-        '10.66.66.1/24', '10.66.66.0/24',
-        ${ipv6_enabled}, '${awg_server_ipv6:-}', '${ipv6_prefix:-}', '${ipv6_gateway:-}',
-        4, 50, 1000, 0, 0, 1, 2, 3, 4,
-        '1.1.1.1', '2606:4700:4700::1111', '${ipv4_iface}', '${ipv6_iface}',
-        '', '', '${endpoint}',
-        ${now_ms}, ${now_ms}
-    );" 2>/dev/null
-
-    if [[ $? -eq 0 ]]; then
-        echo -e "${green}AmneziaWG configured successfully!${plain}"
-        # Fresh install only (this whole block is skipped when a server already
-        # exists), so default new setups to AmneziaWG 2.0 obfuscation.
-        ${xui_folder}/x-ui awg-gen2 >/dev/null 2>&1 && echo -e "${green}  AmneziaWG 2.0 obfuscation parameters generated.${plain}"
-        echo -e ""
-        echo -e "${green}═══════════════════════════════════════════${plain}"
-        echo -e "  Interface:    awg0"
-        echo -e "  Listen port:  ${awg_port}"
-        echo -e "  Endpoint:     ${endpoint}"
-        echo -e "  IPv4 pool:    10.66.66.0/24"
-        if [[ "$ipv6_enabled" -eq 1 ]]; then
-            echo -e "  IPv6 pool:    ${ipv6_prefix}"
-            echo -e "  IPv6 mode:    ${green}Native public addresses (NDP proxy)${plain}"
-        else
-            echo -e "  IPv6:         ${yellow}disabled (no IPv6 detected)${plain}"
-        fi
-        echo -e "${green}═══════════════════════════════════════════${plain}"
-        echo -e ""
-        echo -e "  Open the panel → ${blue}AmneziaWG${plain} page to enable and manage clients."
-        echo -e ""
-    else
-        echo -e "${yellow}Failed to write AWG defaults (table may not exist yet).${plain}"
-        echo -e "${yellow}AWG will be configured on first panel access.${plain}"
-    fi
-}
-
-install_wireguard_native() {
-    echo -e "${green}Installing WireGuard Native (wireguard-tools)...${plain}"
-
-    if command -v wg &>/dev/null; then
-        echo -e "${green}WireGuard (wg) already installed.${plain}"
-        modprobe wireguard 2>/dev/null || true
-        return
-    fi
-
-    case "${release}" in
-        ubuntu | debian | armbian)
-            apt-get install -y -q wireguard-tools 2>/dev/null || true
-            ;;
-        fedora | amzn | rhel | almalinux | rocky | ol | centos)
-            dnf install -y wireguard-tools 2>/dev/null || yum install -y wireguard-tools 2>/dev/null || true
-            ;;
-        arch | manjaro | parch)
-            pacman -Syu --noconfirm wireguard-tools 2>/dev/null || true
-            ;;
-        alpine)
-            apk add wireguard-tools 2>/dev/null || true
-            ;;
-        *)
-            echo -e "${yellow}Unknown OS. Please install wireguard-tools manually.${plain}"
-            ;;
-    esac
-
-    modprobe wireguard 2>/dev/null || true
-
-    if command -v wg &>/dev/null; then
-        echo -e "${green}wg: $(wg --version 2>/dev/null || echo 'installed')${plain}"
-    else
-        echo -e "${yellow}Warning: 'wg' binary not found after installation.${plain}"
-        echo -e "${yellow}The panel will work but the WireGuard Native tunnel will not start.${plain}"
-        echo -e "${yellow}Install wireguard-tools manually for your distribution.${plain}"
-    fi
-}
-
-config_wg_defaults() {
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-    echo -e "${green}     WireGuard Native Auto-Configuration   ${plain}"
-    echo -e "${green}═══════════════════════════════════════════${plain}"
-
-    local db_path="/etc/x-ui/x-ui.db"
-    if [[ ! -f "$db_path" ]]; then
-        echo -e "${yellow}Database not found yet, skipping WG auto-config.${plain}"
-        return
-    fi
-
-    if ! command -v sqlite3 &>/dev/null; then
-        echo -e "${yellow}sqlite3 not available, skipping WG auto-config.${plain}"
-        return
-    fi
-
-    local table_exists=$(sqlite3 "$db_path" "SELECT name FROM sqlite_master WHERE type='table' AND name='wg_servers';" 2>/dev/null)
-    if [[ -z "$table_exists" ]]; then
-        echo -e "${yellow}WG tables not found (new migration). They will be created on panel start.${plain}"
-        echo -e "${yellow}Skipping WG auto-config — open the WG Settings page in the panel to configure.${plain}"
-        return
-    fi
-
-    local existing=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM wg_servers;" 2>/dev/null)
-    if [[ "$existing" -gt 0 ]]; then
-        echo -e "${green}WireGuard Native already configured, skipping.${plain}"
-        return
-    fi
-
-    # --- Detect server public IPv4 ---
-    local server_ipv4=""
-    local ipv4_urls=("https://api4.ipify.org" "https://ipv4.icanhazip.com" "https://4.ident.me")
-    for url in "${ipv4_urls[@]}"; do
-        server_ipv4=$(curl -4 -s --max-time 3 "$url" 2>/dev/null | tr -d '[:space:]')
-        if [[ -n "$server_ipv4" ]]; then break; fi
-    done
-
-    # --- Detect network interfaces ---
-    local ext_iface_ipv4=""
-    local ext_iface_ipv6=""
-    ext_iface_ipv4=$(ip route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
-    ext_iface_ipv6=$(ip -6 route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
-    if [[ -z "$ext_iface_ipv6" ]]; then
-        ext_iface_ipv6=$(ip -o -6 addr show scope global 2>/dev/null | awk '{print $2}' | grep -v '^lo$' | head -1)
-    fi
-    local ext_iface="${ext_iface_ipv6:-${ext_iface_ipv4:-eth0}}"
-
-    # --- Detect IPv6 ---
-    local ipv6_enabled=0
-    local server_ipv6=""
-    local ipv6_prefix=""
-    local wg_server_ipv6=""
-    local ipv6_gateway=""
-    local ipv6_search_iface="${ext_iface_ipv6:-$ext_iface}"
-    local ipv6_addr_on_iface=""
-    ipv6_addr_on_iface=$(ip -6 addr show dev "$ipv6_search_iface" scope global 2>/dev/null \
-        | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
-    if [[ -z "$ipv6_addr_on_iface" ]]; then
-        ipv6_addr_on_iface=$(ip -6 addr show scope global 2>/dev/null \
-            | grep -oP 'inet6\s+\K[0-9a-f:]+/\d+' | head -1)
-    fi
-
-    if [[ -n "$ipv6_addr_on_iface" ]]; then
-        ipv6_enabled=1
-        server_ipv6="$ipv6_addr_on_iface"
-        local ipv6_base="${ipv6_addr_on_iface%%/*}"
-        local ipv6_mask="${ipv6_addr_on_iface##*/}"
-        if [[ "$ipv6_mask" -le 64 ]]; then
-            local prefix64=$(python3 -c "
-import ipaddress
-addr = ipaddress.ip_address('${ipv6_base}')
-net = ipaddress.ip_network(str(addr) + '/${ipv6_mask}', strict=False)
-net64 = ipaddress.ip_network(str(net.network_address) + '/64', strict=False)
-print(str(net64.network_address))
-" 2>/dev/null)
-            if [[ -n "$prefix64" ]]; then
-                ipv6_prefix="${prefix64%::}:b00::/112"
-                wg_server_ipv6="${prefix64%::}:b00::1/112"
-            else
-                ipv6_enabled=0
-            fi
-        else
-            ipv6_prefix=$(python3 -c "
-import ipaddress
-net = ipaddress.ip_network('${ipv6_addr_on_iface}', strict=False)
-print(str(net))
-" 2>/dev/null)
-            wg_server_ipv6=$(python3 -c "
-import ipaddress
-net = ipaddress.ip_network('${ipv6_addr_on_iface}', strict=False)
-first = net.network_address + 1
-print(str(first) + '/' + str(net.prefixlen))
-" 2>/dev/null)
-        fi
-        if [[ "$ipv6_enabled" -eq 1 ]]; then
-            ipv6_gateway=$(ip -6 route show default 2>/dev/null | grep -oP 'via \K\S+' | head -1)
-        fi
-    fi
-
-    # --- Generate WireGuard keys ---
-    local server_privkey=""
-    local server_pubkey=""
-    if command -v wg &>/dev/null; then
-        server_privkey=$(wg genkey 2>/dev/null)
-        server_pubkey=$(echo "$server_privkey" | wg pubkey 2>/dev/null)
-    elif command -v awg &>/dev/null; then
-        server_privkey=$(awg genkey 2>/dev/null)
-        server_pubkey=$(echo "$server_privkey" | awg pubkey 2>/dev/null)
-    fi
-
-    if [[ -z "$server_privkey" ]]; then
-        echo -e "  ${yellow}Cannot generate keys. Keys will be generated by the panel on first access.${plain}"
-    else
-        echo -e "  Server keys:          ${green}generated${plain}"
-    fi
-
-    # --- Find random free port for WG ---
-    local wg_port
-    wg_port=$(pick_random_port 10000 65535 "${awg_port}")
-    if [[ -z "$wg_port" ]]; then
-        echo -e "  ${red}Failed to select a free WG listen port.${plain}"
-        return 1
-    fi
-    echo -e "  WG listen port:       ${green}${wg_port}${plain}"
-
-    local endpoint="${server_ipv4}"
-    if [[ -z "$endpoint" ]]; then
-        endpoint=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
-    fi
-
-    local ipv4_iface="${ext_iface_ipv4:-$ext_iface}"
-    local ipv6_iface="${ext_iface_ipv6:-$ext_iface}"
-
-    echo -e ""
-    echo -e "${green}Writing WireGuard Native defaults to database...${plain}"
-
-    local now_ms=$(date +%s%3N 2>/dev/null || echo "$(date +%s)000")
-
-    sqlite3 "$db_path" "DELETE FROM wg_servers;" 2>/dev/null
-    sqlite3 "$db_path" "INSERT INTO wg_servers (
-        enable, interface_name, listen_port, mtu,
-        private_key, public_key,
-        ipv4_address, ipv4_pool,
-        ipv6_enabled, ipv6_address, ipv6_pool, ipv6_gateway,
-        dns_ipv4, dns_ipv6, external_interface, ipv6_external_interface,
-        post_up, post_down, endpoint,
-        created_at, updated_at
-    ) VALUES (
-        0, 'wg0', ${wg_port}, 1420,
-        '${server_privkey}', '${server_pubkey}',
-        '10.77.77.1/24', '10.77.77.0/24',
-        ${ipv6_enabled}, '${wg_server_ipv6:-}', '${ipv6_prefix:-}', '${ipv6_gateway:-}',
-        '1.1.1.1', '2606:4700:4700::1111', '${ipv4_iface}', '${ipv6_iface}',
-        '', '', '${endpoint}',
-        ${now_ms}, ${now_ms}
-    );" 2>/dev/null
-
-    if [[ $? -eq 0 ]]; then
-        echo -e "${green}WireGuard Native configured successfully!${plain}"
-        echo -e ""
-        echo -e "${green}═══════════════════════════════════════════${plain}"
-        echo -e "  Interface:    wg0"
-        echo -e "  Listen port:  ${wg_port}"
-        echo -e "  Endpoint:     ${endpoint}"
-        echo -e "  IPv4 pool:    10.77.77.0/24"
-        if [[ "$ipv6_enabled" -eq 1 ]]; then
-            echo -e "  IPv6 pool:    ${ipv6_prefix}"
-            echo -e "  IPv6 mode:    ${green}Native public addresses (NDP proxy)${plain}"
-        else
-            echo -e "  IPv6:         ${yellow}disabled (no IPv6 detected)${plain}"
-        fi
-        echo -e "${green}═══════════════════════════════════════════${plain}"
-        echo -e ""
-        echo -e "  Open the panel → ${blue}WG Settings${plain} page to enable and manage clients."
-        echo -e ""
-    else
-        echo -e "${yellow}Failed to write WG defaults (table may not exist yet).${plain}"
-        echo -e "${yellow}WG will be configured on first panel access.${plain}"
-    fi
-}
-
-# Translates the panel's arch label to xray-core's release naming so we can
-# fetch the right Xray-linux-{ARCH}.zip from XTLS/Xray-core releases.
-# install_nginx puts nginx on the server so the panel can consolidate every TLS
-# protocol onto port 443. It is installed unconditionally, before the panel, for
-# the same reason AmneziaWG is: the panel decides on first start what it can
-# offer, and a front-end that appears only after the next update is a front-end
-# nobody finds.
-#
-# Nothing here fails the installation. A server without nginx keeps working
-# exactly as before — it simply cannot hide its protocols behind one port.
-install_nginx() {
-    if command -v nginx &>/dev/null; then
-        echo -e "${green}nginx already installed: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
-    else
-        echo -e "${green}Installing nginx...${plain}"
-        case "${release}" in
-            ubuntu | debian | armbian)
-                # On Debian and its derivatives the stream module is a separate
-                # package, and without it nginx cannot split 443 by SNI at all.
-                apt-get install -y -q nginx libnginx-mod-stream 2>/dev/null ||
-                    apt-get install -y -q nginx 2>/dev/null || true
+                env_file="/etc/default/x-ui"
                 ;;
-            fedora | amzn | rhel | almalinux | rocky | ol | centos)
-                dnf install -y nginx nginx-mod-stream 2>/dev/null ||
-                    dnf install -y nginx 2>/dev/null ||
-                    yum install -y nginx 2>/dev/null || true
-                ;;
-            arch | manjaro | parch)
-                pacman -Syu --noconfirm nginx 2>/dev/null || true
-                ;;
-            alpine)
-                apk add nginx nginx-mod-stream 2>/dev/null || apk add nginx 2>/dev/null || true
+            arch | manjaro | parch | alpine)
+                env_file="/etc/conf.d/x-ui"
                 ;;
             *)
-                echo -e "${yellow}Unknown OS — install nginx by hand to use the «everything on 443» modes.${plain}"
+                env_file="/etc/sysconfig/x-ui"
                 ;;
         esac
     fi
-
-    if ! command -v nginx &>/dev/null; then
-        echo -e "${yellow}nginx was not installed. The panel works as before; the Nginx page will${plain}"
-        echo -e "${yellow}stay unavailable until nginx is installed.${plain}"
-        return
+    if [[ -r "$env_file" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        source "$env_file"
+        set +a
     fi
 
-    # The panel owns this directory: a distro's nginx.conf includes conf.d from
-    # inside http {}, where a stream block is a syntax error, so the stream part
-    # of the config needs a home of its own.
-    mkdir -p /etc/nginx/stream-enabled /usr/local/x-ui/www
-
-    if ! nginx -V 2>&1 | grep -q -- '--with-stream' &&
-        ! ls /etc/nginx/modules-enabled/*stream*.conf &>/dev/null; then
-        echo -e "${yellow}This nginx has no stream module, so port 443 cannot be split by server name.${plain}"
-        case "${release}" in
-            ubuntu | debian | armbian) echo -e "${yellow}  Fix: apt-get install -y libnginx-mod-stream${plain}" ;;
-            alpine) echo -e "${yellow}  Fix: apk add nginx-mod-stream${plain}" ;;
-            *) echo -e "${yellow}  Install the nginx stream module for your distribution.${plain}" ;;
-        esac
+    # XUI_* wins over the script's own default: the unit hands that same env
+    # file to the panel through EnvironmentFile=, so these are the folders it
+    # will actually use.
+    main_folder="${XUI_MAIN_FOLDER:-${xui_folder}}"
+    db_folder="${XUI_DB_FOLDER:-/etc/x-ui}"
+    log_folder="${XUI_LOG_FOLDER:-/var/log/x-ui}"
+    # An empty XUI_BIN_FOLDER resolves to "bin" relative to the panel's working
+    # directory, which the unit sets to the main folder.
+    bin_folder="${XUI_BIN_FOLDER:-bin}"
+    if [[ "$bin_folder" != /* ]]; then
+        bin_folder="${main_folder%/}/${bin_folder#./}"
     fi
 
-    # A configuration the panel generated earlier may not be accepted by a newer
-    # nginx. Saying so here is the difference between a five-minute fix and a
-    # server where 443 is quietly down after an update.
-    if ! nginx -t &>/dev/null; then
-        echo -e "${red}nginx refuses the current configuration:${plain}"
-        nginx -t 2>&1 | sed 's/^/    /'
-        echo -e "${yellow}Port 443 stays down until this is fixed. The panel rewrites its own part${plain}"
-        echo -e "${yellow}of the config from the Nginx page — reapplying the mode there is usually enough.${plain}"
-        return
-    fi
-
-    # A server that reboots without nginx comes back with 443 shut and every
-    # protocol behind it unreachable.
-    if command -v systemctl &>/dev/null; then
-        systemctl enable nginx &>/dev/null || true
-        systemctl start nginx &>/dev/null || systemctl reload nginx &>/dev/null || true
-    elif command -v rc-update &>/dev/null; then
-        rc-update add nginx default &>/dev/null || true
-        rc-service nginx start &>/dev/null || true
-    fi
-
-    echo -e "${green}nginx: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
-}
-
-xray_release_arch() {
-    case "$(arch)" in
-        amd64) echo "64" ;;
-        386) echo "32" ;;
-        arm64) echo "arm64-v8a" ;;
-        armv7) echo "arm32-v7a" ;;
-        armv6) echo "arm32-v6" ;;
-        armv5) echo "arm32-v5" ;;
-        s390x) echo "s390x" ;;
-        *) echo "" ;;
-    esac
-}
-
-# Translates the panel's arch label to the filename Go uses for the bundled
-# xray binary inside the panel installation (panel looks up
-# bin/xray-linux-{FNAME}).
-xray_panel_arch() {
-    case "$(arch)" in
-        amd64) echo "amd64" ;;
-        386) echo "386" ;;
-        arm64) echo "arm64" ;;
-        armv7|armv6|armv5) echo "arm" ;;
-        s390x) echo "s390x" ;;
-        *) echo "" ;;
-    esac
-}
-
-# Pinned mtg (MTProto FakeTLS sidecar, github.com/9seconds/mtg) version.
-MTG_VER="2.2.8"
-
-# Pinned xray-core (github.com/XTLS/Xray-core) version. One source of truth:
-# it builds the download URL and decides whether the copy already on disk is
-# worth replacing.
-XRAY_VER="26.3.27"
-
-# installed_xray_version prints the version of the xray binary at $1, or
-# nothing when there is no binary to ask.
-installed_xray_version() {
-    local bin="$1"
-    [[ -x "$bin" ]] || return 1
-    "$bin" -version 2>/dev/null | head -n1 | awk '{print $2}'
-}
-
-# xray_is_current reports whether the binary at $1 is already the pinned
-# release or newer. Newer counts: an operator who upgraded xray by hand is not
-# asking for it to be put back.
-xray_is_current() {
-    local have
-    have=$(installed_xray_version "$1") || return 1
-    [[ -n "$have" ]] || return 1
-    [[ "$(printf '%s\n%s\n' "$XRAY_VER" "$have" | sort -V | head -n1)" == "$XRAY_VER" ]]
-}
-
-# fetch_geo_file refreshes one geo-data file, and only when the server has
-# something newer. The six of them come to about 145 MB, which used to be
-# downloaded again on every single update.
-#
-# `-z` sends If-Modified-Since from the file's timestamp and `-R` sets that
-# timestamp from the server's Last-Modified — the two are a pair, and without
-# the second the first has nothing to ask about. A 304 leaves the file on disk
-# untouched.
-#
-# The reachability prompt is only for a file we do not have. Once there is a
-# usable copy, a server that cannot be reached is not worth stopping an update
-# over.
-fetch_geo_file() {
-    local dest="$1" url="$2" label="$3" code
-    if [[ ! -f "$dest" ]]; then
-        check_url_or_skip "$url" "$label" || return 0
-        if ${curl_bin:-curl} -4sfLRo "$dest" "$url"; then
-            echo -e "  ${label}: downloaded"
-        else
-            echo -e "  ${yellow}${label}: could not be downloaded${plain}"
+    for path in "$db_folder" "$log_folder" "$bin_folder" "$main_folder"; do
+        [[ "$path" == /* ]] || continue
+        # ReadWritePaths= is a whitespace-separated list, and a folder whose
+        # name contains whitespace cannot be written into it without relying on
+        # quoting. A wrong entry makes systemd reject the whole drop-in and the
+        # panel would not start, so leave such a folder out and say so instead.
+        if [[ "$path" != "${path//[[:space:]]/}" ]]; then
+            whitespace_paths="${whitespace_paths:+$whitespace_paths }$path"
+            continue
         fi
-        return 0
+        case " $seen_paths " in
+            *" $path "*) continue ;;
+        esac
+        seen_paths="${seen_paths}${seen_paths:+ }$path"
+        # systemd expands %-specifiers in unit files, so a folder name carrying
+        # a literal % has to be written as %%, or the entry stops naming the
+        # folder systemd is meant to keep writable.
+        escaped_path="${path//%/%%}"
+        line="${line} -${escaped_path}"
+    done
+    if [[ -n "$whitespace_paths" ]]; then
+        echo "Warning: these folders contain whitespace and were left out of" >&2
+        echo "         10-xui-sandbox.conf: $whitespace_paths" >&2
+        echo "         The panel cannot write to them under the unit's sandbox." >&2
     fi
-    code=$(${curl_bin:-curl} -4sfLR -z "$dest" -o "$dest" -w '%{http_code}' "$url" 2>/dev/null)
-    case "$code" in
-        304) echo -e "  ${label}: up to date" ;;
-        200) echo -e "  ${green}${label}: updated${plain}" ;;
-        *)   echo -e "  ${yellow}${label}: kept the copy on disk (HTTP ${code:-none})${plain}" ;;
-    esac
-}
+    line="${line# }"
+    [[ -n "$line" ]] || return 1
 
-# Translates the panel's arch label to mtg's release-asset arch
-# (mtg-${MTG_VER}-linux-{ARCH}.tar.gz). Empty when 9seconds/mtg ships no
-# compatible binary for this arch (s390x has none; armv5 falls back to the
-# armv6 build, which true ARMv5 hardware may not run — that hardware is
-# effectively extinct, so this is a deliberate best-effort).
-mtg_release_arch() {
-    case "$(arch)" in
-        amd64) echo "amd64" ;;
-        386) echo "386" ;;
-        arm64) echo "arm64" ;;
-        armv7) echo "armv7" ;;
-        armv6|armv5) echo "armv6" ;;
-        *) echo "" ;;
-    esac
-}
+    dropin_dir="${xui_service}/x-ui.service.d"
+    dropin="${dropin_dir}/10-xui-sandbox.conf"
+    temp_file="${dropin}.tmp.$$"
 
-# Translates the panel's arch label to the filename Go's mtproto package looks
-# up at runtime: bin/mtg-linux-{FNAME} where FNAME == runtime.GOARCH (so all
-# 32-bit arm variants collapse to "arm", matching xray_panel_arch).
-mtg_panel_arch() {
-    case "$(arch)" in
-        amd64) echo "amd64" ;;
-        386) echo "386" ;;
-        arm64) echo "arm64" ;;
-        armv7|armv6|armv5) echo "arm" ;;
-        *) echo "" ;;
-    esac
-}
-
-# mtg-multi (dolonet/mtg-multi) is the multi-user fork — many client secrets on
-# one port. It ships prebuilt only for linux amd64/arm64; other arches fall back
-# to single-secret mtg. Empty when no mtg-multi binary exists for this arch.
-mtg_multi_arch() {
-    case "$(arch)" in
-        amd64) echo "amd64" ;;
-        arm64) echo "arm64" ;;
-        *) echo "" ;;
-    esac
-}
-
-# Installs mtg-multi (latest release) as bin/mtg-multi-linux-{FNAME}. Returns 0
-# on success, 1 otherwise (caller then falls back to single-secret mtg).
-install_mtg_multi() {
-    local target_bin_dir="$1"
-    local mm_arch mm_fname mm_ver mm_url tmp_tgz tmp_dir extracted installed_bin installed_ver
-    mm_arch=$(mtg_multi_arch)
-    mm_fname=$(mtg_panel_arch)
-    [[ -z "$mm_arch" || -z "$mm_fname" ]] && return 1
-    installed_bin="$target_bin_dir/mtg-multi-linux-${mm_fname}"
-    # Resolve the latest mtg-multi tag (the user opted for "always latest").
-    mm_ver=$(curl -4 -Ls "https://api.github.com/repos/dolonet/mtg-multi/releases/latest" 2>/dev/null \
-        | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/' | head -n1)
-    if [[ -f "$installed_bin" ]]; then
-        chmod +x "$installed_bin"
-        # Keep the existing binary if we can't resolve the latest or it's current.
-        [[ -z "$mm_ver" ]] && return 0
-        installed_ver=$("$installed_bin" --version 2>/dev/null | awk '{print $1}')
-        [[ "$installed_ver" == "$mm_ver" ]] && return 0
-        echo -e "${green}Updating mtg-multi ${installed_ver:-unknown} -> ${mm_ver}...${plain}"
+    mkdir -p "$dropin_dir" || return 1
+    cat > "$temp_file" << EOF
+# Regenerated by install.sh/update.sh on every install and update: edits here
+# are lost, and the list only reflects the XUI_* variables read from
+# ${env_file} at that moment. Re-run install/update after moving a store.
+# It lists the folders the panel writes to. Put local additions in their own
+# drop-in, for example 20-x-ui-local.conf, which nothing here touches.
+[Service]
+ReadWritePaths=${line}
+ReadWriteDirectories=${line}
+EOF
+    if [[ "$(_xui_systemd_major_version)" -ge 239 ]]; then
+        cat >> "$temp_file" << 'EOF'
+# @system-service needs systemd >= 239; on older versions the unknown group
+# would leave the panel with a filter it cannot start under (x-ui.service.*).
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+EOF
     fi
-    [[ -z "$mm_ver" ]] && return 1
-    mm_url="https://github.com/dolonet/mtg-multi/releases/download/v${mm_ver}/mtg-multi-${mm_ver}-linux-${mm_arch}.tar.gz"
-    echo -e "${green}Downloading mtg-multi (multi-user MTProto) ${mm_url}...${plain}"
-    tmp_tgz="/tmp/mtgmulti.$$.tar.gz"
-    tmp_dir="/tmp/mtgmulti.$$.d"
-    if ! curl -4fLRo "$tmp_tgz" "$mm_url"; then
-        rm -f "$tmp_tgz"
+    if [[ ! -s "$temp_file" ]]; then
+        rm -f "$temp_file"
         return 1
     fi
-    mkdir -p "$tmp_dir" "$target_bin_dir"
-    if tar -xzf "$tmp_tgz" -C "$tmp_dir" 2>/dev/null; then
-        extracted=$(find "$tmp_dir" -type f -name mtg-multi 2>/dev/null | head -n1)
-        if [[ -n "$extracted" ]]; then
-            mv -f "$extracted" "$target_bin_dir/mtg-multi-linux-${mm_fname}"
-            chmod +x "$target_bin_dir/mtg-multi-linux-${mm_fname}"
-            # A leftover single-secret mtg would be ignored (mtg-multi is preferred)
-            # but remove it to keep detection unambiguous.
-            rm -f "$target_bin_dir/mtg-linux-${mm_fname}" 2>/dev/null
-            echo -e "${green}  mtg-multi installed as bin/mtg-multi-linux-${mm_fname} (multi-user MTProto).${plain}"
-            rm -rf "$tmp_tgz" "$tmp_dir"
-            return 0
-        fi
+    chmod 644 "$temp_file"
+    mv -f "$temp_file" "$dropin" || { rm -f "$temp_file"; return 1; }
+    if command -v systemctl > /dev/null 2>&1; then
+        systemctl daemon-reload > /dev/null 2>&1 || true
     fi
-    rm -rf "$tmp_tgz" "$tmp_dir"
-    return 1
-}
-
-# Installs the MTProto sidecar into the given bin dir: prefer the multi-user
-# mtg-multi fork (amd64/arm64), else single-secret mtg. The panel detects which
-# binary is present and adapts. Fully non-fatal: any failure prints a notice and
-# returns 0 so the install proceeds (MTProto inbounds simply won't start).
-install_mtg() {
-    local target_bin_dir="$1"
-    local mtg_arch mtg_fname mtg_url tmp_tgz tmp_dir extracted
-    # Prefer multi-user mtg-multi where it ships a prebuilt binary.
-    if install_mtg_multi "$target_bin_dir"; then
-        return 0
-    fi
-    mtg_arch=$(mtg_release_arch)
-    mtg_fname=$(mtg_panel_arch)
-    if [[ -z "$mtg_arch" || -z "$mtg_fname" ]]; then
-        echo -e "${yellow}No prebuilt mtg (MTProto) binary for arch $(arch) — MTProto proxies will be unavailable.${plain}"
-        return 0
-    fi
-    # Already present (e.g. shipped in the release tarball) — just ensure +x.
-    if [[ -f "$target_bin_dir/mtg-linux-${mtg_fname}" ]]; then
-        chmod +x "$target_bin_dir/mtg-linux-${mtg_fname}"
-        return 0
-    fi
-    mtg_url="https://github.com/9seconds/mtg/releases/download/v${MTG_VER}/mtg-${MTG_VER}-linux-${mtg_arch}.tar.gz"
-    if ! check_url_or_skip "$mtg_url" "mtg (MTProto sidecar)"; then
-        echo -e "${yellow}Skipping mtg — MTProto proxies will be unavailable.${plain}"
-        return 0
-    fi
-    echo -e "${green}Downloading mtg (MTProto sidecar) ${mtg_url}...${plain}"
-    tmp_tgz="/tmp/mtg.$$.tar.gz"
-    tmp_dir="/tmp/mtg.$$.d"
-    if ! curl -4fLRo "$tmp_tgz" "$mtg_url"; then
-        rm -f "$tmp_tgz"
-        echo -e "${yellow}Failed to download mtg — MTProto proxies will be unavailable.${plain}"
-        return 0
-    fi
-    mkdir -p "$tmp_dir" "$target_bin_dir"
-    if tar -xzf "$tmp_tgz" -C "$tmp_dir" 2>/dev/null; then
-        extracted=$(find "$tmp_dir" -type f -name mtg 2>/dev/null | head -n1)
-        if [[ -n "$extracted" ]]; then
-            mv -f "$extracted" "$target_bin_dir/mtg-linux-${mtg_fname}"
-            chmod +x "$target_bin_dir/mtg-linux-${mtg_fname}"
-            echo -e "${green}  mtg installed as bin/mtg-linux-${mtg_fname}.${plain}"
-        else
-            echo -e "${yellow}mtg archive had no mtg binary — MTProto proxies will be unavailable.${plain}"
-        fi
-    else
-        echo -e "${yellow}Failed to extract mtg — MTProto proxies will be unavailable.${plain}"
-    fi
-    rm -rf "$tmp_tgz" "$tmp_dir"
     return 0
 }
 
-# Downloads xray binary + geo data files into the given target directory.
-# Mirrors the logic in DockerInit.sh — same xray version (v26.3.27), same
-# geo-data sources. Always called fresh; we deliberately never reuse a
-# previously-downloaded copy from build/bin or target/bin so an install
-# can't inherit stale geo rules or an old xray binary.
-download_xray_and_geo() {
-    local target_bin_dir="$1"
-    local xray_arch xray_fname xray_url
-    xray_arch=$(xray_release_arch)
-    xray_fname=$(xray_panel_arch)
-    if [[ -z "$xray_arch" || -z "$xray_fname" ]]; then
-        echo -e "${red}No prebuilt xray-core for arch $(arch) — install fails.${plain}"
+# Lands a systemd unit file at ${xui_service}/x-ui.service via a temp file +
+# atomic mv, so a failed cp/curl or an interrupted mv never leaves a
+# truncated unit file at the live path -- systemd would then fail to parse
+# it on the next daemon-reload/start. Same pattern already used for
+# /usr/bin/x-ui elsewhere in this script. source_is_url picks cp (from a
+# file already extracted from the release tarball) vs curl (GitHub fallback).
+_install_xui_service_unit() {
+    local source="$1"
+    local source_is_url="$2"
+    local dest="${xui_service}/x-ui.service"
+    local temp_file="${dest}.tmp.$$"
+
+    rm -f "$temp_file"
+    if [[ "$source_is_url" == "true" ]]; then
+        curl -fLRo "$temp_file" "$source" > /dev/null 2>&1
+    else
+        cp -f "$source" "$temp_file" > /dev/null 2>&1
+    fi
+    if [[ $? -ne 0 ]]; then
+        rm -f "$temp_file"
         return 1
     fi
-    if ! command -v unzip >/dev/null 2>&1; then
-        echo -e "${yellow}Installing unzip (needed to extract xray-core)...${plain}"
-        case "${release}" in
-            ubuntu|debian|armbian) apt-get install -y -q unzip >/dev/null 2>&1 ;;
-            arch|manjaro|parch)    pacman -Sy --noconfirm unzip >/dev/null 2>&1 ;;
-            alpine)                apk add unzip >/dev/null 2>&1 ;;
-            opensuse-tumbleweed)   zypper install -y unzip >/dev/null 2>&1 ;;
-            *)                     dnf install -y -q unzip >/dev/null 2>&1 || yum install -y unzip >/dev/null 2>&1 ;;
-        esac
+    if [[ ! -s "$temp_file" ]]; then
+        rm -f "$temp_file"
+        return 1
     fi
-
-    mkdir -p "$target_bin_dir"
-    local tmp_zip="/tmp/xray-core.$$.zip"
-    local xray_bin="$target_bin_dir/xray-linux-${xray_fname}"
-    xray_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VER}/Xray-linux-${xray_arch}.zip"
-
-    # Twenty megabytes for a binary that is very often already there, and on
-    # the local-source path it used to be thrown away straight afterwards by
-    # the restore of the preserved copy.
-    if xray_is_current "$xray_bin"; then
-        echo -e "${green}xray-core $(installed_xray_version "$xray_bin") already installed, not downloading it again.${plain}"
-    else
-        # xray binary is mandatory — without it the panel can't run any
-        # protocol. Probe the URL up-front so the user gets a clean prompt
-        # instead of waiting through curl's full retry loop on a dead host.
-        if ! check_url_or_skip "$xray_url" "xray-core binary"; then
-            echo -e "${red}Cannot proceed without xray-core — aborting xray bundle download.${plain}"
-            return 1
-        fi
-        echo -e "${green}Downloading xray-core ${xray_url}...${plain}"
-        if ! curl -4fLRo "$tmp_zip" "$xray_url"; then
-            rm -f "$tmp_zip"
-            echo -e "${red}Failed to download xray-core.${plain}"
-            return 1
-        fi
-        (cd "$target_bin_dir" && unzip -o "$tmp_zip" >/dev/null) || {
-            rm -f "$tmp_zip"
-            echo -e "${red}Failed to unzip xray-core.${plain}"
-            return 1
-        }
-        rm -f "$tmp_zip"
-        # The zip carries its own geo files, which are the ones we replace
-        # below. Only worth removing when there has actually been a zip —
-        # doing it unconditionally would force a fresh 145 MB every run.
-        rm -f "$target_bin_dir/geoip.dat" "$target_bin_dir/geosite.dat"
-        if [[ -f "$target_bin_dir/xray" ]]; then
-            mv -f "$target_bin_dir/xray" "$xray_bin"
-            chmod +x "$xray_bin"
-        fi
+    mv -f "$temp_file" "$dest"
+    if [[ $? -ne 0 ]]; then
+        rm -f "$temp_file"
+        return 1
     fi
-
-    # Geo data files are optional — panel boots fine without them, just
-    # falls back to no-routing-rules. Probe each before fetching.
-    echo -e "${green}Checking geo data...${plain}"
-    fetch_geo_file "$target_bin_dir/geoip.dat" \
-        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" \
-        "geoip.dat (Loyalsoldier)"
-    fetch_geo_file "$target_bin_dir/geosite.dat" \
-        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" \
-        "geosite.dat (Loyalsoldier)"
-    fetch_geo_file "$target_bin_dir/geoip_IR.dat" \
-        "https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat" \
-        "geoip_IR.dat (Iran rules)"
-    fetch_geo_file "$target_bin_dir/geosite_IR.dat" \
-        "https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat" \
-        "geosite_IR.dat (Iran rules)"
-    fetch_geo_file "$target_bin_dir/geoip_RU.dat" \
-        "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat" \
-        "geoip_RU.dat (Russia rules)"
-    fetch_geo_file "$target_bin_dir/geosite_RU.dat" \
-        "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat" \
-        "geosite_RU.dat (Russia rules)"
+    if ! _xui_service_write_paths_dropin; then
+        echo -e "${yellow}Warning: could not refresh ${xui_service}/x-ui.service.d/10-xui-sandbox.conf.${plain}"
+        echo -e "${yellow}If XUI_DB_FOLDER or XUI_LOG_FOLDER points outside /etc/x-ui and /var/log/x-ui, the panel may not be able to write to it under ProtectSystem=full.${plain}"
+    fi
+    _xui_warn_unsupported_hardening
     return 0
 }
 
-# Wrapper around download_xray_and_geo that, in debug mode only, looks
-# for an already-present xray + geo bundle in well-known cache locations
-# and reuses it instead of re-downloading. Production / non-debug
-# installs always pull fresh upstream copies. Cache locations checked
-# (in order):
-#   1. ${xui_folder}/bin   — preserved across updates after the rm-rf fix.
-#   2. ${SCRIPT_DIR}/build/bin — left over from an earlier local build.
-#   3. ${SCRIPT_DIR}/target/bin — same.
-fetch_xray_bundle_smart() {
-    local target_bin_dir="$1"
-    local panel_fname
-    panel_fname=$(xray_panel_arch)
-
-    if [[ "${XUI_DEBUG_MODE:-}" == "1" && -n "$panel_fname" ]]; then
-        if [[ -f "$target_bin_dir/xray-linux-${panel_fname}" ]]; then
-            echo -e "${green}xray-core + geo data already in ${target_bin_dir}, skipping download.${plain}"
-            return 0
-        fi
-        local src_dir
-        for src_dir in "$SCRIPT_DIR/build/bin" "$SCRIPT_DIR/target/bin"; do
-            if [[ -f "$src_dir/xray-linux-${panel_fname}" ]]; then
-                echo -e "${green}Reusing xray + geo bundle from ${src_dir}.${plain}"
-                mkdir -p "$target_bin_dir"
-                cp -f "$src_dir"/* "$target_bin_dir/" 2>/dev/null || true
-                return 0
-            fi
-        done
+# resolve_latest_tag prints the latest stable release tag. It prefers the web
+# releases/latest redirect, which is not subject to the unauthenticated API's
+# 60 req/h-per-IP limit that trips shared CI/CGNAT addresses (the install then
+# fails with "Failed to fetch x-ui version"), and falls back to the API.
+resolve_latest_tag() {
+    local url tag
+    url=$(curl -sSLI -o /dev/null -w '%{url_effective}' --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://github.com/MHSanaei/3x-ui/releases/latest" 2>/dev/null)
+    tag=${url##*/tag/}
+    if [[ "$tag" != "$url" && -n "$tag" && "$tag" != "latest" ]]; then
+        echo "$tag"
+        return 0
     fi
-
-    download_xray_and_geo "$target_bin_dir"
+    curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
-# Ensures a Go toolchain ≥ 1.21 is on PATH. With Go ≥ 1.21 the GOTOOLCHAIN=auto
-# default makes `go build` self-bootstrap the exact version pinned in go.mod
-# (currently 1.26.2), so we only need a recent-enough bootstrap. If the host
-# has no `go` or only an old one, install Go 1.26.2 from go.dev into
-# /usr/local/go and prepend it to PATH for the rest of this script.
-ensure_go() {
-    local need_install=1
-    if command -v go >/dev/null 2>&1; then
-        local v
-        v=$(go env GOVERSION 2>/dev/null | sed -E 's/^go//')
-        # GOVERSION may be empty on very old Go; treat as too old.
-        if [[ -n "$v" ]]; then
-            local min_version="1.21.0"
-            if [[ "$(printf '%s\n' "$min_version" "$v" | sort -V | head -n1)" == "$min_version" ]]; then
-                need_install=0
+# Releases publish <asset>.sha256 next to each archive. A mismatch or a failed
+# sidecar download aborts the install; only a 404 (releases predating the
+# sidecar) is tolerated with a warning.
+verify_release_checksum() {
+    local url="$1" file="$2" sums="$2.sha256" code expected actual
+    rm -f "${sums}"
+    code=$(curl -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${sums}" -w '%{http_code}' "${url}.sha256")
+    if [[ "${code}" == "404" ]]; then
+        rm -f "${sums}"
+        echo -e "${yellow}No checksum published for this release, skipping verification${plain}"
+        return 0
+    fi
+    if [[ "${code}" != "200" ]]; then
+        rm -f "${sums}" "${file}"
+        echo -e "${red}Failed to download the checksum for $(basename "${file}") (HTTP ${code})${plain}"
+        exit 1
+    fi
+    expected=$(awk 'NR == 1 {print $1}' "${sums}")
+    actual=$(sha256sum "${file}" | awk '{print $1}')
+    rm -f "${sums}"
+    if [[ ! "${expected}" =~ ^[0-9a-f]{64}$ || "${expected}" != "${actual}" ]]; then
+        rm -f "${file}"
+        echo -e "${red}Checksum mismatch for $(basename "${file}"): expected ${expected:-<none>}, got ${actual}${plain}"
+        exit 1
+    fi
+    echo -e "${green}Checksum verified: ${actual}${plain}"
+}
+
+# Older tags predate some of these files (x-ui.rc arrived in v2.8.4). Serving
+# main's copy against an old binary is the mismatch this pinning exists to
+# prevent, so probe before anything is stopped or removed and refuse the tag.
+require_repo_files() {
+    local ref="$1" name status
+    shift
+    [[ "${ref}" == "main" ]] && return 0
+    for name in "$@"; do
+        status=$(curl -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/MHSanaei/3x-ui/${ref}/${name}")
+        if [[ "${status}" != "200" ]]; then
+            echo -e "${red}${name} is not available for ${ref} (HTTP ${status})${plain}"
+            echo -e "${red}Install a release that ships it, or 'dev' for the rolling build. Your existing installation has not been touched.${plain}"
+            exit 1
+        fi
+    done
+}
+
+install_x-ui() {
+    cd ${xui_folder%/x-ui}/
+
+    # Download resources
+    if [ $# == 0 ]; then
+        tag_version=$(resolve_latest_tag)
+        if [[ ! -n "$tag_version" ]]; then
+            echo -e "${red}Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later${plain}"
+            exit 1
+        fi
+        echo -e "Got x-ui latest version: ${tag_version}, beginning the installation..."
+        curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 --speed-limit 1 --speed-time 300 -o ${xui_folder}-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz
+        if [[ $? -ne 0 ]]; then
+            echo -e "${red}Downloading x-ui failed, please be sure that your server can access GitHub ${plain}"
+            exit 1
+        fi
+        if [[ ! -s ${xui_folder}-linux-$(arch).tar.gz ]]; then
+            rm ${xui_folder}-linux-$(arch).tar.gz -f
+            echo -e "${red}Downloaded x-ui release archive is empty${plain}"
+            exit 1
+        fi
+        verify_release_checksum "https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz" "${xui_folder}-linux-$(arch).tar.gz"
+    else
+        tag_version=$1
+        # The rolling dev channel ships under a fixed, non-semver tag that is
+        # force-moved to the latest main commit on every push. Accept `dev` as a
+        # convenient alias and skip the numeric floor check for it.
+        if [[ "$tag_version" == "dev" || "$tag_version" == "dev-latest" ]]; then
+            tag_version="dev-latest"
+            echo -e "${yellow}Installing the rolling dev build (tag: dev-latest). This is a per-commit pre-release, not a stable version.${plain}"
+        else
+            tag_version_numeric=${tag_version#v}
+            min_version="2.3.5"
+
+            if [[ "$(printf '%s\n' "$min_version" "$tag_version_numeric" | sort -V | head -n1)" != "$min_version" ]]; then
+                echo -e "${red}Please use a newer version (at least v2.3.5). Exiting installation.${plain}"
+                exit 1
             fi
         fi
+
+        url="https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz"
+        echo -e "Beginning to install x-ui ${tag_version}"
+        curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 --speed-limit 1 --speed-time 300 -o ${xui_folder}-linux-$(arch).tar.gz ${url}
+        if [[ $? -ne 0 ]]; then
+            echo -e "${red}Download x-ui ${tag_version} failed, please check if the version exists ${plain}"
+            exit 1
+        fi
+        if [[ ! -s ${xui_folder}-linux-$(arch).tar.gz ]]; then
+            rm ${xui_folder}-linux-$(arch).tar.gz -f
+            echo -e "${red}Downloaded x-ui release archive is empty${plain}"
+            exit 1
+        fi
+        verify_release_checksum "${url}" "${xui_folder}-linux-$(arch).tar.gz"
+    fi
+    # x-ui.sh, x-ui.rc and the unit files must come from the same release as
+    # the binary; only the rolling dev build tracks main.
+    local script_ref="${tag_version}"
+    if [[ "${tag_version}" == "dev-latest" ]]; then
+        script_ref="main"
+    fi
+    # The unit files are only fetched when the release tarball lacks them, so
+    # they are checked at that point instead of here.
+    local required_files=("x-ui.sh")
+    [[ $release == "alpine" ]] && required_files+=("x-ui.rc")
+    require_repo_files "${script_ref}" "${required_files[@]}"
+    local xui_script_temp="/usr/bin/x-ui-temp.$$"
+    rm -f "${xui_script_temp}"
+    curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.sh"
+    if [[ $? -ne 0 ]]; then
+        rm -f "${xui_script_temp}"
+        echo -e "${red}Failed to download x-ui.sh${plain}"
+        exit 1
+    fi
+    if [[ ! -s "${xui_script_temp}" ]]; then
+        rm -f "${xui_script_temp}"
+        echo -e "${red}Downloaded x-ui.sh is empty${plain}"
+        exit 1
     fi
 
-    if [[ $need_install -eq 0 ]]; then
-        echo -e "${green}Existing Go toolchain detected: $(go env GOVERSION 2>/dev/null)${plain}"
-        return 0
+    # Stop x-ui service and remove old resources
+    local custom_bin_backup=""
+    if [[ -e ${xui_folder}/ ]]; then
+        if [[ $release == "alpine" ]]; then
+            rc-service x-ui stop
+        else
+            systemctl stop x-ui
+        fi
+        # Kill any leftover mtg (MTProto) sidecars. x-ui runs them outside its own
+        # lifecycle, so on Linux a stale one can survive the stop and keep holding
+        # an inbound port with an outdated secret, silently breaking new clients.
+        # The freshly installed panel respawns a clean mtg per inbound on start.
+        pkill -f 'mtg-linux-[^ ]* run ' > /dev/null 2>&1 || true
+        pkill -f 'tuic-server.*-c .*bin/tuic/tuic_[0-9]+\.json' > /dev/null 2>&1 || true
+
+        # bin/ is about to be wiped wholesale by the tar extraction below. The
+        # release only ships known assets (xray/mtg binaries, the bundled
+        # geoip*/geosite*.dat sets) -- anything else in bin/ was placed there
+        # by the admin (e.g. a hand-added custom geoip/geosite file referenced
+        # from a routing rule via "ext:<file>:<code>") and would otherwise be
+        # silently deleted on every update, breaking Xray at next start with
+        # "failed to open <file>: no such file or directory" for any routing
+        # rule that references it. Moved aside rather than copied: a rename
+        # on the same filesystem is atomic (no truncated file if disk space
+        # runs out mid-copy, unlike `cp`) and keeps the snapshot under
+        # /usr/local rather than a separate, possibly small/tmpfs $TMPDIR.
+        if [[ -d "${xui_folder}/bin" ]]; then
+            custom_bin_backup="${xui_folder%/x-ui}/x-ui-bin-backup.$$"
+            rm -rf "${custom_bin_backup}"
+            if ! mv "${xui_folder}/bin" "${custom_bin_backup}"; then
+                custom_bin_backup=""
+                echo -e "${yellow}Could not back up bin/ -- custom files there will not be preserved across this update${plain}"
+            fi
+        fi
+        # Sole cleanup path for the backup from here on -- covers both the
+        # two `exit 1`s below (extraction/binary-missing failures) and an
+        # interrupted update (Ctrl-C, signal) before the restore runs.
+        # Cleared once the restore below finishes normally.
+        trap '[[ -n "${custom_bin_backup}" ]] && rm -rf "${custom_bin_backup}"' EXIT INT TERM
+        rm ${xui_folder}/ -rf
     fi
 
-    local goarch
-    case "$(arch)" in
-        amd64)        goarch="amd64" ;;
-        386)          goarch="386" ;;
-        arm64)        goarch="arm64" ;;
-        armv6|armv7)  goarch="armv6l" ;;
-        s390x)        goarch="s390x" ;;
-        *)
-            echo -e "${red}No prebuilt Go binary for arch $(arch) — cannot bootstrap.${plain}"
-            return 1
-            ;;
-    esac
-
-    local go_version="1.26.2"
-    local go_url="https://go.dev/dl/go${go_version}.linux-${goarch}.tar.gz"
-    local tmp_tgz="/tmp/go-bootstrap.$$.tar.gz"
-
-    if ! check_url_or_skip "$go_url" "Go ${go_version} bootstrap"; then
-        return 1
+    # Extract resources and set permissions
+    tar zxvf x-ui-linux-$(arch).tar.gz
+    if [[ $? -ne 0 ]]; then
+        rm x-ui-linux-$(arch).tar.gz -f
+        rm -f "${xui_script_temp}"
+        echo -e "${red}Failed to extract the x-ui release archive -- the previous installation has already been removed, so the panel will not start until this is fixed; try running the installer again${plain}"
+        exit 1
     fi
-    echo -e "${green}Installing Go ${go_version} from ${go_url}...${plain}"
-    if ! curl -4fLRo "$tmp_tgz" "$go_url"; then
-        rm -f "$tmp_tgz"
-        echo -e "${red}Failed to download Go ${go_version}.${plain}"
-        return 1
+    rm x-ui-linux-$(arch).tar.gz -f
+
+    cd x-ui
+    if [[ $? -ne 0 || ! -s x-ui ]]; then
+        rm -f "${xui_script_temp}"
+        echo -e "${red}Extracted x-ui archive is missing the x-ui binary -- the previous installation has already been removed, so the panel will not start until this is fixed; try running the installer again${plain}"
+        exit 1
     fi
-    rm -rf /usr/local/go
-    if ! tar -C /usr/local -xzf "$tmp_tgz"; then
-        rm -f "$tmp_tgz"
-        echo -e "${red}Failed to extract Go ${go_version}.${plain}"
-        return 1
-    fi
-    rm -f "$tmp_tgz"
-    export PATH="/usr/local/go/bin:$PATH"
-    if ! command -v go >/dev/null 2>&1; then
-        echo -e "${red}Go installed but not on PATH — aborting build.${plain}"
-        return 1
-    fi
-    echo -e "${green}Go installed: $(go version)${plain}"
-    return 0
-}
-
-# Builds the panel binary from the local source tree and assembles the same
-# directory layout the GitHub release tarball would extract into
-# (${xui_folder}/x-ui, x-ui.sh, service-unit files, bin/xray-linux-…). After
-# this returns, install_x-ui's existing post-extract logic (chmod, service
-# install, etc.) takes over unchanged.
-install_x-ui_from_source() {
-    echo -e "${green}Local source detected at ${SCRIPT_DIR} — building from source...${plain}"
-    if ! ensure_go; then
-        echo -e "${yellow}Falling back to GitHub release download.${plain}"
-        return 1
-    fi
-
-    local build_version
-    build_version=$(cd "$SCRIPT_DIR" && git describe --tags --always --dirty 2>/dev/null)
-    if [[ -z "$build_version" ]]; then
-        build_version="v$(cat "$SCRIPT_DIR/config/version" 2>/dev/null || echo unknown)"
-    fi
-    echo -e "${green}Building x-ui (version ${build_version})...${plain}"
-
-    (cd "$SCRIPT_DIR" && \
-     GOTOOLCHAIN=auto CGO_ENABLED=1 go build \
-         -ldflags "-w -s -X 'github.com/coinman-dev/3ax-ui/v2/config.version=${build_version}'" \
-         -o "$SCRIPT_DIR/build/x-ui" main.go) || {
-        echo -e "${red}go build failed — falling back to GitHub release.${plain}"
-        return 1
-    }
-
-    # Replace only the files we own. Crucially we keep x-ui.db (panel
-    # database) and bin/ (xray + geo data) intact across re-installs so a
-    # repeated install doesn't wipe user data or trigger an unnecessary
-    # multi-MB xray re-download.
-    mkdir -p "${xui_folder}/bin"
-    rm -f "${xui_folder}/x-ui" \
-          "${xui_folder}/x-ui.sh" \
-          "${xui_folder}/x-ui.service" \
-          "${xui_folder}/x-ui.service.debian" \
-          "${xui_folder}/x-ui.service.arch" \
-          "${xui_folder}/x-ui.service.rhel" \
-          "${xui_folder}/x-ui.rc"
-    cp -f "$SCRIPT_DIR/build/x-ui"           "${xui_folder}/x-ui"
-    cp -f "$SCRIPT_DIR/x-ui.sh"              "${xui_folder}/x-ui.sh"
-    [[ -f "$SCRIPT_DIR/x-ui.service.debian" ]] && cp -f "$SCRIPT_DIR/x-ui.service.debian" "${xui_folder}/"
-    [[ -f "$SCRIPT_DIR/x-ui.service.arch"   ]] && cp -f "$SCRIPT_DIR/x-ui.service.arch"   "${xui_folder}/"
-    [[ -f "$SCRIPT_DIR/x-ui.service.rhel"   ]] && cp -f "$SCRIPT_DIR/x-ui.service.rhel"   "${xui_folder}/"
-    [[ -f "$SCRIPT_DIR/x-ui.rc"             ]] && cp -f "$SCRIPT_DIR/x-ui.rc"             "${xui_folder}/"
-
-    if ! fetch_xray_bundle_smart "${xui_folder}/bin"; then
-        echo -e "${red}Failed to fetch xray-core for the local-source install.${plain}"
-        return 1
-    fi
-
-    cp -f "${xui_folder}/x-ui.sh" /usr/bin/x-ui-temp
-    tag_version="${build_version}"
-    return 0
-}
-
-# Common post-extract steps shared by both the GitHub-release and
-# local-source install paths. Assumes ${xui_folder} is fully populated and
-# CWD is ${xui_folder}.
-install_x-ui_finalize() {
     chmod +x x-ui
-    [ -f x-ui.sh ] && chmod +x x-ui.sh
+    chmod +x x-ui.sh
 
-    # Rename the bundled xray/mtg binaries for arm variants — the panel always
-    # loads bin/{xray,mtg}-linux-arm regardless of the specific arm version.
+    # Check the system's architecture and rename the file accordingly.
+    # The panel binary maps GOARCH=arm to "arm32" (internal/xray/process.go),
+    # so the Xray binary must be named xray-linux-arm32; mtg keeps plain "arm".
     if [[ $(arch) == "armv5" || $(arch) == "armv6" || $(arch) == "armv7" ]]; then
-        [ -f bin/xray-linux-$(arch) ] && mv bin/xray-linux-$(arch) bin/xray-linux-arm
-        [ -f bin/xray-linux-arm ] && chmod +x bin/xray-linux-arm
-        [ -f bin/mtg-linux-$(arch) ] && mv bin/mtg-linux-$(arch) bin/mtg-linux-arm
-        [ -f bin/mtg-linux-arm ] && chmod +x bin/mtg-linux-arm
+        mv bin/xray-linux-$(arch) bin/xray-linux-arm32
+        chmod +x bin/xray-linux-arm32
+        if [[ -f bin/mtg-linux-$(arch) ]]; then
+            mv bin/mtg-linux-$(arch) bin/mtg-linux-arm
+            chmod +x bin/mtg-linux-arm
+        fi
     fi
-    chmod +x x-ui
-    [ -f bin/xray-linux-$(arch) ] && chmod +x bin/xray-linux-$(arch)
+    chmod +x x-ui bin/xray-linux-$(arch)
+    if [[ -f bin/mtg-linux-arm ]]; then
+        chmod +x bin/mtg-linux-arm
+    elif [[ -f bin/mtg-linux-$(arch) ]]; then
+        chmod +x bin/mtg-linux-$(arch)
+    fi
 
-    # Ensure the mtg MTProto sidecar is present. No-op when already shipped in
-    # the release tarball; downloads it otherwise (e.g. older tarball, or the
-    # local-source build path which only fetches xray). Never fatal.
-    install_mtg "bin"
+    # Restore anything from the old bin/ that the fresh release doesn't ship
+    # (custom geoip/geosite files, or anything else an admin hand-placed
+    # there) -- never overwrites a same-named file the new release provides,
+    # so bundled assets (geoip.dat, geoip_RU.dat, ...) still get the fresh
+    # per-release copy. Runs after the arch-rename above so xray-linux-arm32/
+    # mtg-linux-arm already exist under their final names there and aren't
+    # mistaken for custom files needing a restore. Skips paths the panel
+    # itself regenerates at runtime (config.json, mtproto/*.toml -- see
+    # internal/xray/process.go, internal/mtproto/manager.go): those aren't
+    # admin-placed, and restoring a stale one only resurrects dead state (an
+    # orphaned mtg config for a since-deleted inbound) or the wrong
+    # directory permissions.
+    if [[ -n "${custom_bin_backup}" ]]; then
+        local restored_custom_bin=()
+        while IFS= read -r -d '' f; do
+            local rel="${f#"${custom_bin_backup}"/}"
+            case "${rel}" in
+                config.json | mtproto | mtproto/* | tuic | tuic/* | tuic-server | tuic-server-*) continue ;;
+            esac
+            if [[ ! -e "bin/${rel}" ]]; then
+                mkdir -p "bin/$(dirname "${rel}")"
+                cp -a "${f}" "bin/${rel}"
+                restored_custom_bin+=("${rel}")
+            fi
+        done < <(find "${custom_bin_backup}" \( -type f -o -type l \) -print0)
+        rm -rf "${custom_bin_backup}"
+        custom_bin_backup=""
+        if [[ ${#restored_custom_bin[@]} -gt 0 ]]; then
+            echo -e "${green}Restored custom file(s) in bin/ not shipped by this release: ${restored_custom_bin[*]}${plain}"
+        fi
+    fi
+    trap - EXIT INT TERM
 
-    mv -f /usr/bin/x-ui-temp /usr/bin/x-ui
+    rm -f bin/tuic-server bin/tuic-server-* > /dev/null 2>&1 || true
+    rm -rf bin/tuic > /dev/null 2>&1 || true
+
+    # Update x-ui cli and se set permission
+    mv -f "${xui_script_temp}" /usr/bin/x-ui
+    if [[ $? -ne 0 ]]; then
+        rm -f "${xui_script_temp}"
+        echo -e "${red}Failed to install x-ui.sh${plain}"
+        exit 1
+    fi
     chmod +x /usr/bin/x-ui
     mkdir -p /var/log/x-ui
     config_after_install
-    config_awg_defaults
-    config_wg_defaults
 
     # Etckeeper compatibility
     if [ -d "/etc/.git" ]; then
@@ -2296,91 +2001,108 @@ install_x-ui_finalize() {
         fi
     fi
 
-    install_x-ui_service_unit
-    print_install_footer
-}
-
-# Installs and starts the OS service unit. Prefers the file embedded in
-# ${xui_folder}/ (delivered both by the release tarball and by the local-source
-# build); falls back to downloading from GitHub raw if missing.
-install_x-ui_service_unit() {
     if [[ $release == "alpine" ]]; then
-        if [ -f "${xui_folder}/x-ui.rc" ]; then
-            cp -f "${xui_folder}/x-ui.rc" /etc/init.d/x-ui
-        else
-            curl -4fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.rc
-            if [[ $? -ne 0 ]]; then
-                echo -e "${red}Failed to download x-ui.rc${plain}"
-                exit 1
-            fi
+        xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
+        rm -f "${xui_rc_temp}"
+        curl -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.rc"
+        if [[ $? -ne 0 ]]; then
+            rm -f "${xui_rc_temp}"
+            echo -e "${red}Failed to download x-ui.rc${plain}"
+            exit 1
+        fi
+        if [[ ! -s "${xui_rc_temp}" ]]; then
+            rm -f "${xui_rc_temp}"
+            echo -e "${red}Downloaded x-ui.rc is empty${plain}"
+            exit 1
+        fi
+        mv -f "${xui_rc_temp}" /etc/init.d/x-ui
+        if [[ $? -ne 0 ]]; then
+            rm -f "${xui_rc_temp}"
+            echo -e "${red}Failed to install x-ui.rc${plain}"
+            exit 1
         fi
         chmod +x /etc/init.d/x-ui
         rc-update add x-ui
         rc-service x-ui start
-        return
-    fi
+    else
+        # Install systemd service file
+        service_installed=false
 
-    # systemd path
-    local service_installed=false
+        if [ -f "x-ui.service" ]; then
+            echo -e "${green}Found x-ui.service in extracted files, installing...${plain}"
+            if _install_xui_service_unit "x-ui.service" "false"; then
+                service_installed=true
+            fi
+        fi
 
-    if [ -f "${xui_folder}/x-ui.service" ]; then
-        echo -e "${green}Found x-ui.service in extracted files, installing...${plain}"
-        cp -f "${xui_folder}/x-ui.service" ${xui_service}/ >/dev/null 2>&1 && service_installed=true
-    fi
+        if [ "$service_installed" = false ]; then
+            case "${release}" in
+                ubuntu | debian | armbian)
+                    if [ -f "x-ui.service.debian" ]; then
+                        echo -e "${green}Found x-ui.service.debian in extracted files, installing...${plain}"
+                        if _install_xui_service_unit "x-ui.service.debian" "false"; then
+                            service_installed=true
+                        fi
+                    fi
+                    ;;
+                arch | manjaro | parch)
+                    if [ -f "x-ui.service.arch" ]; then
+                        echo -e "${green}Found x-ui.service.arch in extracted files, installing...${plain}"
+                        if _install_xui_service_unit "x-ui.service.arch" "false"; then
+                            service_installed=true
+                        fi
+                    fi
+                    ;;
+                *)
+                    if [ -f "x-ui.service.rhel" ]; then
+                        echo -e "${green}Found x-ui.service.rhel in extracted files, installing...${plain}"
+                        if _install_xui_service_unit "x-ui.service.rhel" "false"; then
+                            service_installed=true
+                        fi
+                    fi
+                    ;;
+            esac
+        fi
 
-    if [ "$service_installed" = false ]; then
-        case "${release}" in
-            ubuntu | debian | armbian)
-                if [ -f "${xui_folder}/x-ui.service.debian" ]; then
-                    echo -e "${green}Found x-ui.service.debian in extracted files, installing...${plain}"
-                    cp -f "${xui_folder}/x-ui.service.debian" ${xui_service}/x-ui.service >/dev/null 2>&1 && service_installed=true
-                fi
-            ;;
-            arch | manjaro | parch)
-                if [ -f "${xui_folder}/x-ui.service.arch" ]; then
-                    echo -e "${green}Found x-ui.service.arch in extracted files, installing...${plain}"
-                    cp -f "${xui_folder}/x-ui.service.arch" ${xui_service}/x-ui.service >/dev/null 2>&1 && service_installed=true
-                fi
-            ;;
-            *)
-                if [ -f "${xui_folder}/x-ui.service.rhel" ]; then
-                    echo -e "${green}Found x-ui.service.rhel in extracted files, installing...${plain}"
-                    cp -f "${xui_folder}/x-ui.service.rhel" ${xui_service}/x-ui.service >/dev/null 2>&1 && service_installed=true
-                fi
-            ;;
-        esac
-    fi
+        # If service file not found in tar.gz, download from GitHub
+        if [ "$service_installed" = false ]; then
+            echo -e "${yellow}Service files not found in tar.gz, downloading from GitHub...${plain}"
+            case "${release}" in
+                ubuntu | debian | armbian)
+                    service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.debian"
+                    ;;
+                arch | manjaro | parch)
+                    service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.arch"
+                    ;;
+                *)
+                    service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.rhel"
+                    ;;
+            esac
 
-    # If service file not found locally, download from GitHub
-    if [ "$service_installed" = false ]; then
-        echo -e "${yellow}Service files not found locally, downloading from GitHub...${plain}"
-        case "${release}" in
-            ubuntu | debian | armbian)
-                curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.debian >/dev/null 2>&1
-            ;;
-            arch | manjaro | parch)
-                curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.arch >/dev/null 2>&1
-            ;;
-            *)
-                curl -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.service.rhel >/dev/null 2>&1
-            ;;
-        esac
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}Failed to install x-ui.service from GitHub${plain}"
+            if ! _install_xui_service_unit "$service_unit_url" "true"; then
+                echo -e "${red}Failed to install x-ui.service from GitHub (${script_ref}) -- the release tarball did not ship one either${plain}"
+                exit 1
+            fi
+            service_installed=true
+        fi
+
+        if [ "$service_installed" = true ]; then
+            echo -e "${green}Setting up systemd unit...${plain}"
+            chown root:root ${xui_service}/x-ui.service > /dev/null 2>&1
+            chmod 644 ${xui_service}/x-ui.service > /dev/null 2>&1
+            systemctl daemon-reload
+            systemctl enable x-ui
+            systemctl start x-ui
+        else
+            echo -e "${red}Failed to install x-ui.service file${plain}"
             exit 1
         fi
-        service_installed=true
     fi
 
-    echo -e "${green}Setting up systemd unit...${plain}"
-    chown root:root ${xui_service}/x-ui.service >/dev/null 2>&1
-    chmod 644 ${xui_service}/x-ui.service >/dev/null 2>&1
-    systemctl daemon-reload
-    systemctl enable x-ui
-    systemctl start x-ui
-}
+    # IP Limit relies on fail2ban; install + configure it now so the feature
+    # works out of the box (no-op when XUI_ENABLE_FAIL2BAN=false). Never fatal.
+    setup_fail2ban
 
-print_install_footer() {
     echo -e "${green}x-ui ${tag_version}${plain} installation finished, it is running now..."
     echo -e ""
     echo -e "┌───────────────────────────────────────────────────────┐
@@ -2403,239 +2125,6 @@ print_install_footer() {
 └───────────────────────────────────────────────────────┘"
 }
 
-install_x-ui() {
-    cd ${xui_folder%/x-ui}/
-
-    # Stop any running x-ui before swapping files. Both install paths need
-    # this and it is safe even on a first install (commands silently noop).
-    if [[ -e ${xui_folder}/ ]]; then
-        if [[ $release == "alpine" ]]; then
-            rc-service x-ui stop >/dev/null 2>&1
-        else
-            systemctl stop x-ui >/dev/null 2>&1
-        fi
-    fi
-
-    if is_local_source_install; then
-        if install_x-ui_from_source; then
-            cd "${xui_folder}"
-            install_x-ui_finalize
-            return
-        fi
-        echo -e "${yellow}Local-source build did not complete — proceeding with GitHub release.${plain}"
-    fi
-
-    # Download resources
-    if [ $# == 0 ]; then
-        tag_version=$(curl -Ls "https://api.github.com/repos/coinman-dev/3ax-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ ! -n "$tag_version" ]]; then
-            echo -e "${yellow}Trying to fetch version with IPv4...${plain}"
-            tag_version=$(curl -4 -Ls "https://api.github.com/repos/coinman-dev/3ax-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-            if [[ ! -n "$tag_version" ]]; then
-                echo -e "${red}Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later${plain}"
-                exit 1
-            fi
-        fi
-        echo -e "Got x-ui latest stable version: ${tag_version}, beginning the installation..."
-        curl -4fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}Downloading x-ui failed, please be sure that your server can access GitHub ${plain}"
-            exit 1
-        fi
-    elif [[ "$1" == "--beta" || "$1" == "--pre" ]]; then
-        echo -e "${yellow}Installing latest pre-release version...${plain}"
-        tag_version=$(curl -Ls "https://api.github.com/repos/coinman-dev/3ax-ui/releases" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
-        if [[ ! -n "$tag_version" ]]; then
-            echo -e "${yellow}Trying to fetch version with IPv4...${plain}"
-            tag_version=$(curl -4 -Ls "https://api.github.com/repos/coinman-dev/3ax-ui/releases" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -1)
-            if [[ ! -n "$tag_version" ]]; then
-                echo -e "${red}Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later${plain}"
-                exit 1
-            fi
-        fi
-        echo -e "Got x-ui latest pre-release version: ${tag_version}, beginning the installation..."
-        curl -4fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}Downloading x-ui failed, please be sure that your server can access GitHub ${plain}"
-            exit 1
-        fi
-    else
-        tag_version=$1
-        tag_version_numeric=${tag_version#v}
-        # This fork's own releases start at v1.0.0. The 2.3.5 floor inherited
-        # from upstream 3x-ui belongs to its numbering, not ours, and made
-        # installing any released version of 3AX-UI by tag impossible.
-        min_version="1.0.0"
-
-        if [[ "$(printf '%s\n' "$min_version" "$tag_version_numeric" | sort -V | head -n1)" != "$min_version" ]]; then
-            echo -e "${red}Please use a newer version (at least v${min_version}). Exiting installation.${plain}"
-            exit 1
-        fi
-
-        url="https://github.com/coinman-dev/3ax-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz"
-        echo -e "Beginning to install x-ui $1"
-        curl -4fLRo ${xui_folder}-linux-$(arch).tar.gz ${url}
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}Download x-ui $1 failed, please check if the version exists ${plain}"
-            exit 1
-        fi
-    fi
-    curl -4fLRo /usr/bin/x-ui-temp https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH}/x-ui.sh
-    if [[ $? -ne 0 ]]; then
-        echo -e "${red}Failed to download x-ui.sh${plain}"
-        exit 1
-    fi
-
-    # Verify the archive BEFORE the old install is removed: an interrupted
-    # download would otherwise leave the machine with neither version, which is
-    # exactly what happened on a live panel.
-    if ! tar -tzf x-ui-linux-$(arch).tar.gz >/dev/null 2>&1; then
-        rm x-ui-linux-$(arch).tar.gz -f
-        echo -e "${red}The downloaded archive is corrupt (interrupted download?). Nothing has been changed — run the install again.${plain}"
-        exit 1
-    fi
-    if ! tar -tzf x-ui-linux-$(arch).tar.gz 2>/dev/null | grep -qx "x-ui/x-ui"; then
-        rm x-ui-linux-$(arch).tar.gz -f
-        echo -e "${red}The downloaded archive does not contain the x-ui binary. Nothing has been changed.${plain}"
-        exit 1
-    fi
-
-    # Remove old install before extracting fresh tarball.
-    if [[ -e ${xui_folder}/ ]]; then
-        rm ${xui_folder}/ -rf
-    fi
-
-    # Extract resources and set permissions
-    if ! tar zxf x-ui-linux-$(arch).tar.gz; then
-        echo -e "${red}Failed to unpack x-ui-linux-$(arch).tar.gz — the panel is not installed.${plain}"
-        exit 1
-    fi
-    rm x-ui-linux-$(arch).tar.gz -f
-
-    cd x-ui || {
-        echo -e "${red}The unpacked x-ui folder is missing — the panel is not installed.${plain}"
-        exit 1
-    }
-    install_x-ui_finalize
-}
-
-# Diagnostic / localhost-only install. When enabled the panel binds to
-# 127.0.0.1 only, runs over plain HTTP, defaults to port 8080, and skips
-# the SSL / public-IP / IPv6 prompts. Protocol stacks (AmneziaWG,
-# WireGuard Native, xray) are still installed normally — only the
-# panel's web access is restricted. Activated either by the interactive
-# prompt below or by pre-setting XUI_DEBUG_MODE=1 in the environment.
-prompt_debug_mode() {
-    if [[ "${XUI_DEBUG_MODE:-}" == "1" ]]; then
-        echo -e "${yellow}Debug mode enabled via XUI_DEBUG_MODE=1.${plain}"
-        : "${XUI_DEBUG_PORT:=8080}"
-        export XUI_DEBUG_PORT
-        return
-    fi
-    echo ""
-    echo -e "${yellow}Install panel in debug / diagnostic mode (localhost only)? [y/N]${plain}"
-    echo -e "${yellow}(HTTP only, listen=127.0.0.1, default port 8080, no SSL or IPv6)${plain}"
-    read -rp "Debug mode? [y/N]: " __debug_choice
-    case "${__debug_choice,,}" in
-        y|yes)
-            export XUI_DEBUG_MODE=1
-            # Ask for the panel port immediately so the user sees the
-            # complete debug-mode setup decided up-front, before any
-            # downloads or installs run. read -rp doesn't render color
-            # escapes, so we print the prompt with echo -en first.
-            local __port_choice=""
-            echo -en "${yellow}Panel port for debug mode? [8080]: ${plain}"
-            read -r __port_choice
-            if [[ -n "${__port_choice}" ]]; then
-                export XUI_DEBUG_PORT="${__port_choice}"
-            else
-                export XUI_DEBUG_PORT=8080
-            fi
-            echo -e "${green}Debug mode enabled — panel will be installed on http://127.0.0.1:${XUI_DEBUG_PORT}${plain}"
-            ;;
-        *)
-            export XUI_DEBUG_MODE=0
-            ;;
-    esac
-}
-
-check_existing_install() {
-    # If 3AX-UI is already installed, offer to update instead of reinstalling
-    # over the top (running the installer again otherwise stops the panel and
-    # overwrites the binary). Default (Enter) switches to the update script.
-    if [[ -f /usr/bin/x-ui || -f "${xui_folder}/x-ui" ]]; then
-        echo -e "${yellow}3AX-UI is already installed on this system.${plain}"
-        echo -e "Running the installer again stops the panel and overwrites the binary."
-        echo -e "  ${green}1)${plain} Update to the latest version (update.sh) — recommended"
-        echo -e "  ${green}2)${plain} Reinstall over the existing installation"
-        echo -e "  ${green}3)${plain} Cancel"
-        echo -ne "Choose [1-3, default 1]: "
-        read -r __install_choice
-        case "${__install_choice:-1}" in
-            2)
-                echo -e "${yellow}Proceeding with reinstall over the existing installation.${plain}"
-                ;;
-            3)
-                echo -e "${yellow}Cancelled.${plain}"
-                exit 0
-                ;;
-            *)
-                echo -e "${green}Switching to the update script...${plain}"
-                # Hand the arguments over. Without this --beta is dropped here
-                # and the update quietly installs the latest stable release
-                # instead of the pre-release that was asked for.
-                if is_local_source_install && [[ -f ./update.sh ]]; then
-                    bash ./update.sh "$@"
-                else
-                    bash <(curl -Ls "https://raw.githubusercontent.com/coinman-dev/3ax-ui/${REPO_BRANCH:-main}/update.sh") "$@"
-                fi
-                exit $?
-                ;;
-        esac
-    fi
-}
-
 echo -e "${green}Running...${plain}"
-check_existing_install "$@"
-prompt_debug_mode
 install_base
-install_amneziawg
-install_wireguard_native
-install_nginx
 install_x-ui $1
-
-# Secure Boot warning
-# Try mokutil first, fall back to reading EFI variable directly
-check_secure_boot() {
-    if command -v mokutil &>/dev/null; then
-        mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"
-        return $?
-    fi
-    # No mokutil: read SecureBoot EFI variable directly (byte 4 = 1 means enabled)
-    local sb_var
-    sb_var=$(find /sys/firmware/efi/efivars -name "SecureBoot-*" 2>/dev/null | head -1)
-    if [[ -n "$sb_var" ]]; then
-        [[ "$(od -An -tu1 -j4 -N1 "$sb_var" 2>/dev/null | tr -d ' ')" == "1" ]]
-        return $?
-    fi
-    # No EFI at all — Secure Boot not active
-    return 1
-}
-
-if check_secure_boot; then
-    echo -e ""
-    echo -e "┌───────────────────────────────────────────────────────┐"
-    echo -e "│  ${red}[!] WARNING: Secure Boot is ENABLED${plain}                  │"
-    echo -e "├───────────────────────────────────────────────────────┤"
-    echo -e "│  AmneziaWG kernel module cannot be loaded while       │"
-    echo -e "│  Secure Boot is active. AWG tunnels will NOT work.    │"
-    echo -e "│                                                       │"
-    echo -e "│  To fix this:                                         │"
-    echo -e "│  1. Go to your VPS provider control panel             │"
-    echo -e "│  2. Find server settings → Disable Secure Boot        │"
-    echo -e "│  3. Reboot the server                                 │"
-    echo -e "│  4. AmneziaWG will start working automatically        │"
-    echo -e "│                                                       │"
-    echo -e "│  The panel and all other features work normally.      │"
-    echo -e "└───────────────────────────────────────────────────────┘"
-fi

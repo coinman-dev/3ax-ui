@@ -1,0 +1,503 @@
+package database
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+)
+
+func initMigrateDB(t *testing.T) {
+	t.Helper()
+	if err := InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+}
+
+func seedInboundWithStream(t *testing.T, tag string, port int, stream string) *model.Inbound {
+	t.Helper()
+	ib := &model.Inbound{
+		UserId: 1, Tag: tag, Enable: true, Port: port, Protocol: model.VLESS,
+		Remark: tag, Settings: `{"clients":[]}`, StreamSettings: stream,
+	}
+	if err := GetDB().Create(ib).Error; err != nil {
+		t.Fatalf("create inbound %s: %v", tag, err)
+	}
+	return ib
+}
+
+const epMigrationStream = `{"network":"ws","security":"tls","externalProxy":[
+	{"forceTls":"tls","dest":"a.cdn.com","port":8443,"remark":"A","sni":"a.sni","fingerprint":"chrome","alpn":["h2","h3"],"pinnedPeerCertSha256":["AAAA"],"echConfigList":"ECHV"},
+	{"forceTls":"none","dest":"b.cdn.com","port":80,"remark":"B"}
+]}`
+
+// #1 — each externalProxy entry becomes one host row with the exact field
+// mapping; sort_order is the entry index; inbound_id is correct.
+func TestMigrate_ExternalProxyToHosts(t *testing.T) {
+	initMigrateDB(t)
+	ib := seedInboundWithStream(t, "m1", 5551, epMigrationStream)
+
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var hosts []model.Host
+	if err := GetDB().Where("inbound_id = ?", ib.Id).Order("sort_order asc").Find(&hosts).Error; err != nil {
+		t.Fatalf("load hosts: %v", err)
+	}
+	if len(hosts) != 2 {
+		t.Fatalf("hosts = %d, want 2", len(hosts))
+	}
+	a := hosts[0]
+	if a.InboundId != ib.Id || a.SortOrder != 0 || a.Security != "tls" || a.Address != "a.cdn.com" ||
+		a.Port != 8443 || a.Remark != "A" || a.Sni != "a.sni" || a.Fingerprint != "chrome" || a.EchConfigList != "ECHV" {
+		t.Fatalf("host A mapping wrong: %+v", a)
+	}
+	if len(a.Alpn) != 2 || a.Alpn[0] != "h2" || a.Alpn[1] != "h3" {
+		t.Fatalf("host A alpn = %v, want [h2 h3]", a.Alpn)
+	}
+	if len(a.PinnedPeerCertSha256) != 1 || a.PinnedPeerCertSha256[0] != "AAAA" {
+		t.Fatalf("host A pins = %v, want [AAAA]", a.PinnedPeerCertSha256)
+	}
+	b := hosts[1]
+	if b.InboundId != ib.Id || b.SortOrder != 1 || b.Security != "none" || b.Address != "b.cdn.com" ||
+		b.Port != 80 || b.Remark != "B" {
+		t.Fatalf("host B mapping wrong: %+v", b)
+	}
+	if a.GroupId == "" || b.GroupId == "" {
+		t.Fatalf("group ids must be assigned at creation: a=%q b=%q", a.GroupId, b.GroupId)
+	}
+	if a.GroupId == b.GroupId {
+		t.Fatalf("each entry must get its own group id, both = %q", a.GroupId)
+	}
+}
+
+// #1b — a hosts row that entered the DB without a group_id (older-build import
+// or restored backup) is repaired on every start, so it stays addressable by
+// the group-scoped update/delete API instead of surfacing as fallback_<id>.
+func TestBackfillEmptyHostGroupIds_RepairsLegacyRows(t *testing.T) {
+	initMigrateDB(t)
+	ib := seedInboundWithStream(t, "m1b", 5556, `{"network":"tcp","security":"none"}`)
+	legacy := &model.Host{InboundId: ib.Id, Remark: "legacy", Address: "c.cdn.com", Port: 443, Security: "tls"}
+	if err := GetDB().Create(legacy).Error; err != nil {
+		t.Fatalf("create legacy host: %v", err)
+	}
+
+	if err := backfillEmptyHostGroupIds(); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+
+	var got model.Host
+	if err := GetDB().First(&got, legacy.Id).Error; err != nil {
+		t.Fatalf("reload host: %v", err)
+	}
+	if got.GroupId == "" {
+		t.Fatal("group_id still empty after backfill")
+	}
+
+	if err := backfillEmptyHostGroupIds(); err != nil {
+		t.Fatalf("second backfill: %v", err)
+	}
+	var again model.Host
+	if err := GetDB().First(&again, legacy.Id).Error; err != nil {
+		t.Fatalf("reload host after second run: %v", err)
+	}
+	if again.GroupId != got.GroupId {
+		t.Fatalf("second run must not touch repaired rows: %q -> %q", got.GroupId, again.GroupId)
+	}
+}
+
+// verify_peer_cert_by_name began as a boolean; AutoMigrate's cast to text turned it
+// into the cert name "0"/"1", which xray clients then fail to verify against.
+func TestMigrate_LegacyBooleanVerifyPeerCertByNameIsBlanked(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "x-ui.db")
+	if err := InitDB(dbPath); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	ib := seedInboundWithStream(t, "vcn-legacy", 5557, `{"network":"tcp","security":"tls"}`)
+	for _, stmt := range []string{
+		"ALTER TABLE hosts DROP COLUMN verify_peer_cert_by_name",
+		"ALTER TABLE hosts ADD COLUMN verify_peer_cert_by_name numeric",
+	} {
+		if err := GetDB().Exec(stmt).Error; err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	legacy := map[string]any{"bool-false": false, "bool-true": true, "named": "cert.example.com"}
+	for remark, vcn := range legacy {
+		if err := GetDB().Exec(
+			"INSERT INTO hosts (group_id, inbound_id, remark, address, security, verify_peer_cert_by_name) VALUES (?, ?, ?, 'cdn.example.com', 'tls', ?)",
+			remark, ib.Id, remark, vcn,
+		).Error; err != nil {
+			t.Fatalf("insert legacy host %s: %v", remark, err)
+		}
+	}
+	if err := GetDB().Where("seeder_name = ?", "HostVerifyPeerCertByNameBoolFix").Delete(&model.HistoryOfSeeders{}).Error; err != nil {
+		t.Fatalf("clear seeder history: %v", err)
+	}
+	if err := CloseDB(); err != nil {
+		t.Fatalf("CloseDB: %v", err)
+	}
+
+	if err := InitDB(dbPath); err != nil {
+		t.Fatalf("reopen InitDB: %v", err)
+	}
+
+	var hosts []model.Host
+	if err := GetDB().Where("inbound_id = ?", ib.Id).Find(&hosts).Error; err != nil {
+		t.Fatalf("load hosts: %v", err)
+	}
+	if len(hosts) != len(legacy) {
+		t.Fatalf("hosts = %d, want %d", len(hosts), len(legacy))
+	}
+	for _, h := range hosts {
+		want := ""
+		if h.Remark == "named" {
+			want = "cert.example.com"
+		}
+		if h.VerifyPeerCertByName != want {
+			t.Errorf("host %s: verifyPeerCertByName = %q, want %q", h.Remark, h.VerifyPeerCertByName, want)
+		}
+	}
+}
+
+// Postgres casts the boolean column with USING col::text whenever the hosts table
+// also lacks a newer column, the shape every boolean-era table had.
+func TestMigrate_LegacyBooleanVerifyPeerCertByNameIsBlanked_Postgres(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("XUI_DB_DSN")) == "" || os.Getenv("XUI_DB_TYPE") != "postgres" {
+		t.Skip("set XUI_DB_TYPE=postgres and XUI_DB_DSN to run the postgres migration test")
+	}
+	if err := InitDB(""); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	GetDB().Exec("TRUNCATE TABLE hosts, inbounds RESTART IDENTITY CASCADE")
+	ib := seedInboundWithStream(t, "vcn-legacy-pg", 5558, `{"network":"tcp","security":"tls"}`)
+	for _, stmt := range []string{
+		"ALTER TABLE hosts DROP COLUMN cipher_suites",
+		"ALTER TABLE hosts DROP COLUMN verify_peer_cert_by_name",
+		"ALTER TABLE hosts ADD COLUMN verify_peer_cert_by_name boolean DEFAULT false",
+	} {
+		if err := GetDB().Exec(stmt).Error; err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	for _, vcn := range []bool{false, true} {
+		if err := GetDB().Exec(
+			"INSERT INTO hosts (group_id, inbound_id, remark, address, security, verify_peer_cert_by_name) VALUES ('g', ?, 'legacy', 'cdn.example.com', 'tls', ?)",
+			ib.Id, vcn,
+		).Error; err != nil {
+			t.Fatalf("insert legacy host %v: %v", vcn, err)
+		}
+	}
+	if err := GetDB().Where("seeder_name = ?", "HostVerifyPeerCertByNameBoolFix").Delete(&model.HistoryOfSeeders{}).Error; err != nil {
+		t.Fatalf("clear seeder history: %v", err)
+	}
+	if err := CloseDB(); err != nil {
+		t.Fatalf("CloseDB: %v", err)
+	}
+
+	if err := InitDB(""); err != nil {
+		t.Fatalf("reopen InitDB: %v", err)
+	}
+
+	var names []string
+	if err := GetDB().Model(&model.Host{}).Where("inbound_id = ?", ib.Id).Pluck("verify_peer_cert_by_name", &names).Error; err != nil {
+		t.Fatalf("load hosts: %v", err)
+	}
+	if len(names) != 2 || names[0] != "" || names[1] != "" {
+		t.Fatalf("verifyPeerCertByName = %q, want two blanks", names)
+	}
+}
+
+// #2 — a second run is a no-op (the HistoryOfSeeders gate).
+func TestMigrate_Idempotent(t *testing.T) {
+	initMigrateDB(t)
+	seedInboundWithStream(t, "m2", 5552, epMigrationStream)
+
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	var count int64
+	GetDB().Model(&model.Host{}).Count(&count)
+	if count != 2 {
+		t.Fatalf("host count = %d, want 2 (second run must be a no-op)", count)
+	}
+}
+
+// #3 — inbounds without externalProxy create no hosts.
+func TestMigrate_NoExternalProxy_NoHosts(t *testing.T) {
+	initMigrateDB(t)
+	seedInboundWithStream(t, "m3", 5553, `{"network":"tcp","security":"none"}`)
+
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	var count int64
+	GetDB().Model(&model.Host{}).Count(&count)
+	if count != 0 {
+		t.Fatalf("host count = %d, want 0", count)
+	}
+}
+
+// #4 — externalProxy stays in StreamSettings (additive, rollback-safe).
+func TestMigrate_KeepsExternalProxyIntact(t *testing.T) {
+	initMigrateDB(t)
+	ib := seedInboundWithStream(t, "m4", 5554, epMigrationStream)
+
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	var got model.Inbound
+	if err := GetDB().First(&got, ib.Id).Error; err != nil {
+		t.Fatalf("reload inbound: %v", err)
+	}
+	if !strings.Contains(got.StreamSettings, "externalProxy") || !strings.Contains(got.StreamSettings, "a.cdn.com") {
+		t.Fatalf("externalProxy must remain in StreamSettings: %s", got.StreamSettings)
+	}
+}
+
+// #5 — same against a real Postgres DSN (sequence resync); skips without a DSN.
+func TestMigrate_Postgres(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("XUI_DB_DSN")) == "" || os.Getenv("XUI_DB_TYPE") != "postgres" {
+		t.Skip("set XUI_DB_TYPE=postgres and XUI_DB_DSN to run the postgres migration test")
+	}
+	if err := InitDB(""); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	// Clean slate so this run owns the migration regardless of prior tests.
+	GetDB().Exec("TRUNCATE TABLE hosts, inbounds RESTART IDENTITY CASCADE")
+	GetDB().Where("seeder_name = ?", "HostsFromExternalProxy").Delete(&model.HistoryOfSeeders{})
+
+	seedInboundWithStream(t, "mpg", 5555, epMigrationStream)
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("migrate pg: %v", err)
+	}
+	var count int64
+	GetDB().Model(&model.Host{}).Count(&count)
+	if count != 2 {
+		t.Fatalf("pg host count = %d, want 2", count)
+	}
+	if err := seedHostsFromExternalProxy(); err != nil {
+		t.Fatalf("migrate pg (2nd): %v", err)
+	}
+	GetDB().Model(&model.Host{}).Count(&count)
+	if count != 2 {
+		t.Fatalf("pg host count after 2nd run = %d, want 2 (idempotent)", count)
+	}
+}
+
+func TestMigrateMtprotoCustomShareAddrToHosts(t *testing.T) {
+	initMigrateDB(t)
+	ib := &model.Inbound{
+		UserId: 1, Tag: "mtproto-custom", Enable: true, Port: 4060, Protocol: model.MTProto,
+		Remark: "MTProto", Settings: `{"clients":[]}`, StreamSettings: `{}`,
+		ShareAddrStrategy: "custom", ShareAddr: "proxy.example.com",
+	}
+	if err := GetDB().Create(ib).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+
+	if err := seedMtprotoCustomShareAddrToHosts(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var got model.Inbound
+	if err := GetDB().First(&got, ib.Id).Error; err != nil {
+		t.Fatalf("reload inbound: %v", err)
+	}
+	if got.ShareAddrStrategy != "listen" || got.ShareAddr != "" {
+		t.Fatalf("share fields = (%q, %q), want (listen, empty)", got.ShareAddrStrategy, got.ShareAddr)
+	}
+	var hosts []model.Host
+	if err := GetDB().Where("inbound_id = ?", ib.Id).Find(&hosts).Error; err != nil {
+		t.Fatalf("load hosts: %v", err)
+	}
+	if len(hosts) != 1 || hosts[0].Remark != "proxy.example.com" || hosts[0].Address != "proxy.example.com" || hosts[0].Port != 0 || hosts[0].Security != "same" {
+		t.Fatalf("migrated hosts = %+v", hosts)
+	}
+	if hosts[0].GroupId == "" {
+		t.Fatal("migrated host has an empty group id")
+	}
+
+	if err := seedMtprotoCustomShareAddrToHosts(); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	var count int64
+	if err := GetDB().Model(&model.Host{}).Where("inbound_id = ?", ib.Id).Count(&count).Error; err != nil {
+		t.Fatalf("count hosts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("host count = %d, want 1", count)
+	}
+}
+
+func TestMigrateMtprotoCustomShareAddrWithUnrelatedHost(t *testing.T) {
+	initMigrateDB(t)
+	ib := &model.Inbound{
+		UserId: 1, Tag: "mtproto-host", Enable: true, Port: 4060, Protocol: model.MTProto,
+		Remark: "MTProto", Settings: `{"clients":[]}`, StreamSettings: `{}`,
+		ShareAddrStrategy: "custom", ShareAddr: "old.example.com",
+	}
+	if err := GetDB().Create(ib).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	existing := &model.Host{
+		GroupId: "existing", InboundId: ib.Id, Remark: "public",
+		Address: "new.example.com", Port: 443, Security: "same", IsDisabled: true,
+	}
+	if err := GetDB().Create(existing).Error; err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+
+	if err := seedMtprotoCustomShareAddrToHosts(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var hosts []model.Host
+	if err := GetDB().Where("inbound_id = ?", ib.Id).Order("id asc").Find(&hosts).Error; err != nil {
+		t.Fatalf("load hosts: %v", err)
+	}
+	if len(hosts) != 2 || hosts[0].Id != existing.Id {
+		t.Fatalf("hosts = %+v, want the existing host plus the migrated one", hosts)
+	}
+	if hosts[1].Address != "old.example.com" || hosts[1].Port != 0 || hosts[1].IsDisabled {
+		t.Fatalf("migrated host = %+v, want enabled old.example.com on the inbound port", hosts[1])
+	}
+	var got model.Inbound
+	if err := GetDB().First(&got, ib.Id).Error; err != nil {
+		t.Fatalf("reload inbound: %v", err)
+	}
+	if got.ShareAddrStrategy != "listen" || got.ShareAddr != "" {
+		t.Fatalf("share fields = (%q, %q), want (listen, empty)", got.ShareAddrStrategy, got.ShareAddr)
+	}
+}
+
+func TestMigrateMtprotoCustomShareAddrSkipsHostWithSameAddress(t *testing.T) {
+	initMigrateDB(t)
+	ib := &model.Inbound{
+		UserId: 1, Tag: "mtproto-dup", Enable: true, Port: 4060, Protocol: model.MTProto,
+		Remark: "MTProto", Settings: `{"clients":[]}`, StreamSettings: `{}`,
+		ShareAddrStrategy: "custom", ShareAddr: "proxy.example.com",
+	}
+	if err := GetDB().Create(ib).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	existing := &model.Host{
+		GroupId: "existing", InboundId: ib.Id, Remark: "public",
+		Address: "proxy.example.com", Port: 443, Security: "same",
+	}
+	if err := GetDB().Create(existing).Error; err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+
+	if err := seedMtprotoCustomShareAddrToHosts(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var hosts []model.Host
+	if err := GetDB().Where("inbound_id = ?", ib.Id).Find(&hosts).Error; err != nil {
+		t.Fatalf("load hosts: %v", err)
+	}
+	if len(hosts) != 1 || hosts[0].Id != existing.Id {
+		t.Fatalf("hosts = %+v, want only the existing host %d", hosts, existing.Id)
+	}
+}
+
+func TestMigrateMtprotoCustomShareAddrWithUnusableSameAddressHost(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing model.Host
+	}{
+		{"disabled", model.Host{IsDisabled: true}},
+		{"excludes_raw", model.Host{ExcludeFromSubTypes: []string{"raw"}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			initMigrateDB(t)
+			ib := &model.Inbound{
+				UserId: 1, Tag: "mtproto-" + c.name, Enable: true, Port: 4060, Protocol: model.MTProto,
+				Remark: "MTProto", Settings: `{"clients":[]}`, StreamSettings: `{}`,
+				ShareAddrStrategy: "custom", ShareAddr: "proxy.example.com",
+			}
+			if err := GetDB().Create(ib).Error; err != nil {
+				t.Fatalf("create inbound: %v", err)
+			}
+			existing := c.existing
+			existing.GroupId = "existing"
+			existing.InboundId = ib.Id
+			existing.Remark = "parked"
+			existing.Address = "proxy.example.com"
+			existing.Security = "same"
+			if err := GetDB().Create(&existing).Error; err != nil {
+				t.Fatalf("create host: %v", err)
+			}
+
+			if err := seedMtprotoCustomShareAddrToHosts(); err != nil {
+				t.Fatalf("migrate: %v", err)
+			}
+
+			var hosts []model.Host
+			if err := GetDB().Where("inbound_id = ?", ib.Id).Order("id asc").Find(&hosts).Error; err != nil {
+				t.Fatalf("load hosts: %v", err)
+			}
+			if len(hosts) != 2 {
+				t.Fatalf("hosts = %+v, want the parked host plus a usable one", hosts)
+			}
+			migrated := hosts[1]
+			if migrated.Address != "proxy.example.com" || migrated.IsDisabled || len(migrated.ExcludeFromSubTypes) != 0 {
+				t.Fatalf("migrated host = %+v, want an enabled raw-included proxy.example.com", migrated)
+			}
+		})
+	}
+}
+
+// Mihomo X25519 was stored but ignored before it started dropping ML-KEM; a row
+// switched on back then must not change its subscription output on upgrade.
+func TestMigrate_PreexistingMihomoX25519IsResetOnce(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "x-ui.db")
+	if err := InitDB(dbPath); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	t.Cleanup(func() { _ = CloseDB() })
+	ib := seedInboundWithStream(t, "mx-legacy", 5559, `{"network":"tcp","security":"reality"}`)
+	host := &model.Host{InboundId: ib.Id, Remark: "legacy", Address: "cdn.example.com", MihomoX25519: true}
+	if err := GetDB().Create(host).Error; err != nil {
+		t.Fatalf("seed host: %v", err)
+	}
+	if err := GetDB().Where("seeder_name = ?", "HostMihomoX25519Reset").Delete(&model.HistoryOfSeeders{}).Error; err != nil {
+		t.Fatalf("clear seeder history: %v", err)
+	}
+	reopen := func() model.Host {
+		t.Helper()
+		if err := CloseDB(); err != nil {
+			t.Fatalf("CloseDB: %v", err)
+		}
+		if err := InitDB(dbPath); err != nil {
+			t.Fatalf("reopen InitDB: %v", err)
+		}
+		var got model.Host
+		if err := GetDB().First(&got, host.Id).Error; err != nil {
+			t.Fatalf("load host: %v", err)
+		}
+		return got
+	}
+
+	if got := reopen(); got.MihomoX25519 {
+		t.Fatalf("pre-existing mihomoX25519 = true after upgrade, want it reset to false")
+	}
+	if err := GetDB().Model(&model.Host{}).Where("id = ?", host.Id).Update("mihomo_x25519", true).Error; err != nil {
+		t.Fatalf("switch on after upgrade: %v", err)
+	}
+	if got := reopen(); !got.MihomoX25519 {
+		t.Fatalf("mihomoX25519 set after the upgrade was reset again on restart")
+	}
+}

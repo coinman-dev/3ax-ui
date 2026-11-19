@@ -1,0 +1,256 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  createDefaultHttpInboundSettings,
+  createDefaultHysteriaClient,
+  createDefaultHysteriaInboundSettings,
+  createDefaultMixedInboundSettings,
+  createDefaultShadowsocksClient,
+  createDefaultShadowsocksInboundSettings,
+  createDefaultTrojanClient,
+  createDefaultTrojanInboundSettings,
+  createDefaultTuicClient,
+  createDefaultTuicInboundSettings,
+  createDefaultTunnelInboundSettings,
+  createDefaultVlessClient,
+  createDefaultVlessInboundSettings,
+  createDefaultVmessClient,
+  createDefaultVmessInboundSettings,
+  createDefaultWireguardInboundSettings,
+} from '@/lib/xray/inbound-defaults';
+import {
+  createHysteriaTlsSettingsWithDefaultCert,
+  createTlsSettingsWithDefaultCert,
+} from '@/lib/xray/inbound-tls-defaults';
+import { HttpInboundSettingsSchema } from '@/schemas/protocols/inbound/http';
+import {
+  HysteriaClientSchema,
+  HysteriaInboundSettingsSchema,
+} from '@/schemas/protocols/inbound/hysteria';
+import { TlsStreamSettingsSchema } from '@/schemas/protocols/security/tls';
+import { MixedInboundSettingsSchema } from '@/schemas/protocols/inbound/mixed';
+import {
+  ShadowsocksClientSchema,
+  ShadowsocksInboundSettingsSchema,
+} from '@/schemas/protocols/inbound/shadowsocks';
+import {
+  TrojanClientSchema,
+  TrojanInboundSettingsSchema,
+} from '@/schemas/protocols/inbound/trojan';
+import { TuicClientSchema, TuicInboundSettingsSchema } from '@/schemas/protocols/inbound/tuic';
+import { TunnelInboundSettingsSchema } from '@/schemas/protocols/inbound/tunnel';
+import { VlessClientSchema, VlessInboundSettingsSchema } from '@/schemas/protocols/inbound/vless';
+import { VmessClientSchema, VmessInboundSettingsSchema } from '@/schemas/protocols/inbound/vmess';
+import { WireguardInboundSettingsSchema } from '@/schemas/protocols/inbound/wireguard';
+
+// Tests pass explicit seeds for every random field so the assertions don't
+// depend on window.crypto (the node test env has no crypto.randomUUID).
+// Each factory is verified two ways:
+//   1. snapshot — locks the exact shape
+//   2. Zod parse round-trip — confirms the factory output is a valid
+//      member of the protocol's client schema (no missing defaults, no
+//      stray fields)
+
+const seed = {
+  email: 'fixture@example.test',
+  subId: 'fixed-sub-id-1234',
+};
+
+describe('createDefaultVlessClient', () => {
+  it('produces a Zod-valid client', () => {
+    const c = createDefaultVlessClient({ ...seed, id: '11111111-2222-4333-8444-555555555555' });
+    expect(c).toMatchSnapshot();
+    expect(VlessClientSchema.parse(c)).toEqual(c);
+  });
+});
+
+describe('createDefaultVmessClient', () => {
+  it('produces a Zod-valid client', () => {
+    const c = createDefaultVmessClient({ ...seed, id: 'aaaaaaaa-bbbb-4ccc-9ddd-eeeeeeeeeeee' });
+    expect(c).toMatchSnapshot();
+    expect(VmessClientSchema.parse(c)).toEqual(c);
+  });
+});
+
+describe('createDefaultTrojanClient', () => {
+  it('produces a Zod-valid client', () => {
+    const c = createDefaultTrojanClient({ ...seed, password: 'fixed-trojan-pw' });
+    expect(c).toMatchSnapshot();
+    expect(TrojanClientSchema.parse(c)).toEqual(c);
+  });
+});
+
+describe('createDefaultShadowsocksClient', () => {
+  it('produces a Zod-valid client', () => {
+    const c = createDefaultShadowsocksClient({ ...seed, password: 'ZmFrZS1zcy1wYXNzd29yZA==' });
+    expect(c).toMatchSnapshot();
+    expect(ShadowsocksClientSchema.parse(c)).toEqual(c);
+  });
+});
+
+describe('createDefaultHysteriaClient', () => {
+  it('produces a Zod-valid client', () => {
+    const c = createDefaultHysteriaClient({ ...seed, auth: 'fixed-hyst-auth' });
+    expect(c).toMatchSnapshot();
+    expect(HysteriaClientSchema.parse(c)).toEqual(c);
+  });
+});
+
+describe('createDefaultTuicClient', () => {
+  it('produces a Zod-valid client', () => {
+    const c = createDefaultTuicClient({
+      ...seed,
+      uuid: '11111111-2222-3333-4444-555555555555',
+      password: 'fixed-tuic-pw',
+    });
+    expect(TuicClientSchema.parse(c)).toEqual(c);
+  });
+});
+
+describe('createDefault*InboundSettings factories', () => {
+  it('vless', () => {
+    const s = createDefaultVlessInboundSettings();
+    expect(s).toMatchSnapshot();
+    expect(VlessInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('vmess', () => {
+    const s = createDefaultVmessInboundSettings();
+    expect(s).toMatchSnapshot();
+    expect(VmessInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('trojan', () => {
+    const s = createDefaultTrojanInboundSettings();
+    expect(s).toMatchSnapshot();
+    expect(TrojanInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('shadowsocks', () => {
+    const s = createDefaultShadowsocksInboundSettings({ password: 'ZmFrZS1zcy1zZWVk' });
+    expect(s).toMatchSnapshot();
+    expect(ShadowsocksInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('hysteria (v1, defaults to v2 wire version)', () => {
+    const s = createDefaultHysteriaInboundSettings();
+    expect(s).toMatchSnapshot();
+    expect(HysteriaInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('http', () => {
+    const s = createDefaultHttpInboundSettings();
+    expect(s.allowTransparent).toBe(false);
+    const accounts = s.accounts ?? [];
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].user.length).toBe(8);
+    expect(accounts[0].pass.length).toBe(12);
+    expect(HttpInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('mixed', () => {
+    const s = createDefaultMixedInboundSettings();
+    expect(s.auth).toBe('password');
+    expect(s.udp).toBe(false);
+    expect(s.ip).toBe('127.0.0.1');
+    const accounts = s.accounts ?? [];
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].user.length).toBe(8);
+    expect(accounts[0].pass.length).toBe(12);
+    expect(MixedInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('tunnel', () => {
+    const s = createDefaultTunnelInboundSettings();
+    expect(s).toMatchSnapshot();
+    expect(TunnelInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+
+  it('wireguard', () => {
+    const s = createDefaultWireguardInboundSettings({
+      secretKey: 'QGVlb2dXc1ZTWGw0ZXBzZndsWmtMaUM5MUlNYjBHWFdYbz0=',
+    });
+    expect(s).toMatchSnapshot();
+    expect(WireguardInboundSettingsSchema.parse(s)).toEqual(s);
+    expect(s.peers).toEqual([]);
+    expect(s.clients).toEqual([]);
+  });
+
+  it('tuic', () => {
+    const s = createDefaultTuicInboundSettings();
+    expect(TuicInboundSettingsSchema.parse(s)).toEqual(s);
+  });
+});
+
+describe('TuicInboundSettingsSchema', () => {
+  it('canonicalizes congestion-controller aliases and casing', () => {
+    expect(
+      TuicInboundSettingsSchema.parse({ server: { congestion_control: 'RENO' } }).server
+        ?.congestion_control,
+    ).toBe('new_reno');
+    expect(
+      TuicInboundSettingsSchema.parse({ server: { congestion_control: ' CuBiC ' } }).server
+        ?.congestion_control,
+    ).toBe('cubic');
+    expect(
+      TuicInboundSettingsSchema.parse({ server: { congestion_control: '' } }).server
+        ?.congestion_control,
+    ).toBe('bbr');
+    expect(
+      TuicInboundSettingsSchema.parse({ server: { congestion_control: '  ' } }).server
+        ?.congestion_control,
+    ).toBe('bbr');
+    expect(
+      TuicInboundSettingsSchema.parse({ congestion_control: ' CuBiC ' }).congestion_control,
+    ).toBe('cubic');
+    expect(
+      TuicInboundSettingsSchema.parse({ congestion_control: 'invalid' }).congestion_control,
+    ).toBe('new_reno');
+  });
+
+  it('clamps legacy packet-size values to the SOCKS-safe UDP payload maximum', () => {
+    expect(
+      TuicInboundSettingsSchema.parse({ server: { max_udp_relay_packet_size: 65507 } }).server
+        ?.max_udp_relay_packet_size,
+    ).toBe(65245);
+    expect(
+      TuicInboundSettingsSchema.parse({ max_udp_relay_packet_size: 65500 })
+        .max_udp_relay_packet_size,
+    ).toBe(65245);
+    expect(() =>
+      TuicInboundSettingsSchema.parse({ server: { max_udp_relay_packet_size: 65508 } }),
+    ).toThrow();
+    expect(() => TuicInboundSettingsSchema.parse({ max_udp_relay_packet_size: 65508 })).toThrow();
+  });
+});
+
+describe('createHysteriaTlsSettingsWithDefaultCert', () => {
+  it('defaults Hysteria TLS to uTLS None and h3 ALPN', () => {
+    const tls = createHysteriaTlsSettingsWithDefaultCert();
+    expect(tls.alpn).toEqual(['h3']);
+    expect((tls.settings as Record<string, unknown>).fingerprint).toBe('');
+    expect(tls.certificates).toEqual([
+      expect.objectContaining({
+        useFile: true,
+        certificateFile: '',
+        keyFile: '',
+      }),
+    ]);
+  });
+});
+
+describe('createTlsSettingsWithDefaultCert', () => {
+  it('keeps the schema ALPN default for non-WebSocket transports', () => {
+    for (const network of [undefined, '', 'tcp', 'kcp', 'grpc', 'httpupgrade', 'xhttp']) {
+      const tls = createTlsSettingsWithDefaultCert(network);
+      expect(tls.alpn).toEqual(['h2', 'http/1.1']);
+    }
+  });
+
+  it('defaults ALPN to http/1.1 for WebSocket (issue #6782)', () => {
+    const tls = createTlsSettingsWithDefaultCert('ws');
+    expect(tls.alpn).toEqual(['http/1.1']);
+    // The overridden value must still satisfy the TLS settings schema.
+    expect(TlsStreamSettingsSchema.parse(tls).alpn).toEqual(['http/1.1']);
+  });
+});

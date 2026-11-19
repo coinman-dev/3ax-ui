@@ -1,0 +1,385 @@
+package service
+
+import (
+	"encoding/json"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/xray"
+
+	"gorm.io/gorm"
+)
+
+func (s *InboundService) disableInvalidInbounds(tx *gorm.DB, mutationBatch *trafficMutationBatch) (bool, int64, error) {
+	now := time.Now().Unix() * 1000
+	var inbounds []model.Inbound
+	if err := tx.Where("((total > 0 and up + down >= total) or (expiry_time > 0 and expiry_time <= ?)) and enable = ? and node_id IS NULL", now, true).
+		Find(&inbounds).Error; err != nil {
+		return false, 0, err
+	}
+	for i := range inbounds {
+		mutationBatch.localPlans = append(mutationBatch.localPlans, trafficLocalApplyPlan{
+			action: trafficDisableInbound, inbound: inbounds[i],
+		})
+	}
+
+	result := tx.Model(model.Inbound{}).
+		Where("((total > 0 and up + down >= total) or (expiry_time > 0 and expiry_time <= ?)) and enable = ? and node_id IS NULL", now, true).
+		Update("enable", false)
+	err := result.Error
+	count := result.RowsAffected
+	return false, count, err
+}
+
+// quotaDisabledInboundCond matches local inbounds their own cap switched off (args: enable, nowMs);
+// expired or hand-disabled ones never match, so a reset cannot bring them back.
+const quotaDisabledInboundCond = `enable = ? AND node_id IS NULL AND total > 0 AND up + down >= total AND (expiry_time <= 0 OR expiry_time > ?)`
+
+// quotaDisabledInboundIDs lists the inbounds a traffic cap switched off.
+func quotaDisabledInboundIDs(db *gorm.DB, nowMs int64) ([]int, error) {
+	var ids []int
+	err := db.Model(model.Inbound{}).
+		Where("user_id > ?", 0).
+		Where(quotaDisabledInboundCond, false, nowMs).
+		Pluck("id", &ids).Error
+	return ids, err
+}
+
+// quotaDisabledInbound reports whether a traffic cap switched this inbound off.
+func quotaDisabledInbound(db *gorm.DB, id int, nowMs int64) (bool, error) {
+	var count int64
+	err := db.Model(model.Inbound{}).
+		Where("id = ?", id).
+		Where(quotaDisabledInboundCond, false, nowMs).
+		Count(&count).Error
+	return count > 0, err
+}
+
+const globalTrafficFreshWindow = 24 * time.Hour
+
+func globalTrafficFreshSince(now time.Time) int64 {
+	return now.Add(-globalTrafficFreshWindow).UnixMilli()
+}
+
+// depletedClientsCond matches clients that exhausted their quota or expired.
+// Besides the local counters it also trips on the cross-panel usage a master
+// pushed into client_global_traffics — that's what lets a node cut a client
+// whose combined usage exceeds the quota even though the local share doesn't.
+// Only rows a master refreshed recently count (placeholders: now, freshSince).
+const depletedClientsCond = `((total > 0 AND up + down >= total)
+	OR (expiry_time > 0 AND expiry_time <= ?)
+	OR (total > 0 AND EXISTS (
+		SELECT 1 FROM client_global_traffics g
+		WHERE g.email = client_traffics.email
+			AND g.updated_at >= ?
+			AND g.up + g.down >= client_traffics.total
+	)))`
+
+// depletedClientsCondLocal is depletedClientsCond without the cross-panel
+// client_global_traffics check. The EXISTS branch is a correlated subquery that
+// turns every traffic poll into a full client_traffics scan; on a panel no
+// master pushes to (the common case) client_global_traffics is empty, so the
+// branch can never match and is pure CPU cost (#5392). Placeholders: now.
+const depletedClientsCondLocal = `((total > 0 AND up + down >= total)
+	OR (expiry_time > 0 AND expiry_time <= ?))`
+
+// depletedCond includes cross-panel quota usage only while a master's row is fresh.
+// Without fresh global rows, the local-only predicate avoids a correlated EXISTS scan.
+func depletedCond(tx *gorm.DB) (string, []any) {
+	now := tx.NowFunc()
+	freshSince := globalTrafficFreshSince(now)
+	var probe int64
+	err := tx.Model(&model.ClientGlobalTraffic{}).
+		Where("updated_at >= ?", freshSince).
+		Limit(1).Count(&probe).Error
+	if err == nil && probe > 0 {
+		return depletedClientsCond, []any{now.UnixMilli(), freshSince}
+	}
+	return depletedClientsCondLocal, []any{now.UnixMilli()}
+}
+
+func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *trafficMutationBatch) (bool, int64, []int, error) {
+	now := time.Now().UnixMilli()
+	cond, condArgs := depletedCond(tx)
+
+	var depletedRows []xray.ClientTraffic
+	err := tx.Model(xray.ClientTraffic{}).
+		Where(cond+" AND enable = ?", append(condArgs, true)...).
+		Find(&depletedRows).Error
+	if err != nil {
+		return false, 0, nil, err
+	}
+	if len(depletedRows) == 0 {
+		return false, 0, nil, nil
+	}
+
+	depletedEmails := make([]string, 0, len(depletedRows))
+	for i := range depletedRows {
+		if depletedRows[i].Email == "" {
+			continue
+		}
+		depletedEmails = append(depletedEmails, depletedRows[i].Email)
+	}
+
+	type target struct {
+		InboundID int  `gorm:"column:inbound_id"`
+		NodeID    *int `gorm:"column:node_id"`
+		Tag       string
+		Email     string
+	}
+	var targets []target
+	// Chunked like every other statement here: a node alone can report more depleted
+	// clients than SQLite binds variables, which would stop the whole tick.
+	for _, batch := range chunkStrings(depletedEmails, sqlInChunk) {
+		var found []target
+		err = tx.Raw(`
+			SELECT inbounds.id AS inbound_id, inbounds.node_id AS node_id,
+			       inbounds.tag AS tag, clients.email AS email
+			FROM clients
+			JOIN client_inbounds ON client_inbounds.client_id = clients.id
+			JOIN inbounds        ON inbounds.id = client_inbounds.inbound_id
+			WHERE clients.email IN ?
+		`, batch).Scan(&found).Error
+		if err != nil {
+			return false, 0, nil, err
+		}
+		targets = append(targets, found...)
+	}
+
+	byInbound := make(map[int][]target)
+	for _, t := range targets {
+		byInbound[t.InboundID] = append(byInbound[t.InboundID], t)
+	}
+
+	disabledNodeIDs := make(map[int]struct{})
+	for inboundID, group := range byInbound {
+		emails := make(map[string]struct{}, len(group))
+		for _, t := range group {
+			emails[t.Email] = struct{}{}
+		}
+		oldInbound, inbound, mErr := s.markClientsDisabledInSettings(tx, inboundID, emails)
+		if mErr != nil {
+			return false, 0, nil, mErr
+		}
+		if inbound.NodeID != nil {
+			mutationBatch.remotePlans = append(mutationBatch.remotePlans, trafficInboundUpdatePlan{
+				oldInbound: *oldInbound, newInbound: *inbound,
+			})
+			mutationBatch.addNode(*inbound.NodeID)
+			disabledNodeIDs[*inbound.NodeID] = struct{}{}
+			continue
+		}
+		for email := range emails {
+			mutationBatch.localPlans = append(mutationBatch.localPlans, trafficLocalApplyPlan{
+				action: trafficRemoveUser, inbound: *inbound, email: email,
+			})
+		}
+	}
+	// Flip the rows already collected above by primary key instead of
+	// re-evaluating the depleted predicate, which was a second full scan of
+	// client_traffics on every poll. Sorted ids keep the lock order stable.
+	ids := make([]int, 0, len(depletedRows))
+	for i := range depletedRows {
+		ids = append(ids, depletedRows[i].Id)
+	}
+	slices.Sort(ids)
+	var count int64
+	for _, batch := range chunkInts(ids, sqlInChunk) {
+		result := tx.Model(xray.ClientTraffic{}).
+			Where("id IN ? AND enable = ?", batch, true).
+			Update("enable", false)
+		if result.Error != nil {
+			return false, count, nil, result.Error
+		}
+		count += result.RowsAffected
+	}
+
+	for _, batch := range chunkStrings(depletedEmails, sqlInChunk) {
+		if err := tx.Model(&model.ClientRecord{}).
+			Where("email IN ?", batch).
+			Updates(map[string]any{"enable": false, "updated_at": now}).Error; err != nil {
+			return false, count, nil, err
+		}
+	}
+
+	nodeIDs := make([]int, 0, len(disabledNodeIDs))
+	for nodeID := range disabledNodeIDs {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+
+	return false, count, nodeIDs, nil
+}
+
+// markClientsDisabledInSettings flips client.enable=false in the inbound's
+// stored settings JSON for the given emails and returns both the pre and
+// post snapshots so a caller pushing to a remote node has the diff to hand.
+func (s *InboundService) markClientsDisabledInSettings(tx *gorm.DB, inboundID int, emails map[string]struct{}) (oldIb, newIb *model.Inbound, err error) {
+	var ib model.Inbound
+	if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).First(&ib).Error; err != nil {
+		return nil, nil, err
+	}
+	snapshot := ib
+
+	// A blob that does not parse (a node can send one) leaves the settings as they are: the
+	// stats and client rows still disable the client, and one inbound must not stop the tick.
+	members, entries, ok := splitSettingsClients(ib.Settings)
+	if !ok {
+		logger.Warningf("disable clients: inbound %d settings do not parse; leaving them unchanged", inboundID)
+		return &snapshot, &ib, nil
+	}
+	now := time.Now().Unix() * 1000
+	mutated := false
+	for i, entry := range entries {
+		c, ok := readSettingsClient(entry)
+		if !ok {
+			continue
+		}
+		if _, hit := emails[c.Email]; !hit {
+			continue
+		}
+		var enabled bool
+		if json.Unmarshal(c.Enable, &enabled) != nil || !enabled {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(entry, &fields) != nil {
+			continue
+		}
+		fields["enable"] = json.RawMessage("false")
+		fields["updated_at"] = json.RawMessage(strconv.FormatInt(now, 10))
+		rewritten, err := json.Marshal(fields)
+		if err != nil {
+			continue
+		}
+		entries[i] = rewritten
+		mutated = true
+	}
+	if !mutated {
+		return &snapshot, &ib, nil
+	}
+	joined, ok := joinSettingsClients(ib.Settings, members, entries)
+	if !ok {
+		return &snapshot, &ib, nil
+	}
+	ib.Settings = joined
+	if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).
+		Update("settings", ib.Settings).Error; err != nil {
+		return nil, nil, err
+	}
+	// A just-disabled client must leave subscriptions within this tick.
+	InvalidateSubData()
+	return &snapshot, &ib, nil
+}
+
+// markClientEnabledInSettings is the re-enable twin of
+// markClientsDisabledInSettings: flip one email's stored entry back on.
+func (s *InboundService) markClientEnabledInSettings(tx *gorm.DB, inboundID int, email string) error {
+	var ib model.Inbound
+	if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).First(&ib).Error; err != nil {
+		return err
+	}
+	settings := map[string]any{}
+	if err := json.Unmarshal([]byte(ib.Settings), &settings); err != nil {
+		return err
+	}
+	clients, _ := settings["clients"].([]any)
+	now := time.Now().Unix() * 1000
+	mutated := false
+	for i := range clients {
+		entry, ok := clients[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		if e, _ := entry["email"].(string); e != email {
+			continue
+		}
+		if cur, _ := entry["enable"].(bool); cur {
+			continue
+		}
+		entry["enable"] = true
+		entry["updated_at"] = now
+		clients[i] = entry
+		mutated = true
+	}
+	if !mutated {
+		return nil
+	}
+	settings["clients"] = clients
+	bs, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return tx.Model(&model.Inbound{}).Where("id = ?", inboundID).
+		Update("settings", string(bs)).Error
+}
+
+// trafficDisabledEmails reports which emails have a switched-off stats row. The
+// table is email-keyed and its inbound_id goes stale, so never filter on it.
+func trafficDisabledEmails(db *gorm.DB, emails []string) (map[string]struct{}, error) {
+	disabled := make(map[string]struct{})
+	for _, batch := range chunkStrings(uniqueNonEmptyStrings(emails), sqlInChunk) {
+		var page []string
+		if err := db.Model(xray.ClientTraffic{}).
+			Where("email IN ? AND enable = ?", batch, false).
+			Pluck("email", &page).Error; err != nil {
+			return nil, err
+		}
+		for _, e := range page {
+			disabled[e] = struct{}{}
+		}
+	}
+	return disabled, nil
+}
+
+// DepletedClientEmails reports which emails disableInvalidClients keeps off (quota
+// spent or expiry passed), so an unattended enable does not hand them back.
+func (s *InboundService) DepletedClientEmails(emails []string) (map[string]struct{}, error) {
+	db := database.GetDB()
+	cond, condArgs := depletedCond(db)
+	depleted := make(map[string]struct{})
+	for _, batch := range chunkStrings(uniqueNonEmptyStrings(emails), sqlInChunk) {
+		var page []string
+		if err := db.Model(xray.ClientTraffic{}).
+			Where(cond+" AND email IN ?", append(append([]any{}, condArgs...), batch)...).
+			Pluck("email", &page).Error; err != nil {
+			return nil, err
+		}
+		for _, e := range page {
+			depleted[e] = struct{}{}
+		}
+	}
+	return depleted, nil
+}
+
+// lifecycleDisabledEmails picks, out of switched-off stats rows, the ones that
+// disableInvalidClients cleared; an operator's disable clears the flag as well.
+func lifecycleDisabledEmails(tx *gorm.DB, rows []xray.ClientTraffic) (map[string]struct{}, error) {
+	emails := make([]string, 0, len(rows))
+	for i := range rows {
+		emails = append(emails, rows[i].Email)
+	}
+	records, err := clientRecordsByEmail(tx, emails)
+	if err != nil {
+		return nil, err
+	}
+	// Cross-panel usage depletes too (depletedClientsCond); the overlay raises
+	// the counters in place, so callers hand it copies.
+	overlayGlobalTrafficValues(tx, rows)
+	disabled := make(map[string]struct{}, len(rows))
+	for i := range rows {
+		r := &rows[i]
+		depleted := r.Total > 0 && r.Up+r.Down >= r.Total
+		// The job stamps the record once the deadline has passed (whole seconds
+		// is all a stamp pushed to a node keeps); an operator's disable came earlier.
+		record := records[r.Email]
+		expired := record != nil && r.ExpiryTime > 0 && record.UpdatedAt >= r.ExpiryTime/1000*1000
+		if depleted || expired {
+			disabled[r.Email] = struct{}{}
+		}
+	}
+	return disabled, nil
+}

@@ -1,0 +1,390 @@
+package job
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
+	"github.com/mhsanaei/3x-ui/v3/internal/database/dbtest"
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+)
+
+func TestMergeClientIps_EvictsStaleOldEntries(t *testing.T) {
+	// #4077: after a ban expires, a single IP that reconnects used to get
+	// banned again immediately because a long-disconnected IP stayed in the
+	// DB with an ancient timestamp and kept "protecting" itself against
+	// eviction. Guard against that regression here.
+	old := []model.ClientIpEntry{
+		{IP: "1.1.1.1", Timestamp: 100},  // stale — client disconnected long ago
+		{IP: "2.2.2.2", Timestamp: 1900}, // fresh — still connecting
+	}
+	new := []model.ClientIpEntry{
+		{IP: "2.2.2.2", Timestamp: 2000}, // same IP, newer log line
+	}
+
+	got := mergeClientIps(old, new, 1000, false)
+
+	want := map[string]int64{"2.2.2.2": 2000}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stale 1.1.1.1 should have been dropped\ngot:  %v\nwant: %v", got, want)
+	}
+}
+
+func TestMergeClientIps_KeepsFreshOldEntriesUnchanged(t *testing.T) {
+	// Backwards-compat: entries that aren't stale are still carried forward,
+	// so enforcement survives access-log rotation.
+	old := []model.ClientIpEntry{
+		{IP: "1.1.1.1", Timestamp: 1500},
+	}
+	got := mergeClientIps(old, nil, 1000, false)
+
+	want := map[string]int64{"1.1.1.1": 1500}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("fresh old IP should have been retained\ngot:  %v\nwant: %v", got, want)
+	}
+}
+
+func TestMergeClientIps_PrefersLaterTimestampForSameIp(t *testing.T) {
+	old := []model.ClientIpEntry{{IP: "1.1.1.1", Timestamp: 1500}}
+	new := []model.ClientIpEntry{{IP: "1.1.1.1", Timestamp: 1700}}
+
+	got := mergeClientIps(old, new, 1000, false)
+
+	if got["1.1.1.1"] != 1700 {
+		t.Fatalf("expected latest timestamp 1700, got %d", got["1.1.1.1"])
+	}
+}
+
+func TestMergeClientIps_DropsStaleNewEntries(t *testing.T) {
+	// A log line with a clock-skewed old timestamp must not resurrect a
+	// stale IP past the cutoff.
+	new := []model.ClientIpEntry{{IP: "1.1.1.1", Timestamp: 500}}
+	got := mergeClientIps(nil, new, 1000, false)
+
+	if len(got) != 0 {
+		t.Fatalf("stale new IP should have been dropped, got %v", got)
+	}
+}
+
+func TestMergeClientIps_NoStaleCutoffStillWorks(t *testing.T) {
+	// Defensive: a zero cutoff (e.g. during very first run on a fresh
+	// install) must not over-evict.
+	old := []model.ClientIpEntry{{IP: "1.1.1.1", Timestamp: 100}}
+	new := []model.ClientIpEntry{{IP: "2.2.2.2", Timestamp: 200}}
+
+	got := mergeClientIps(old, new, 0, false)
+
+	want := map[string]int64{"1.1.1.1": 100, "2.2.2.2": 200}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("zero cutoff should keep everything\ngot:  %v\nwant: %v", got, want)
+	}
+}
+
+func TestMergeClientIps_LiveObservationsBypassStaleCutoff(t *testing.T) {
+	// online-API mode: lastSeen is set when the connection was dispatched, so
+	// a connection held open for hours has an "old" timestamp while being live
+	// by definition. It must survive the stale cutoff.
+	new := []model.ClientIpEntry{{IP: "1.1.1.1", Timestamp: 500}} // opened long ago, still connected
+	got := mergeClientIps(nil, new, 1000, true)
+
+	want := map[string]int64{"1.1.1.1": 500}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("live observation must bypass the stale cutoff\ngot:  %v\nwant: %v", got, want)
+	}
+}
+
+func TestMergeClientIps_LiveModeStillEvictsStaleOldEntries(t *testing.T) {
+	// the bypass applies only to this scan's observations — persisted entries
+	// from past scans still age out as before.
+	old := []model.ClientIpEntry{{IP: "2.2.2.2", Timestamp: 100}}
+	new := []model.ClientIpEntry{{IP: "1.1.1.1", Timestamp: 2000}}
+	got := mergeClientIps(old, new, 1000, true)
+
+	want := map[string]int64{"1.1.1.1": 2000}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stale db entry must still be evicted in live mode\ngot:  %v\nwant: %v", got, want)
+	}
+}
+
+func TestSelectIpsToBan(t *testing.T) {
+	live := []model.ClientIpEntry{ // sorted oldest-first, as partitionLiveIps returns
+		{IP: "A", Timestamp: 100},
+		{IP: "B", Timestamp: 200},
+		{IP: "C", Timestamp: 300},
+	}
+
+	// over the limit: oldest connections are banned, newest keep the slots
+	kept, banned := selectIpsToBan(live, 1)
+	if got := collectIps(kept); !reflect.DeepEqual(got, []string{"C"}) {
+		t.Fatalf("newest ip must keep the slot, got %v", got)
+	}
+	if got := collectIps(banned); !reflect.DeepEqual(got, []string{"A", "B"}) {
+		t.Fatalf("older ips must be banned oldest-first, got %v", got)
+	}
+
+	// at the limit: nothing banned
+	kept, banned = selectIpsToBan(live, 3)
+	if len(banned) != 0 || len(kept) != 3 {
+		t.Fatalf("at-limit set must not ban, kept=%v banned=%v", kept, banned)
+	}
+
+	// under the limit: nothing banned
+	kept, banned = selectIpsToBan(live[:1], 3)
+	if len(banned) != 0 || len(kept) != 1 {
+		t.Fatalf("under-limit set must not ban, kept=%v banned=%v", kept, banned)
+	}
+
+	// defensive: non-positive limit never reaches enforcement, but must not panic
+	if _, banned := selectIpsToBan(live, 0); banned != nil {
+		t.Fatalf("zero limit must not ban, got %v", banned)
+	}
+}
+
+func collectIps(entries []model.ClientIpEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.IP)
+	}
+	return out
+}
+
+func TestPartitionLiveIps_SingleLiveNotStarvedByStillFreshHistoricals(t *testing.T) {
+	// #4091: db holds A, B, C from minutes ago (still in the 30min
+	// window) but they're not connecting anymore. only D is. old code
+	// merged all four, sorted ascending, kept [A,B,C] and banned D
+	// every tick. pin the new rule: only live ips count toward the limit.
+	ipMap := map[string]int64{
+		"A": 1000,
+		"B": 1100,
+		"C": 1200,
+		"D": 2000,
+	}
+	observed := map[string]bool{"D": true}
+
+	live, historical := partitionLiveIps(ipMap, observed)
+
+	if got := collectIps(live); !reflect.DeepEqual(got, []string{"D"}) {
+		t.Fatalf("live set should only contain the ip observed this scan\ngot:  %v\nwant: [D]", got)
+	}
+	if got := collectIps(historical); !reflect.DeepEqual(got, []string{"A", "B", "C"}) {
+		t.Fatalf("historical set should contain db-only ips in ascending order\ngot:  %v\nwant: [A B C]", got)
+	}
+}
+
+func TestPartitionLiveIps_ConcurrentLiveIpsSortedAscending(t *testing.T) {
+	// when several ips are really live, partition returns them all in the
+	// live set sorted ascending by timestamp. updateInboundClientIps then
+	// keeps the newest and bans the oldest (last-IP-wins, #4699).
+	ipMap := map[string]int64{
+		"A": 5000,
+		"B": 5500,
+	}
+	observed := map[string]bool{"A": true, "B": true}
+
+	live, historical := partitionLiveIps(ipMap, observed)
+
+	if got := collectIps(live); !reflect.DeepEqual(got, []string{"A", "B"}) {
+		t.Fatalf("both live ips should be in the live set, ascending\ngot:  %v\nwant: [A B]", got)
+	}
+	if len(historical) != 0 {
+		t.Fatalf("no historical ips expected, got %v", historical)
+	}
+}
+
+func TestGetInboundByEmailFallbackIgnoresProtocolScalarFields(t *testing.T) {
+	dbDir := t.TempDir()
+	t.Setenv("XUI_DB_FOLDER", dbDir)
+	dbtest.InitDB(t, filepath.Join(dbDir, "x-ui.db"))
+
+	inbound := &model.Inbound{
+		UserId:   1,
+		Tag:      "vless-limit-fallback",
+		Enable:   true,
+		Port:     43002,
+		Protocol: model.VLESS,
+		Settings: `{
+			"clients": [{"email": "alice@example.test", "id": "11111111-1111-1111-1111-111111111111", "limitIp": 2}],
+			"decryption": "none",
+			"encryption": "none",
+			"fallbacks": []
+		}`,
+	}
+	if err := database.GetDB().Create(inbound).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+
+	got, err := (&CheckClientIpJob{}).getInboundByEmail("alice@example.test")
+	if err != nil {
+		t.Fatalf("getInboundByEmail: %v", err)
+	}
+	if got.Id != inbound.Id {
+		t.Fatalf("inbound id = %d, want %d", got.Id, inbound.Id)
+	}
+}
+
+func TestPartitionLiveIps_EmptyScanLeavesDbIntact(t *testing.T) {
+	// quiet tick: nothing observed => nothing live. everything merged
+	// is historical. keeps the panel from wiping recent-but-idle ips.
+	ipMap := map[string]int64{
+		"A": 1000,
+		"B": 1100,
+	}
+	observed := map[string]bool{}
+
+	live, historical := partitionLiveIps(ipMap, observed)
+
+	if len(live) != 0 {
+		t.Fatalf("no live ips expected, got %v", live)
+	}
+	if got := collectIps(historical); !reflect.DeepEqual(got, []string{"A", "B"}) {
+		t.Fatalf("all merged entries should flow to historical\ngot:  %v\nwant: [A B]", got)
+	}
+}
+
+func TestPartitionLiveIps_RecentSyncedIpIsLive(t *testing.T) {
+	// Synced IPs from other nodes within 2 minutes should be counted as live
+	// even if they weren't observed in the local scan.
+	now := time.Now().Unix()
+	ipMap := map[string]int64{
+		"A": now - 30,  // synced 30s ago -> live
+		"B": now - 150, // synced 2m30s ago -> historical
+	}
+	observed := map[string]bool{}
+
+	live, historical := partitionLiveIps(ipMap, observed)
+
+	if got := collectIps(live); !reflect.DeepEqual(got, []string{"A"}) {
+		t.Fatalf("recent IP should be live\ngot:  %v\nwant: [A]", got)
+	}
+	if got := collectIps(historical); !reflect.DeepEqual(got, []string{"B"}) {
+		t.Fatalf("older IP should be historical\ngot:  %v\nwant: [B]", got)
+	}
+}
+
+func TestCheckFail2BanInstalled_DisabledEnvSkipsClientProbe(t *testing.T) {
+	t.Setenv("XUI_ENABLE_FAIL2BAN", "false")
+	marker := fakeFail2BanClient(t)
+
+	if (&CheckClientIpJob{}).checkFail2BanInstalled() {
+		t.Fatal("fail2ban should be unavailable when XUI_ENABLE_FAIL2BAN=false")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("fail2ban-client should not have been executed, stat error: %v", err)
+	}
+}
+
+func TestCheckFail2BanInstalled_EmptyEnvSkipsClientProbe(t *testing.T) {
+	t.Setenv("XUI_ENABLE_FAIL2BAN", "")
+	marker := fakeFail2BanClient(t)
+
+	if (&CheckClientIpJob{}).checkFail2BanInstalled() {
+		t.Fatal("fail2ban should be unavailable when XUI_ENABLE_FAIL2BAN is empty")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("fail2ban-client should not have been executed, stat error: %v", err)
+	}
+}
+
+// Map-iteration order must not reach the blob: an unchanged client would CAS-rewrite
+// every 10s, and the ban pick among tied IPs would be random per scan.
+func TestPartitionLiveIps_TiedTimestampsKeepStableIpOrder(t *testing.T) {
+	ipMap := map[string]int64{"203.0.113.3": 100, "203.0.113.1": 100, "203.0.113.2": 100}
+	observed := map[string]bool{"203.0.113.1": true, "203.0.113.2": true, "203.0.113.3": true}
+	var first []model.ClientIpEntry
+	for i := range 50 {
+		live, _ := partitionLiveIps(ipMap, observed)
+		if i == 0 {
+			first = live
+			continue
+		}
+		if !reflect.DeepEqual(first, live) {
+			t.Fatalf("tied timestamps produced different orders across runs: %v vs %v", first, live)
+		}
+	}
+	want := []string{"203.0.113.1", "203.0.113.2", "203.0.113.3"}
+	for i, ip := range want {
+		if first[i].IP != ip {
+			t.Fatalf("tied timestamps must order by IP, got %v", first)
+		}
+	}
+}
+
+func TestIsFail2BanEnabled_DefaultsToEnabledWhenUnset(t *testing.T) {
+	value, ok := os.LookupEnv("XUI_ENABLE_FAIL2BAN")
+	os.Unsetenv("XUI_ENABLE_FAIL2BAN")
+	t.Cleanup(func() {
+		if ok {
+			os.Setenv("XUI_ENABLE_FAIL2BAN", value)
+		} else {
+			os.Unsetenv("XUI_ENABLE_FAIL2BAN")
+		}
+	})
+
+	if !isFail2BanEnabled() {
+		t.Fatal("fail2ban should default to enabled when XUI_ENABLE_FAIL2BAN is unset")
+	}
+}
+
+func TestCheckFail2BanInstalled_EnabledEnvProbesClient(t *testing.T) {
+	t.Setenv("XUI_ENABLE_FAIL2BAN", "true")
+	marker := fakeFail2BanClient(t)
+
+	if !(&CheckClientIpJob{}).checkFail2BanInstalled() {
+		t.Fatal("fail2ban should be available when the client probe succeeds")
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("fail2ban-client should have been executed: %v", err)
+	}
+}
+
+func fakeFail2BanClient(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "probe-called")
+	fakeClient := filepath.Join(dir, "fail2ban-client")
+	script := "#!/bin/sh\n: > \"$FAIL2BAN_PROBE_MARKER\"\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		fakeClient += ".bat"
+		script = "@echo off\ntype nul > \"%FAIL2BAN_PROBE_MARKER%\"\nexit /b 0\n"
+	}
+	if err := os.WriteFile(fakeClient, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake fail2ban-client: %v", err)
+	}
+
+	t.Setenv("FAIL2BAN_PROBE_MARKER", marker)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return marker
+}
+
+// resolveEnforce is platform-pure (the caller supplies needsBinary), so this
+// table pins every branch — the Windows carve-out included — statically.
+func TestResolveEnforce(t *testing.T) {
+	cases := []struct {
+		name         string
+		f2bEnabled   bool
+		hasLimit     bool
+		f2bInstalled bool
+		needsBinary  bool
+		want         bool
+	}{
+		{"disabled env with fail2ban present never enforces", false, true, true, true, false},
+		{"disabled env without fail2ban never enforces", false, true, false, true, false},
+		{"enabled with fail2ban and a limit enforces", true, true, true, true, true},
+		{"enabled, binary needed but absent, cannot enforce", true, true, false, true, false},
+		{"enabled, no binary needed (windows), enforces without fail2ban", true, true, false, false, true},
+		{"no limit never enforces even fully installed", true, false, true, true, false},
+	}
+	j := NewCheckClientIpJob()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := j.resolveEnforce(tc.f2bEnabled, tc.hasLimit, tc.f2bInstalled, tc.needsBinary); got != tc.want {
+				t.Fatalf("resolveEnforce(%v, %v, %v, %v) = %v, want %v", tc.f2bEnabled, tc.hasLimit, tc.f2bInstalled, tc.needsBinary, got, tc.want)
+			}
+		})
+	}
+}

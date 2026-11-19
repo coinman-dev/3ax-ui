@@ -1,0 +1,659 @@
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Alert,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
+  Switch,
+  Tabs,
+  Typography,
+  message,
+} from 'antd';
+import {
+  ProfileOutlined,
+  SafetyCertificateOutlined,
+  ControlOutlined,
+  NodeIndexOutlined,
+  SettingOutlined,
+  PartitionOutlined,
+  DeploymentUnitOutlined,
+  RocketOutlined,
+} from '@ant-design/icons';
+import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form';
+
+import type { HostRecord } from '@/api/queries/useHostsQuery';
+import { BulkAddHostSchema, type BulkAddHostValues } from '@/schemas/api/host';
+import type { InboundOption } from '@/schemas/client';
+import { ALPN_OPTION, UTLS_FINGERPRINT } from '@/schemas/primitives';
+import { CipherSuitesSelect, selectTagRender } from '@/components/form';
+import DynamicEchHelper from '@/components/form/DynamicEchHelper';
+import { FormField, rhfZodValidate } from '@/components/form/rhf';
+import { useNodesQuery } from '@/api/queries/useNodesQuery';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { catTabLabel } from '@/pages/settings/catTabLabel';
+import { HostFinalMaskForm, HostMuxForm, HostSockoptForm } from './json-forms';
+
+type FormShape = Omit<BulkAddHostValues, 'isDisabled'> & {
+  enable: boolean;
+};
+
+interface HostFormModalProps {
+  open: boolean;
+  mode: 'add' | 'edit';
+  host: HostRecord | null;
+  inboundOptions: InboundOption[];
+  existingHosts: HostRecord[];
+  save: (payload: BulkAddHostValues) => Promise<{ success?: boolean; msg?: string } | undefined>;
+  onOpenChange: (open: boolean) => void;
+}
+
+const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+function defaultsFor(host: HostRecord | null): FormShape {
+  const initialSnis =
+    host?.snis && host.snis.length > 0
+      ? host.snis.filter((s) => s && s.trim() !== '')
+      : host?.sni && host.sni.trim() !== ''
+        ? [host.sni.trim()]
+        : [];
+
+  return {
+    inboundIds: host?.inboundIds ?? [],
+    hosts: (host?.hosts || []).filter((h) => h && h.trim() !== ''),
+    sortOrder: host?.sortOrder ?? 0,
+    remark: host?.remark ?? '',
+    serverDescription: host?.serverDescription ?? '',
+    enable: host ? !host.isDisabled : true,
+    isHidden: host?.isHidden ?? false,
+    tags: host?.tags ?? [],
+    port: host?.port ?? 0,
+    security: host?.security ? (host.security as BulkAddHostValues['security']) : 'same',
+    sni: host?.sni ?? '',
+    snis: initialSnis,
+    sniSharedRandom: initialSnis.length > 1 && (host?.sniSharedRandom ?? false),
+    hostHeader: host?.hostHeader ?? '',
+    path: host?.path ?? '',
+    alpn: (host?.alpn as BulkAddHostValues['alpn']) ?? [],
+    fingerprint: host?.fingerprint as BulkAddHostValues['fingerprint'],
+    cipherSuites: host?.cipherSuites ?? '',
+    overrideSniFromAddress: host?.overrideSniFromAddress ?? false,
+    keepSniBlank: host?.keepSniBlank ?? false,
+    pinnedPeerCertSha256: host?.pinnedPeerCertSha256 ?? [],
+    verifyPeerCertByName: (host?.verifyPeerCertByName as string | undefined) ?? '',
+    allowInsecure: host?.allowInsecure ?? false,
+    echConfigList: host?.echConfigList ?? '',
+    muxParams: asString(host?.muxParams),
+    sockoptParams: asString(host?.sockoptParams),
+    finalMask: host?.finalMask ?? '',
+    vlessRoute: host?.vlessRoute ?? '',
+    excludeFromSubTypes:
+      (host?.excludeFromSubTypes as BulkAddHostValues['excludeFromSubTypes']) ?? [],
+    nodeGuids: host?.nodeGuids ?? [],
+    mihomoIpVersion: host?.mihomoIpVersion as BulkAddHostValues['mihomoIpVersion'],
+    mihomoX25519: host?.mihomoX25519 ?? false,
+    shuffleHost: host?.shuffleHost ?? false,
+    randomCount: host?.randomCount ?? 1,
+  };
+}
+
+export default function HostFormModal({
+  open,
+  mode,
+  host,
+  inboundOptions,
+  existingHosts,
+  save,
+  onOpenChange,
+}: HostFormModalProps) {
+  const { t } = useTranslation();
+  const { isMobile } = useMediaQuery();
+  const methods = useForm<FormShape>({ defaultValues: defaultsFor(host) });
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const [loading, setLoading] = useState(false);
+
+  const security = (useWatch({ control: methods.control, name: 'security' }) ?? 'same') as string;
+  const fingerprint = (useWatch({ control: methods.control, name: 'fingerprint' }) ?? '') as string;
+  const watchedSnis = useWatch({ control: methods.control, name: 'snis' });
+  const hasMultipleSnis = Boolean(
+    watchedSnis && watchedSnis.filter((s) => typeof s === 'string' && s.trim() !== '').length > 1,
+  );
+
+  const hostSni = watchedSnis?.[0] ?? '';
+  const hostEchConfig = useWatch({ control: methods.control, name: 'echConfigList' }) ?? '';
+  const showTls = security === 'tls' || security === 'reality' || security === 'same';
+  const showTlsExtras = security === 'tls' || security === 'same';
+  const isCipherSuitesEnabled = showTlsExtras && (!fingerprint || fingerprint === 'unsafe');
+  const watchedHosts = useWatch({ control: methods.control, name: 'hosts' });
+  const hasCidr = Boolean(watchedHosts?.some((h) => typeof h === 'string' && h.includes('/')));
+
+  // React resets this during render rather than in an effect so the modal's
+  // first open frame already shows cleared fields.
+  const openHost = open ? host : null;
+  const [syncedHost, setSyncedHost] = useState(openHost);
+  if (openHost !== syncedHost) {
+    setSyncedHost(openHost);
+    if (open) {
+      methods.reset(defaultsFor(host));
+      setLoading(false);
+    }
+  }
+
+  const { nodes } = useNodesQuery();
+
+  const inboundSelectOptions = useMemo(
+    () =>
+      inboundOptions.map((ib) => ({
+        value: ib.id,
+        label: ib.remark || ib.tag || `#${ib.id}`,
+      })),
+    [inboundOptions],
+  );
+
+  const nodeSelectOptions = useMemo(
+    () =>
+      nodes
+        .filter((n) => n.guid)
+        .map((n) => ({ value: n.guid as string, label: n.name || n.remark || (n.guid as string) })),
+    [nodes],
+  );
+
+  const alpnOptions = useMemo(
+    () => Object.values(ALPN_OPTION).map((v) => ({ value: v, label: v })),
+    [],
+  );
+  const fpOptions = useMemo(
+    // '' = None first: Hysteria (and any no-uTLS host) must be selectable.
+    () => [
+      { value: '', label: t('none') },
+      ...Object.values(UTLS_FINGERPRINT).map((v) => ({ value: v, label: v })),
+    ],
+    [t],
+  );
+
+  const hostOptions = useMemo(() => {
+    const addresses = new Set<string>();
+    for (const h of existingHosts || []) {
+      if (h.hosts) {
+        for (const addr of h.hosts) {
+          if (addr && addr.trim() !== '') {
+            addresses.add(addr);
+          }
+        }
+      }
+    }
+    return Array.from(addresses).map((addr) => ({ value: addr, label: addr }));
+  }, [existingHosts]);
+
+  const sniOptions = useMemo(() => {
+    const snis = new Set<string>();
+    for (const h of existingHosts || []) {
+      if (h.snis) {
+        for (const s of h.snis) {
+          if (s && s.trim() !== '') snis.add(s.trim());
+        }
+      }
+      if (h.sni && h.sni.trim() !== '') {
+        snis.add(h.sni.trim());
+      }
+    }
+    return Array.from(snis).map((s) => ({ value: s, label: s }));
+  }, [existingHosts]);
+
+  const onFinish = async (values: FormShape) => {
+    if (loading) return;
+    const { enable, ...rest } = values;
+    const isDisabled = !enable;
+    const cleanedSnis = (rest.snis || []).map((s) => s.trim()).filter(Boolean);
+    const payload: BulkAddHostValues = {
+      ...rest,
+      hosts: (rest.hosts || []).filter((h) => h && h.trim() !== ''),
+      sni: cleanedSnis[0] ?? '',
+      snis: cleanedSnis,
+      sniSharedRandom: cleanedSnis.length > 1 && Boolean(rest.sniSharedRandom),
+      isDisabled,
+    };
+    setLoading(true);
+    try {
+      const res = await save(payload);
+      if (res?.success) {
+        messageApi.success(
+          t(mode === 'add' ? 'pages.hosts.toasts.add' : 'pages.hosts.toasts.update'),
+        );
+        onOpenChange(false);
+      } else if (res?.msg) {
+        messageApi.error(res.msg);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={t(mode === 'add' ? 'pages.hosts.addHost' : 'pages.hosts.editHost')}
+      onOk={methods.handleSubmit(onFinish)}
+      onCancel={() => onOpenChange(false)}
+      confirmLoading={loading}
+      okText={t('save')}
+      cancelText={t('cancel')}
+      destroyOnHidden
+      width={isMobile ? '95vw' : 760}
+      styles={{ body: { maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden' } }}
+    >
+      {messageContextHolder}
+      <FormProvider {...methods}>
+        <Form
+          colon={false}
+          labelCol={{ sm: { span: 8 } }}
+          wrapperCol={{ sm: { span: 14 } }}
+          labelWrap
+        >
+          <Tabs
+            defaultActiveKey="basic"
+            items={[
+              {
+                key: 'basic',
+                forceRender: true,
+                label: catTabLabel(
+                  <ProfileOutlined aria-hidden />,
+                  t('pages.hosts.sections.basic'),
+                  isMobile,
+                ),
+                children: (
+                  <>
+                    <FormField
+                      name="remark"
+                      label={t('pages.hosts.fields.remark')}
+                      tooltip={t('pages.hosts.hints.remark')}
+                      rules={{ validate: rhfZodValidate(BulkAddHostSchema.shape.remark) }}
+                    >
+                      <Input maxLength={256} />
+                    </FormField>
+                    <FormField
+                      name="serverDescription"
+                      label={t('pages.hosts.fields.serverDescription')}
+                      tooltip={t('pages.hosts.hints.serverDescription')}
+                    >
+                      <Input maxLength={64} />
+                    </FormField>
+                    <FormField
+                      name="inboundIds"
+                      label={t('pages.hosts.fields.inbound')}
+                      rules={{ validate: rhfZodValidate(BulkAddHostSchema.shape.inboundIds) }}
+                    >
+                      <Select
+                        mode="multiple"
+                        tagRender={selectTagRender}
+                        options={inboundSelectOptions}
+                        showSearch={{ optionFilterProp: 'label' }}
+                        placeholder={t('pages.hosts.selectInbound')}
+                      />
+                    </FormField>
+                    <FormField
+                      name="hosts"
+                      label={t('pages.hosts.fields.address')}
+                      tooltip={t('pages.hosts.hints.address')}
+                      rules={{ validate: rhfZodValidate(BulkAddHostSchema.shape.hosts) }}
+                    >
+                      <Select
+                        mode="tags"
+                        tagRender={selectTagRender}
+                        options={hostOptions}
+                        tokenSeparators={[',', ';', ' ']}
+                        placeholder="cdn.example.com, cdn2.example.com:443"
+                      />
+                    </FormField>
+                    {hasCidr && (
+                      <FormField name="randomCount" label={t('pages.hosts.fields.randomCount')}>
+                        <InputNumber min={1} max={100} style={{ width: '100%' }} />
+                      </FormField>
+                    )}
+                    <FormField
+                      name="port"
+                      label={t('pages.hosts.fields.port')}
+                      tooltip={t('pages.hosts.hints.port')}
+                    >
+                      <InputNumber min={0} max={65535} />
+                    </FormField>
+                    <FormField
+                      name="tags"
+                      label={t('pages.hosts.fields.tags')}
+                      tooltip={t('pages.hosts.hints.tags')}
+                    >
+                      <Select
+                        mode="tags"
+                        tagRender={selectTagRender}
+                        allowClear
+                        tokenSeparators={[',']}
+                      />
+                    </FormField>
+                    <FormField
+                      name="nodeGuids"
+                      label={t('pages.hosts.fields.nodeGuids')}
+                      tooltip={t('pages.hosts.hints.nodeGuids')}
+                    >
+                      <Select
+                        mode="multiple"
+                        tagRender={selectTagRender}
+                        allowClear
+                        options={nodeSelectOptions}
+                        showSearch={{ optionFilterProp: 'label' }}
+                      />
+                    </FormField>
+                    <FormField
+                      name="enable"
+                      label={t('pages.hosts.fields.enable')}
+                      valueProp="checked"
+                    >
+                      <Switch />
+                    </FormField>
+                  </>
+                ),
+              },
+              {
+                key: 'security',
+                forceRender: true,
+                label: catTabLabel(
+                  <SafetyCertificateOutlined aria-hidden />,
+                  t('pages.hosts.sections.security'),
+                  isMobile,
+                ),
+                children: (
+                  <>
+                    <FormField name="security" label={t('pages.hosts.fields.security')}>
+                      <Select
+                        options={['same', 'tls', 'none', 'reality'].map((v) => ({
+                          value: v,
+                          label: v,
+                        }))}
+                      />
+                    </FormField>
+                    {showTls && (
+                      <>
+                        <FormField
+                          name="snis"
+                          label={t('pages.hosts.fields.sni')}
+                          rules={{ validate: rhfZodValidate(BulkAddHostSchema.shape.snis) }}
+                        >
+                          <Select
+                            mode="tags"
+                            tagRender={selectTagRender}
+                            options={sniOptions}
+                            tokenSeparators={[',', ';', ' ']}
+                            placeholder="sni.example.com, sni2.example.com"
+                          />
+                        </FormField>
+                        {hasMultipleSnis && (
+                          <FormField
+                            name="sniSharedRandom"
+                            label={t('pages.hosts.fields.sniSharedRandom')}
+                            valueProp="checked"
+                          >
+                            <Switch />
+                          </FormField>
+                        )}
+                        <FormField
+                          name="overrideSniFromAddress"
+                          label={t('pages.hosts.fields.overrideSniFromAddress')}
+                          valueProp="checked"
+                        >
+                          <Switch />
+                        </FormField>
+                        <FormField
+                          name="keepSniBlank"
+                          label={t('pages.hosts.fields.keepSniBlank')}
+                          valueProp="checked"
+                        >
+                          <Switch />
+                        </FormField>
+                        <FormField name="fingerprint" label={t('pages.hosts.fields.fingerprint')}>
+                          <Select allowClear options={fpOptions} />
+                        </FormField>
+                      </>
+                    )}
+                    {showTlsExtras && (
+                      <>
+                        <FormField name="alpn" label={t('pages.hosts.fields.alpn')}>
+                          <Select
+                            mode="multiple"
+                            tagRender={selectTagRender}
+                            allowClear
+                            options={alpnOptions}
+                          />
+                        </FormField>
+                        <FormField
+                          name="cipherSuites"
+                          label={t('pages.inbounds.form.cipherSuites')}
+                        >
+                          <CipherSuitesSelect
+                            disabled={!isCipherSuitesEnabled}
+                            placeholder={t('pages.inbounds.form.autoOption')}
+                          />
+                        </FormField>
+                        <FormField name="pinnedPeerCertSha256" label={t('pages.hosts.fields.pins')}>
+                          <Select
+                            mode="tags"
+                            tagRender={selectTagRender}
+                            allowClear
+                            tokenSeparators={[',']}
+                          />
+                        </FormField>
+                        <FormField
+                          name="verifyPeerCertByName"
+                          label={t('pages.hosts.fields.verifyPeerCertByName')}
+                          tooltip={t('pages.inbounds.form.verifyPeerCertByNameTip')}
+                        >
+                          <Input placeholder="example.com" />
+                        </FormField>
+                        <FormField
+                          name="allowInsecure"
+                          label={t('pages.hosts.fields.allowInsecure')}
+                          tooltip={t('pages.hosts.hints.allowInsecure')}
+                          valueProp="checked"
+                        >
+                          <Switch />
+                        </FormField>
+                        <FormField
+                          name="echConfigList"
+                          label={t('pages.inbounds.form.echConfigList')}
+                          extra={
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {t('pages.inbounds.form.echConfigListHint')}
+                            </Typography.Text>
+                          }
+                        >
+                          <Input.TextArea
+                            rows={2}
+                            placeholder={t('pages.inbounds.form.echDynamicPlaceholder')}
+                          />
+                        </FormField>
+                        <Form.Item label=" " style={{ marginBottom: 8 }}>
+                          <DynamicEchHelper
+                            value={hostEchConfig}
+                            sni={hostSni}
+                            onApply={(next) =>
+                              methods.setValue('echConfigList', next, { shouldDirty: true })
+                            }
+                          />
+                        </Form.Item>
+                        <Alert
+                          type="info"
+                          showIcon
+                          data-testid="ech-cdn-warning"
+                          title={t('pages.inbounds.form.echCdnWarningTitle')}
+                          description={t('pages.inbounds.form.echCdnWarningBody')}
+                        />
+                      </>
+                    )}
+                  </>
+                ),
+              },
+              {
+                key: 'advanced',
+                forceRender: true,
+                label: catTabLabel(
+                  <ControlOutlined aria-hidden />,
+                  t('pages.hosts.sections.advanced'),
+                  isMobile,
+                ),
+                children: (
+                  <Tabs
+                    size="small"
+                    defaultActiveKey="adv-general"
+                    items={[
+                      {
+                        key: 'adv-general',
+                        forceRender: true,
+                        label: catTabLabel(
+                          <SettingOutlined aria-hidden />,
+                          t('pages.hosts.sections.general'),
+                          isMobile,
+                        ),
+                        children: (
+                          <>
+                            <FormField name="hostHeader" label={t('pages.hosts.fields.hostHeader')}>
+                              <Input />
+                            </FormField>
+                            <FormField name="path" label={t('pages.hosts.fields.path')}>
+                              <Input />
+                            </FormField>
+                            <FormField
+                              name="vlessRoute"
+                              label={t('pages.hosts.fields.vlessRoute')}
+                              tooltip={t('pages.hosts.hints.vlessRoute')}
+                            >
+                              <Input placeholder="443" />
+                            </FormField>
+                            <FormField
+                              name="excludeFromSubTypes"
+                              label={t('pages.hosts.fields.excludeFromSubTypes')}
+                            >
+                              <Select
+                                mode="multiple"
+                                tagRender={selectTagRender}
+                                allowClear
+                                options={['raw', 'json', 'clash'].map((v) => ({
+                                  value: v,
+                                  label: v,
+                                }))}
+                              />
+                            </FormField>
+                          </>
+                        ),
+                      },
+                      {
+                        key: 'adv-mux',
+                        forceRender: true,
+                        label: catTabLabel(
+                          <PartitionOutlined aria-hidden />,
+                          t('pages.hosts.fields.muxParams'),
+                          isMobile,
+                        ),
+                        children: (
+                          <Form.Item noStyle>
+                            <Controller
+                              control={methods.control}
+                              name="muxParams"
+                              render={({ field }) => (
+                                <HostMuxForm value={field.value} onChange={field.onChange} />
+                              )}
+                            />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        key: 'adv-sockopt',
+                        forceRender: true,
+                        label: catTabLabel(
+                          <DeploymentUnitOutlined aria-hidden />,
+                          t('pages.hosts.fields.sockoptParams'),
+                          isMobile,
+                        ),
+                        children: (
+                          <Form.Item noStyle>
+                            <Controller
+                              control={methods.control}
+                              name="sockoptParams"
+                              render={({ field }) => (
+                                <HostSockoptForm value={field.value} onChange={field.onChange} />
+                              )}
+                            />
+                          </Form.Item>
+                        ),
+                      },
+                      {
+                        key: 'adv-finalmask',
+                        forceRender: true,
+                        label: catTabLabel(
+                          <RocketOutlined aria-hidden />,
+                          t('pages.hosts.fields.finalMask'),
+                          isMobile,
+                        ),
+                        children: (
+                          <Form.Item noStyle>
+                            <Controller
+                              control={methods.control}
+                              name="finalMask"
+                              render={({ field }) => (
+                                <HostFinalMaskForm value={field.value} onChange={field.onChange} />
+                              )}
+                            />
+                          </Form.Item>
+                        ),
+                      },
+                    ]}
+                  />
+                ),
+              },
+              {
+                key: 'clash',
+                forceRender: true,
+                label: catTabLabel(
+                  <NodeIndexOutlined aria-hidden />,
+                  t('pages.hosts.sections.clash'),
+                  isMobile,
+                ),
+                children: (
+                  <>
+                    <FormField
+                      name="mihomoIpVersion"
+                      label={t('pages.hosts.fields.mihomoIpVersion')}
+                    >
+                      <Select
+                        allowClear
+                        options={['dual', 'ipv4', 'ipv6', 'ipv4-prefer', 'ipv6-prefer'].map(
+                          (v) => ({ value: v, label: v }),
+                        )}
+                      />
+                    </FormField>
+                    <FormField
+                      name="mihomoX25519"
+                      label={t('pages.hosts.fields.mihomoX25519')}
+                      tooltip={t('pages.hosts.hints.mihomoX25519')}
+                      valueProp="checked"
+                    >
+                      <Switch />
+                    </FormField>
+                    <FormField
+                      name="shuffleHost"
+                      label={t('pages.hosts.fields.shuffleHost')}
+                      valueProp="checked"
+                    >
+                      <Switch />
+                    </FormField>
+                  </>
+                ),
+              },
+            ]}
+          />
+        </Form>
+      </FormProvider>
+    </Modal>
+  );
+}

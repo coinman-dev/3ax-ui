@@ -1,0 +1,1219 @@
+// Package xray provides integration with the Xray proxy core.
+// It includes API client functionality, configuration management, traffic monitoring,
+// and process control for Xray instances.
+package xray
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
+	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	wgutil "github.com/mhsanaei/3x-ui/v3/internal/util/wireguard"
+
+	"github.com/xtls/xray-core/app/proxyman"
+	"github.com/xtls/xray-core/app/proxyman/command"
+	"github.com/xtls/xray-core/app/router"
+	routerService "github.com/xtls/xray-core/app/router/command"
+	statsService "github.com/xtls/xray-core/app/stats/command"
+	xnet "github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/platform/filesystem"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/infra/conf"
+	hysteriaAccount "github.com/xtls/xray-core/proxy/hysteria/account"
+	"github.com/xtls/xray-core/proxy/masque"
+	"github.com/xtls/xray-core/proxy/shadowsocks"
+	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
+	"github.com/xtls/xray-core/proxy/trojan"
+	"github.com/xtls/xray-core/proxy/tun"
+	"github.com/xtls/xray-core/proxy/vless"
+	vlessEncryption "github.com/xtls/xray-core/proxy/vless/encryption"
+	vlessOutbound "github.com/xtls/xray-core/proxy/vless/outbound"
+	"github.com/xtls/xray-core/proxy/vmess"
+	wireguard "github.com/xtls/xray-core/proxy/wireguard"
+	"github.com/xtls/xray-core/transport/internet/splithttp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+)
+
+// Compiled once at package load: GetTraffic runs on every traffic-stats tick,
+// so recompiling these per call is wasted work.
+var (
+	trafficRegex       = regexp.MustCompile(`(inbound|outbound)>>>([^>]+)>>>traffic>>>(downlink|uplink)`)
+	clientTrafficRegex = regexp.MustCompile(`user>>>([^>]+)>>>traffic>>>(downlink|uplink)`)
+)
+
+// statsFamilies are polled one query each: outbound counters are named after third-party
+// subscription tags, and their reply must not take the clients' counters down with it.
+var statsFamilies = []string{"user>>>", "inbound>>>", "outbound>>>"}
+
+// maxStatsReplyBytes replaces gRPC's 4 MiB receive default, which a stats reply of about
+// 45k clients reaches alone; the peer is the panel's own core on loopback.
+const maxStatsReplyBytes = 64 << 20
+
+// XrayAPI is a gRPC client for managing Xray core configuration, inbounds, outbounds, and statistics.
+type XrayAPI struct {
+	HandlerServiceClient *command.HandlerServiceClient
+	StatsServiceClient   *statsService.StatsServiceClient
+	RoutingServiceClient *routerService.RoutingServiceClient
+	grpcClient           *grpc.ClientConn
+	isConnected          bool
+	StatsLastValues      map[string]int64
+	statsBaselined       map[string]bool
+}
+
+func getRequiredUserString(user map[string]any, key string) (string, error) {
+	value, ok := user[key]
+	if !ok || value == nil {
+		return "", fmt.Errorf("missing required user field %q", key)
+	}
+
+	strValue, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid type for user field %q: %T", key, value)
+	}
+
+	return strValue, nil
+}
+
+func getOptionalUserString(user map[string]any, key string) (string, error) {
+	value, ok := user[key]
+	if !ok || value == nil {
+		return "", nil
+	}
+
+	strValue, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid type for user field %q: %T", key, value)
+	}
+
+	return strValue, nil
+}
+
+// Init connects to the Xray API server and initializes handler and stats service clients.
+func (x *XrayAPI) Init(apiPort int) error {
+	if apiPort <= 0 || apiPort > math.MaxUint16 {
+		return fmt.Errorf("invalid Xray API port: %d", apiPort)
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", apiPort)
+	conn, err := grpc.NewClient(addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxStatsReplyBytes)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to connect to Xray API: %w", err)
+	}
+
+	x.grpcClient = conn
+	x.isConnected = true
+	if x.StatsLastValues == nil {
+		x.StatsLastValues = make(map[string]int64)
+		x.statsBaselined = make(map[string]bool, len(statsFamilies))
+	}
+
+	hsClient := command.NewHandlerServiceClient(conn)
+	ssClient := statsService.NewStatsServiceClient(conn)
+	rsClient := routerService.NewRoutingServiceClient(conn)
+
+	x.HandlerServiceClient = &hsClient
+	x.StatsServiceClient = &ssClient
+	x.RoutingServiceClient = &rsClient
+
+	return nil
+}
+
+// Close closes the gRPC connection and resets the XrayAPI client state.
+func (x *XrayAPI) Close() {
+	if x.grpcClient != nil {
+		x.grpcClient.Close()
+	}
+	x.HandlerServiceClient = nil
+	x.StatsServiceClient = nil
+	x.RoutingServiceClient = nil
+	x.isConnected = false
+}
+
+// handlerRPCTimeout bounds per-call gRPC handler operations (add/remove inbound,
+// alter user) so a hung core connection cannot block the caller indefinitely —
+// for example while the process restart lock is held.
+const handlerRPCTimeout = 10 * time.Second
+
+// AddInbound adds a new inbound configuration to the Xray core via gRPC.
+func (x *XrayAPI) AddInbound(inbound []byte) error {
+	if x.HandlerServiceClient == nil {
+		return common.NewError("xray HandlerServiceClient is not initialized")
+	}
+	client := *x.HandlerServiceClient
+
+	conf := new(conf.InboundDetourConfig)
+	err := json.Unmarshal(inbound, conf)
+	if err != nil {
+		logger.Debug("Failed to unmarshal inbound:", err)
+		return err
+	}
+	if err := checkUntrustedBuildInput(conf.StreamSetting, inbound); err != nil {
+		return err
+	}
+	localizeNoiseScripts(conf.StreamSetting)
+	config, err := conf.Build()
+	if err != nil {
+		logger.Debug("Failed to build inbound Detur:", err)
+		return err
+	}
+	inboundConfig := command.AddInboundRequest{Inbound: config}
+
+	ctx, cancel := context.WithTimeout(context.Background(), handlerRPCTimeout)
+	defer cancel()
+	_, err = client.AddInbound(ctx, &inboundConfig)
+
+	return err
+}
+
+// DelInbound removes an inbound configuration from the Xray core by tag.
+func (x *XrayAPI) DelInbound(tag string) error {
+	if x.HandlerServiceClient == nil {
+		return common.NewError("xray HandlerServiceClient is not initialized")
+	}
+	client := *x.HandlerServiceClient
+	ctx, cancel := context.WithTimeout(context.Background(), handlerRPCTimeout)
+	defer cancel()
+	_, err := client.RemoveInbound(ctx, &command.RemoveInboundRequest{
+		Tag: tag,
+	})
+	return err
+}
+
+// ValidateOutboundConfig builds an outbound JSON object through the vendored
+// xray-core config loader, surfacing the exact error the core would raise at
+// startup — notably v26.7.11's refusal of unencrypted vless/trojan outbounds
+// whose server address is a public IP or domain.
+func ValidateOutboundConfig(outbound []byte) (err error) {
+	ensureXrayAssetLocation()
+	// The loader panics on some third-party values (a short vless encryption, a bad spiderX).
+	defer func() {
+		if r := recover(); r != nil {
+			err = common.NewErrorf("xray-core config loader panicked: %v", r)
+		}
+	}()
+
+	detour := new(conf.OutboundDetourConfig)
+	if err := json.Unmarshal(outbound, detour); err != nil {
+		return err
+	}
+	if err := checkUntrustedBuildInput(detour.StreamSetting, outbound); err != nil {
+		return err
+	}
+	localizeNoiseScripts(detour.StreamSetting)
+	built, err := detour.Build()
+	if err != nil {
+		return err
+	}
+	if err := validateXhttpDownloadSettings(built.SenderSettings); err != nil {
+		return err
+	}
+	return validateHandlerSettings(built.ProxySettings)
+}
+
+// ValidateTunWfpBlockLeak runs the core's own check of a TUN inbound's autoSystemWfpBlockLeak,
+// which xray-core 26.10.31 (#7288) widened to "windnsclient" and "tcp/<port>" / "udp/<port>".
+func ValidateTunWfpBlockLeak(values []string) error {
+	_, err := tun.ExpandWfpBlockLeak(values)
+	return err
+}
+
+// ValidateXDriveS3 builds an "s3" xdriveSettings object through the vendored loader, which runs
+// the endpoint, bucket and secret checks xray-core 26.10.31 (#7231) applies to the S3 backend.
+func ValidateXDriveS3(xdriveSettings []byte) error {
+	c := new(conf.XDriveConfig)
+	if err := json.Unmarshal(xdriveSettings, c); err != nil {
+		return err
+	}
+	_, err := c.Build()
+	return err
+}
+
+// validateXhttpDownloadSettings refuses what conf.Build() lets through but the core's XHTTP
+// dialer panics on at every dial: a downloadSettings block without an address or not on xhttp.
+func validateXhttpDownloadSettings(settings *serial.TypedMessage) error {
+	if settings == nil {
+		return nil
+	}
+	instance, err := settings.GetInstance()
+	if err != nil {
+		return nil
+	}
+	sender, ok := instance.(*proxyman.SenderConfig)
+	if !ok {
+		return nil
+	}
+	transport, err := sender.StreamSettings.GetEffectiveTransportSettings()
+	if err != nil {
+		return nil
+	}
+	xhttp, ok := transport.(*splithttp.Config)
+	if !ok || xhttp.DownloadSettings == nil {
+		return nil
+	}
+	if xhttp.DownloadSettings.Address == nil {
+		return common.NewError("xhttp downloadSettings has no address")
+	}
+	transport, _ = xhttp.DownloadSettings.GetEffectiveTransportSettings()
+	if _, ok := transport.(*splithttp.Config); !ok {
+		return common.NewError("xhttp downloadSettings network is not xhttp")
+	}
+	return nil
+}
+
+// validateHandlerSettings refuses what conf.Build() lets through but the core parses only
+// in the handler constructor, where one failure aborts the whole core start.
+func validateHandlerSettings(settings *serial.TypedMessage) error {
+	if settings == nil {
+		return nil
+	}
+	instance, err := settings.GetInstance()
+	if err != nil {
+		return nil
+	}
+	switch config := instance.(type) {
+	case *wireguard.DeviceConfig:
+		return validateWireguardClient(config)
+	case *vlessOutbound.Config:
+		return validateVlessEncryption(config)
+	case *shadowsocks_2022.ClientConfig:
+		return validateShadowsocks2022Key(config)
+	}
+	return nil
+}
+
+// validateWireguardClient mirrors proxy/wireguard.NewClient; remoteDNS goes to
+// netip.MustParseAddr there, so a non-IP entry ("local" before 26.9.30) is a crash.
+func validateWireguardClient(device *wireguard.DeviceConfig) error {
+	if !device.IsClient {
+		return nil
+	}
+	if len(device.Peers) == 0 {
+		return common.NewError("wireguard outbound has no peers")
+	}
+	for _, peer := range device.Peers {
+		if peer.PublicKey == "" {
+			return common.NewError("wireguard peer without publicKey")
+		}
+		if peer.Endpoint == "" {
+			return common.NewError("wireguard peer without endpoint")
+		}
+	}
+	for _, local := range device.Endpoint {
+		if _, err := netip.ParseAddr(local); err == nil {
+			continue
+		}
+		if _, err := netip.ParsePrefix(local); err != nil {
+			return common.NewErrorf("wireguard address entry %q is neither an IP nor a prefix", local)
+		}
+	}
+	for _, server := range device.DNS {
+		if _, err := netip.ParseAddr(server); err != nil {
+			return common.NewErrorf("wireguard remoteDNS entry %q is not an IP address", server)
+		}
+	}
+	return nil
+}
+
+// validateVlessEncryption mirrors proxy/vless/outbound.New, which parses the padding spec
+// and the X25519 / ML-KEM-768 keys of "encryption" through ClientInstance.Init.
+func validateVlessEncryption(config *vlessOutbound.Config) error {
+	if config.Vnext == nil || config.Vnext.User == nil {
+		return nil
+	}
+	user, err := config.Vnext.User.ToMemoryUser()
+	if err != nil {
+		return err
+	}
+	account, ok := user.Account.(*vless.MemoryAccount)
+	if !ok || account.Encryption == "" || account.Encryption == "none" {
+		return nil
+	}
+	var keys [][]byte
+	for part := range strings.SplitSeq(account.Encryption, ".") {
+		key, _ := base64.RawURLEncoding.DecodeString(part)
+		keys = append(keys, key)
+	}
+	if err := (&vlessEncryption.ClientInstance{}).Init(keys, account.XorMode, account.Seconds, account.Padding); err != nil {
+		return common.NewErrorf("vless encryption is unusable: %v", err)
+	}
+	return nil
+}
+
+// validateShadowsocks2022Key mirrors shadowsocks_2022.NewClient: every ":"-separated key
+// is base64 of the cipher's key length, and chacha20-poly1305 takes a single key.
+func validateShadowsocks2022Key(config *shadowsocks_2022.ClientConfig) error {
+	method, err := shadowsocks_2022.GetCipherMethod(config.Method)
+	if err != nil {
+		return err
+	}
+	keys, err := shadowsocks_2022.ParsePSKList(config.Key, method.KeySaltLength)
+	if err != nil {
+		return common.NewErrorf("shadowsocks 2022 key is unusable for %s: %v", config.Method, err)
+	}
+	if method.IsChaCha && len(keys) > 1 {
+		return common.NewError("shadowsocks 2022 chacha20-poly1305 does not support multiple keys")
+	}
+	return nil
+}
+
+// AddOutbound adds a new outbound configuration to the Xray core via gRPC.
+func (x *XrayAPI) AddOutbound(outbound []byte) error {
+	if x.HandlerServiceClient == nil {
+		return common.NewError("xray HandlerServiceClient is not initialized")
+	}
+	client := *x.HandlerServiceClient
+
+	ensureXrayAssetLocation()
+
+	conf := new(conf.OutboundDetourConfig)
+	if err := json.Unmarshal(outbound, conf); err != nil {
+		logger.Debug("Failed to unmarshal outbound:", err)
+		return err
+	}
+	if err := checkUntrustedBuildInput(conf.StreamSetting, outbound); err != nil {
+		return err
+	}
+	localizeNoiseScripts(conf.StreamSetting)
+	config, err := conf.Build()
+	if err != nil {
+		logger.Debug("Failed to build outbound detour:", err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err = client.AddOutbound(ctx, &command.AddOutboundRequest{Outbound: config})
+	return err
+}
+
+// DelOutbound removes an outbound configuration from the Xray core by tag.
+func (x *XrayAPI) DelOutbound(tag string) error {
+	if x.HandlerServiceClient == nil {
+		return common.NewError("xray HandlerServiceClient is not initialized")
+	}
+	client := *x.HandlerServiceClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := client.RemoveOutbound(ctx, &command.RemoveOutboundRequest{Tag: tag})
+	return err
+}
+
+// ApplyRoutingConfig replaces the routing rules and balancers of the running
+// Xray core with the given routing section (the JSON value of the top-level
+// "routing" key) via the RoutingService gRPC API. Note that this cannot change
+// routing.domainStrategy/domainMatcher — those are fixed at process start.
+func (x *XrayAPI) ApplyRoutingConfig(routing []byte) error {
+	if x.RoutingServiceClient == nil {
+		return common.NewError("xray RoutingServiceClient is not initialized")
+	}
+
+	config, err := buildReloadableRouting(routing)
+	if err != nil {
+		logger.Debug("Failed to build routing config:", err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err = (*x.RoutingServiceClient).AddRule(ctx, &routerService.AddRuleRequest{
+		ShouldAppend: false,
+		Config:       serial.ToTypedMessage(config),
+	})
+	return err
+}
+
+// buildReloadableRouting builds the rules and balancers RoutingService.AddRule swaps in.
+// The Lua routing script is fixed at core start, so its file is never resolved here.
+func buildReloadableRouting(routing []byte) (*router.Config, error) {
+	// Rules referencing geoip:/geosite: need the dat files; point xray-core's
+	// in-process loader at the panel's bin folder where they live.
+	ensureXrayAssetLocation()
+
+	routerConf := new(conf.RouterConfig)
+	if err := json.Unmarshal(routing, routerConf); err != nil {
+		return nil, err
+	}
+	routerConf.Script = ""
+	return routerConf.Build()
+}
+
+// BalancerInfo is the live state of one balancer inside the running core.
+type BalancerInfo struct {
+	Tag string `json:"tag"`
+	// Override is the outbound tag an admin forced via the API; empty when
+	// the strategy is in control.
+	Override string `json:"override"`
+	// Selected are the outbound tags the strategy currently prefers, best
+	// first (xray's "principle target" list).
+	Selected []string `json:"selected"`
+}
+
+// GetBalancerInfo queries the running core for a balancer's current override
+// and the targets its strategy would pick right now.
+func (x *XrayAPI) GetBalancerInfo(tag string) (*BalancerInfo, error) {
+	if x.RoutingServiceClient == nil {
+		return nil, common.NewError("xray RoutingServiceClient is not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := (*x.RoutingServiceClient).GetBalancerInfo(ctx, &routerService.GetBalancerInfoRequest{Tag: tag})
+	if err != nil {
+		return nil, err
+	}
+
+	info := &BalancerInfo{Tag: tag}
+	if balancer := resp.GetBalancer(); balancer != nil {
+		if balancer.Override != nil {
+			info.Override = balancer.Override.Target
+		}
+		if balancer.PrincipleTarget != nil {
+			info.Selected = balancer.PrincipleTarget.Tag
+		}
+	}
+	return info, nil
+}
+
+// SetBalancerTarget forces a balancer to always pick the given outbound tag.
+// An empty target clears the override and hands control back to the strategy.
+func (x *XrayAPI) SetBalancerTarget(tag, target string) error {
+	if x.RoutingServiceClient == nil {
+		return common.NewError("xray RoutingServiceClient is not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := (*x.RoutingServiceClient).OverrideBalancerTarget(ctx, &routerService.OverrideBalancerTargetRequest{
+		BalancerTag: tag,
+		Target:      target,
+	})
+	return err
+}
+
+// RouteTestRequest describes a synthetic connection to ask the running core
+// which outbound its router would pick for it.
+type RouteTestRequest struct {
+	InboundTag string // optional: simulate arrival on this inbound
+	Domain     string // target domain (sniffed/SOCKS-style destination)
+	IP         string // target IP, used when Domain is empty or alongside it
+	Port       int
+	Network    string // "tcp" (default) or "udp"
+	Protocol   string // optional sniffed protocol: http, tls, bittorrent, ...
+	Email      string // optional user attribution for user-based rules
+}
+
+// RouteTestResult is the routing decision the core reported.
+type RouteTestResult struct {
+	// Matched is false when no routing rule matched — traffic would use the
+	// default (first) outbound and OutboundTag is empty.
+	Matched     bool   `json:"matched"`
+	OutboundTag string `json:"outboundTag"`
+	// GroupTags lists the balancer chain the decision went through, when any.
+	GroupTags []string `json:"groupTags,omitempty"`
+}
+
+// TestRoute asks the running core's router which outbound it would pick for
+// the described connection, without sending any traffic.
+func (x *XrayAPI) TestRoute(req RouteTestRequest) (*RouteTestResult, error) {
+	if x.RoutingServiceClient == nil {
+		return nil, common.NewError("xray RoutingServiceClient is not initialized")
+	}
+
+	if req.Port < 0 || req.Port > math.MaxUint16 {
+		return nil, common.NewErrorf("invalid port: %d", req.Port)
+	}
+
+	network := xnet.Network_TCP
+	if strings.EqualFold(req.Network, "udp") {
+		network = xnet.Network_UDP
+	}
+	rc := &routerService.RoutingContext{
+		InboundTag:   req.InboundTag,
+		Network:      network,
+		TargetDomain: req.Domain,
+		TargetPort:   uint32(req.Port),
+		Protocol:     req.Protocol,
+		User:         req.Email,
+	}
+	if req.IP != "" {
+		parsed := net.ParseIP(req.IP)
+		if parsed == nil {
+			return nil, common.NewErrorf("invalid IP address: %s", req.IP)
+		}
+		if v4 := parsed.To4(); v4 != nil {
+			rc.TargetIPs = [][]byte{v4}
+		} else {
+			rc.TargetIPs = [][]byte{parsed.To16()}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := (*x.RoutingServiceClient).TestRoute(ctx, &routerService.TestRouteRequest{
+		RoutingContext: rc,
+		PublishResult:  false,
+	})
+	if err != nil {
+		// The router reports "no rule matched" as an error; for the caller
+		// that simply means the default outbound takes the traffic.
+		if strings.Contains(strings.ToLower(err.Error()), "not enough information") {
+			return &RouteTestResult{Matched: false}, nil
+		}
+		return nil, err
+	}
+
+	return &RouteTestResult{
+		Matched:     true,
+		OutboundTag: resp.GetOutboundTag(),
+		GroupTags:   resp.GetOutboundGroupTags(),
+	}, nil
+}
+
+// IsMissingHandlerErr reports whether err is xray's response to removing a
+// handler (inbound/outbound) that does not exist — e.g. it was already
+// removed through the runtime API while the panel's config snapshot was
+// stale. Safe to treat as success for removal operations.
+func IsMissingHandlerErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "not enough information")
+}
+
+// IsMissingUserErr reports whether err is xray removing a user the inbound does
+// not hold; a missing handler fails the same call and is not one.
+func IsMissingUserErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") && !strings.Contains(msg, "failed to get handler")
+}
+
+// IsExistingTagErr reports whether err is xray's response to adding a handler
+// whose tag is already taken by a running handler.
+func IsExistingTagErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "existing tag")
+}
+
+// IsUserExistsErr reports whether err is xray's response to adding a user whose
+// email is already registered on the inbound.
+func IsUserExistsErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "already exists")
+}
+
+// ensureXrayAssetLocation makes geoip.dat/geosite.dat resolvable when xray-core
+// config builders run inside the panel process. The xray binary resolves assets
+// relative to its own executable, but the panel binary lives one level above
+// the bin folder, so an explicit location is required.
+// localizeNoiseScripts points each noise mask's relative "script" at the file the xray child loads:
+// xray-core 26.10.17 (#7124) compiles it inside Build, where the panel would look beside its own binary.
+func localizeNoiseScripts(stream *conf.StreamConfig) {
+	if stream == nil || stream.FinalMask == nil {
+		return
+	}
+	for i := range stream.FinalMask.Udp {
+		mask := &stream.FinalMask.Udp[i]
+		if !strings.EqualFold(mask.Type, "noise") || mask.Settings == nil {
+			continue
+		}
+		var settings map[string]any
+		if json.Unmarshal(*mask.Settings, &settings) != nil {
+			continue
+		}
+		script, _ := settings["script"].(string)
+		resolved := childLuaScriptPath(script)
+		if resolved == script {
+			continue
+		}
+		settings["script"] = resolved
+		if raw, err := json.Marshal(settings); err == nil {
+			localized := json.RawMessage(raw)
+			mask.Settings = &localized
+		}
+	}
+}
+
+// childLuaScriptPath resolves a relative Lua script the way the xray child does: it shares the
+// panel's working directory, then looks in its own bin folder instead of the panel's.
+func childLuaScriptPath(script string) string {
+	if script == "" || filepath.IsAbs(script) {
+		return script
+	}
+	if _, err := filesystem.ResolveLuaFile(script); err == nil {
+		return script
+	}
+	binDir, err := filepath.Abs(config.GetBinFolderPath())
+	if err != nil {
+		return script
+	}
+	inBin := filepath.Join(binDir, script)
+	if _, err := os.Stat(inBin); err != nil {
+		return script
+	}
+	return inBin
+}
+
+func ensureXrayAssetLocation() {
+	if os.Getenv("XRAY_LOCATION_ASSET") != "" || os.Getenv("xray.location.asset") != "" {
+		return
+	}
+	if abs, err := filepath.Abs(config.GetBinFolderPath()); err == nil {
+		os.Setenv("XRAY_LOCATION_ASSET", abs)
+	}
+}
+
+// collectStringSlice normalizes a JSON-decoded value into a slice of non-empty
+// strings, accepting both []string (typed maps) and []any (json.Unmarshal output).
+func collectStringSlice(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, e := range v {
+			if s, ok := e.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// legacyShadowsocksAccountType is the type URL serial.ToTypedMessage stamps on
+// a pre-2022 shadowsocks account, which identifies the one inbound whose user
+// list tolerates duplicate emails.
+const legacyShadowsocksAccountType = "xray.proxy.shadowsocks.Account"
+
+// shadowsocks2022Ciphers are the methods that select xray's shadowsocks-2022
+// inbound (sing's shadowaead_2022 list). They take a different account type
+// than the legacy AEAD ciphers, and the running inbound casts the account it
+// receives without checking, so a wrong guess takes the whole core down.
+var shadowsocks2022Ciphers = map[string]struct{}{
+	"2022-blake3-aes-128-gcm":       {},
+	"2022-blake3-aes-256-gcm":       {},
+	"2022-blake3-chacha20-poly1305": {},
+}
+
+// shadowsocksCipherName resolves the cipher a shadowsocks user's account must
+// be built for. Panel-built user maps carry it under "cipher"; client objects
+// taken verbatim from an inbound's settings carry the inbound's method under
+// "method" instead (HealShadowsocksClientMethods writes it onto every
+// legacy-cipher client).
+func shadowsocksCipherName(user map[string]any) (string, error) {
+	cipher, err := getOptionalUserString(user, "cipher")
+	if err != nil {
+		return "", err
+	}
+	if cipher != "" {
+		return cipher, nil
+	}
+	return getOptionalUserString(user, "method")
+}
+
+// reverseTag reads a vless reverse proxy tag from either shape a caller can
+// carry: the settings JSON object, or a typed client value marshalling alike.
+func reverseTag(value any) string {
+	if value == nil {
+		return ""
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	var parsed struct {
+		Tag string `json:"tag"`
+	}
+	if json.Unmarshal(raw, &parsed) != nil {
+		return ""
+	}
+	return parsed.Tag
+}
+
+// shadowsocksCipherType mirrors xray-core's infra/conf cipherFromString,
+// aliases and case-insensitivity included, so the account the panel builds for
+// a live user matches the one the core built for that inbound from its config.
+func shadowsocksCipherType(cipher string) shadowsocks.CipherType {
+	switch strings.ToLower(cipher) {
+	case "aes-128-gcm", "aead_aes_128_gcm":
+		return shadowsocks.CipherType_AES_128_GCM
+	case "aes-256-gcm", "aead_aes_256_gcm":
+		return shadowsocks.CipherType_AES_256_GCM
+	case "chacha20-poly1305", "aead_chacha20_poly1305", "chacha20-ietf-poly1305":
+		return shadowsocks.CipherType_CHACHA20_POLY1305
+	case "xchacha20-poly1305", "aead_xchacha20_poly1305", "xchacha20-ietf-poly1305":
+		return shadowsocks.CipherType_XCHACHA20_POLY1305
+	default:
+		return shadowsocks.CipherType_UNKNOWN
+	}
+}
+
+// isShadowsocks2022Cipher reports whether the method selects the
+// shadowsocks-2022 inbound rather than the legacy AEAD one.
+func isShadowsocks2022Cipher(cipher string) bool {
+	_, ok := shadowsocks2022Ciphers[strings.ToLower(cipher)]
+	return ok
+}
+
+// buildUserAccount constructs the typed xray account for a user of the given
+// protocol. It returns (nil, nil) for protocols that cannot be altered live so
+// callers skip the AlterInbound call. WireGuard keys must be converted to the
+// hex form xray's wireguard proxy expects (its ParseKey uses hex.DecodeString),
+// unlike the file-config path which accepts base64 and converts internally.
+// Shadowsocks is resolved strictly from the inbound's cipher: the legacy and
+// 2022 inbounds take different account types and cast whatever they receive
+// without checking, so an unrecognized cipher is an error rather than a guess
+// that would panic the core and kill every connection on the server.
+func buildUserAccount(protocolName string, user map[string]any) (*serial.TypedMessage, error) {
+	switch protocolName {
+	case "vmess":
+		userID, err := getRequiredUserString(user, "id")
+		if err != nil {
+			return nil, err
+		}
+
+		return serial.ToTypedMessage(&vmess.Account{
+			Id: userID,
+		}), nil
+	case "vless":
+		userID, err := getRequiredUserString(user, "id")
+		if err != nil {
+			return nil, err
+		}
+
+		userFlow, err := getOptionalUserString(user, "flow")
+		if err != nil {
+			return nil, err
+		}
+
+		vlessAccount := &vless.Account{
+			Id:   userID,
+			Flow: userFlow,
+		}
+		// RemoveUser also drops the account's reverse outbound handler, and
+		// GetReverse only rebuilds it from the tag a re-added account carries.
+		if tag := reverseTag(user["reverse"]); tag != "" {
+			vlessAccount.Reverse = &vless.Reverse{Tag: tag}
+		}
+		if testseedVal, ok := user["testseed"]; ok {
+			if testseedArr, ok := testseedVal.([]any); ok && len(testseedArr) >= 4 {
+				testseed := make([]uint32, len(testseedArr))
+				for i, v := range testseedArr {
+					if num, ok := v.(float64); ok {
+						testseed[i] = uint32(num)
+					}
+				}
+				vlessAccount.Testseed = testseed
+			} else if testseedArr, ok := testseedVal.([]uint32); ok && len(testseedArr) >= 4 {
+				vlessAccount.Testseed = testseedArr
+			}
+		}
+		if testpreVal, ok := user["testpre"]; ok {
+			if testpre, ok := testpreVal.(float64); ok && testpre > 0 {
+				vlessAccount.Testpre = uint32(testpre)
+			} else if testpre, ok := testpreVal.(uint32); ok && testpre > 0 {
+				vlessAccount.Testpre = testpre
+			}
+		}
+		return serial.ToTypedMessage(vlessAccount), nil
+	case "trojan":
+		password, err := getRequiredUserString(user, "password")
+		if err != nil {
+			return nil, err
+		}
+
+		return serial.ToTypedMessage(&trojan.Account{
+			Password: password,
+		}), nil
+	case "shadowsocks":
+		cipher, err := shadowsocksCipherName(user)
+		if err != nil {
+			return nil, err
+		}
+
+		password, err := getRequiredUserString(user, "password")
+		if err != nil {
+			return nil, err
+		}
+
+		if isShadowsocks2022Cipher(cipher) {
+			return serial.ToTypedMessage(&shadowsocks_2022.Account{
+				Key: password,
+			}), nil
+		}
+
+		ssCipherType := shadowsocksCipherType(cipher)
+		if ssCipherType == shadowsocks.CipherType_UNKNOWN {
+			return nil, common.NewErrorf("shadowsocks: unknown cipher %q, cannot build an account for the running inbound", cipher)
+		}
+		return serial.ToTypedMessage(&shadowsocks.Account{
+			Password:   password,
+			CipherType: ssCipherType,
+		}), nil
+	case "hysteria":
+		auth, err := getRequiredUserString(user, "auth")
+		if err != nil {
+			return nil, err
+		}
+
+		return serial.ToTypedMessage(&hysteriaAccount.Account{
+			Auth: auth,
+		}), nil
+	case "masque":
+		pass, err := masqueUserPassword(user)
+		if err != nil {
+			return nil, err
+		}
+
+		return serial.ToTypedMessage(&masque.Account{
+			Password: pass,
+		}), nil
+	case "wireguard":
+		pubB64, err := getRequiredUserString(user, "publicKey")
+		if err != nil {
+			return nil, err
+		}
+		pubHex, err := wgutil.KeyToHex(pubB64)
+		if err != nil {
+			return nil, fmt.Errorf("wireguard publicKey: %w", err)
+		}
+
+		pskB64, err := getOptionalUserString(user, "preSharedKey")
+		if err != nil {
+			return nil, err
+		}
+		pskHex, err := wgutil.KeyToHex(pskB64)
+		if err != nil {
+			return nil, fmt.Errorf("wireguard preSharedKey: %w", err)
+		}
+
+		allowed := collectStringSlice(user["allowedIPs"])
+		if len(allowed) == 0 {
+			return nil, common.NewError("wireguard: allowedIPs required")
+		}
+
+		keepAlive, err := getOptionalUserString(user, "keepAlive")
+		if err != nil {
+			return nil, err
+		}
+
+		return serial.ToTypedMessage(&wireguard.PeerConfig{
+			PublicKey:    pubHex,
+			PreSharedKey: pskHex,
+			AllowedIps:   allowed,
+			KeepAlive:    keepAlive,
+		}), nil
+	default:
+		return nil, nil
+	}
+}
+
+// masqueUserPassword reads a MASQUE user's password: panel callers send the client's
+// "password", the hot diff sends the user as emitted for the core, keyed "pass".
+func masqueUserPassword(user map[string]any) (string, error) {
+	if pass, err := getOptionalUserString(user, "pass"); err != nil || pass != "" {
+		return pass, err
+	}
+	return getRequiredUserString(user, "password")
+}
+
+// AddUser adds a user to an inbound in the Xray core using the specified
+// protocol and user data. On a legacy shadowsocks inbound the add first drops
+// any existing holder of the email: that is the one inbound whose validator
+// does not reject a duplicate email, and a later removal would then drop just
+// one of the two registrations, leaving a disabled client able to connect.
+func (x *XrayAPI) AddUser(Protocol string, inboundTag string, user map[string]any) error {
+	userEmail, err := getRequiredUserString(user, "email")
+	if err != nil {
+		return err
+	}
+
+	account, err := buildUserAccount(Protocol, user)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return nil
+	}
+
+	if x.HandlerServiceClient == nil {
+		return common.NewError("xray HandlerServiceClient is not initialized")
+	}
+	client := *x.HandlerServiceClient
+
+	if account.Type == legacyShadowsocksAccountType {
+		_ = x.RemoveUser(inboundTag, userEmail)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), handlerRPCTimeout)
+	defer cancel()
+	_, err = client.AlterInbound(ctx, &command.AlterInboundRequest{
+		Tag: inboundTag,
+		Operation: serial.ToTypedMessage(&command.AddUserOperation{
+			User: &protocol.User{
+				Email:   userEmail,
+				Account: account,
+			},
+		}),
+	})
+	return err
+}
+
+// RemoveUser removes a user from an inbound in the Xray core by email.
+func (x *XrayAPI) RemoveUser(inboundTag, email string) error {
+	if x.HandlerServiceClient == nil {
+		return common.NewError("xray HandlerServiceClient is not initialized")
+	}
+	client := *x.HandlerServiceClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	op := &command.RemoveUserOperation{Email: email}
+	req := &command.AlterInboundRequest{
+		Tag:       inboundTag,
+		Operation: serial.ToTypedMessage(op),
+	}
+
+	_, err := client.AlterInbound(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to remove user: %w", err)
+	}
+
+	return nil
+}
+
+// GetTraffic queries traffic statistics from the Xray core and reports what
+// accrued since the previous call; the counters themselves are never reset.
+// The first call of a process only records baselines, since it may be reading
+// counters that already hold traffic the panel cannot attribute. After that a
+// name the panel has not seen — xray creates a counter on a user's first use —
+// and a counter that moved backwards because the core restarted both count
+// from zero, so no client's traffic is dropped for a whole polling interval.
+func (x *XrayAPI) GetTraffic() ([]*Traffic, []*ClientTraffic, error) {
+	if x.grpcClient == nil {
+		return nil, nil, common.NewError("xray api is not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	if x.StatsServiceClient == nil {
+		return nil, nil, common.NewError("xray StatusServiceClient is not initialized")
+	}
+
+	tagTrafficMap := make(map[string]*Traffic)
+	emailTrafficMap := make(map[string]*ClientTraffic)
+	if x.statsBaselined == nil {
+		x.statsBaselined = make(map[string]bool, len(statsFamilies))
+	}
+
+	var live []*statsService.Stat
+	var failed []error
+	for _, family := range statsFamilies {
+		resp, err := (*x.StatsServiceClient).QueryStats(ctx, &statsService.QueryStatsRequest{Pattern: family, Reset_: false})
+		if err != nil {
+			failed = append(failed, fmt.Errorf("%s: %w", family, err))
+			continue
+		}
+		baselinePass := !x.statsBaselined[family]
+		x.statsBaselined[family] = true
+		for _, stat := range resp.GetStat() {
+			// The core matches Pattern anywhere in the name; the prefix keeps it to one family.
+			if !strings.HasPrefix(stat.Name, family) {
+				continue
+			}
+			live = append(live, stat)
+			lastValue, ok := x.StatsLastValues[stat.Name]
+			x.StatsLastValues[stat.Name] = stat.Value
+			if baselinePass {
+				continue
+			}
+			if !ok || stat.Value < lastValue {
+				lastValue = 0
+			}
+			value := stat.Value - lastValue
+			if matches := trafficRegex.FindStringSubmatch(stat.Name); len(matches) == 4 {
+				processTraffic(matches, value, tagTrafficMap)
+			} else if matches := clientTrafficRegex.FindStringSubmatch(stat.Name); len(matches) == 3 {
+				processClientTraffic(matches, value, emailTrafficMap)
+			}
+		}
+	}
+	if len(failed) == len(statsFamilies) {
+		err := errors.Join(failed...)
+		logger.Debug("Failed to query Xray stats:", err)
+		return nil, nil, err
+	}
+	for _, err := range failed {
+		logger.Warning("Failed to query Xray stats, counting the other families:", err)
+	}
+
+	// Drop delta baselines for stats that no longer exist (deleted inbounds or
+	// clients), which otherwise linger until the next Xray restart. Only rebuild
+	// when the map has drifted past 2x the live set, so the steady-state hot path
+	// stays allocation-free.
+	// A family that failed is not gone, so its baselines stay.
+	if n := len(live); n > 0 && len(failed) == 0 && len(x.StatsLastValues) > 2*n {
+		pruned := make(map[string]int64, n)
+		for _, stat := range live {
+			pruned[stat.Name] = x.StatsLastValues[stat.Name]
+		}
+		x.StatsLastValues = pruned
+	}
+
+	return mapToSlice(tagTrafficMap), mapToSlice(emailTrafficMap), nil
+}
+
+// OnlineIP is one source address of a live connection, with the unix time (seconds)
+// the core last dispatched a link from it.
+type OnlineIP struct {
+	IP       string `json:"ip"`
+	LastSeen int64  `json:"lastSeen"`
+}
+
+// OnlineUser is a client email with at least one live connection and the source
+// IPs of those connections, as tracked by Xray's statsUserOnline policy.
+type OnlineUser struct {
+	Email string     `json:"email"`
+	IPs   []OnlineIP `json:"ips"`
+}
+
+// GetOnlineUsers returns every user with at least one live connection plus their
+// source IPs, via StatsService.GetUsersStats (one RPC covers all users). Requires
+// statsUserOnline enabled in the policy levels; older cores return Unimplemented.
+func (x *XrayAPI) GetOnlineUsers() ([]OnlineUser, error) {
+	if x.grpcClient == nil {
+		return nil, common.NewError("xray api is not initialized")
+	}
+	if x.StatsServiceClient == nil {
+		return nil, common.NewError("xray StatsServiceClient is not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	resp, err := (*x.StatsServiceClient).GetUsersStats(ctx, &statsService.GetUsersStatsRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]OnlineUser, 0, len(resp.GetUsers()))
+	for _, u := range resp.GetUsers() {
+		if u == nil || u.GetEmail() == "" {
+			continue
+		}
+		ips := make([]OnlineIP, 0, len(u.GetIps()))
+		for _, entry := range u.GetIps() {
+			if entry == nil || entry.GetIp() == "" {
+				continue
+			}
+			ips = append(ips, OnlineIP{IP: entry.GetIp(), LastSeen: entry.GetLastSeen()})
+		}
+		users = append(users, OnlineUser{Email: u.GetEmail(), IPs: ips})
+	}
+	return users, nil
+}
+
+// IsUnimplementedErr reports whether err is the running core saying it lacks an
+// RPC (an older Xray binary without the online-stats API).
+func IsUnimplementedErr(err error) bool {
+	return status.Code(err) == codes.Unimplemented
+}
+
+// processTraffic aggregates a traffic stat into trafficMap using regex matches and value.
+func processTraffic(matches []string, value int64, trafficMap map[string]*Traffic) {
+	isInbound := matches[1] == "inbound"
+	tag := matches[2]
+	isDown := matches[3] == "downlink"
+
+	if tag == "api" {
+		return
+	}
+
+	traffic, ok := trafficMap[tag]
+	if !ok {
+		traffic = &Traffic{
+			IsInbound:  isInbound,
+			IsOutbound: !isInbound,
+			Tag:        tag,
+		}
+		trafficMap[tag] = traffic
+	}
+
+	if isDown {
+		traffic.Down = value
+	} else {
+		traffic.Up = value
+	}
+}
+
+// processClientTraffic updates clientTrafficMap with upload/download values for a client email.
+func processClientTraffic(matches []string, value int64, clientTrafficMap map[string]*ClientTraffic) {
+	email := matches[1]
+	isDown := matches[2] == "downlink"
+
+	traffic, ok := clientTrafficMap[email]
+	if !ok {
+		traffic = &ClientTraffic{Email: email}
+		clientTrafficMap[email] = traffic
+	}
+
+	if isDown {
+		traffic.Down = value
+	} else {
+		traffic.Up = value
+	}
+}
+
+// mapToSlice converts a map of pointers to a slice of pointers.
+func mapToSlice[T any](m map[string]*T) []*T {
+	result := make([]*T, 0, len(m))
+	for _, v := range m {
+		result = append(result, v)
+	}
+	return result
+}

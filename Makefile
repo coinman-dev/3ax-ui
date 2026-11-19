@@ -1,31 +1,102 @@
-BINARY   := 3ax-ui
-TARGET   := target
-TMP      := tmp
-MODULE   := github.com/coinman-dev/3ax-ui/v2/config
+# Canonical task runner. Mirrors .github/workflows/ci.yml so `make verify`
+# reproduces the PR gate locally. Run `make help` for the list.
 
-# Version: prefer git tag, fallback to config/version file
-VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || cat config/version)
-LDFLAGS  := -X '$(MODULE).version=$(VERSION)'
+SHELL := bash
+GO_PKGS = $(shell go list ./... | grep -v '/frontend/node_modules/')
+FRONTEND = frontend
 
-.PHONY: all build clean tmp-dir target-dir
+.DEFAULT_GOAL := help
 
-all: build
+.PHONY: help
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
 
-## build — compile binary into target/ with version from git tag
-build: target-dir
-	go build -ldflags "$(LDFLAGS)" -o $(TARGET)/$(BINARY) .
+# go:embed of internal/web/dist needs the dir to exist even when the
+# frontend bundle has not been built. CI stubs it the same way.
+.PHONY: dist-stub
+dist-stub:
+	@mkdir -p internal/web/dist && touch internal/web/dist/.gitkeep
 
-## run — build and run from target/
-run: build
-	./$(TARGET)/$(BINARY)
+.PHONY: gen
+gen: ## Regenerate Zod schemas + OpenAPI from Go sources
+	cd $(FRONTEND) && npm run gen
 
-## clean — remove target/ and tmp/
-clean:
-	rm -rf $(TARGET) $(TMP)
+.PHONY: gen-check
+gen-check: gen ## Fail if generated files are stale
+	git diff --exit-code -- frontend/src/generated frontend/public/openapi.json
 
-## tmp-dir / target-dir — create dirs if missing
-tmp-dir:
-	@mkdir -p $(TMP)
+.PHONY: lint-go
+lint-go: dist-stub ## golangci-lint on Go sources
+	golangci-lint run
 
-target-dir:
-	@mkdir -p $(TARGET)
+.PHONY: lint-fe
+lint-fe: ## oxlint on frontend sources
+	cd $(FRONTEND) && npm run lint
+
+.PHONY: audit-fe
+audit-fe: ## Audit the frontend's production dependencies (needs the network)
+	cd $(FRONTEND) && npm run audit
+
+.PHONY: lint
+lint: lint-go lint-fe ## All linters
+
+.PHONY: format-check
+format-check: ## oxfmt in check mode on frontend sources
+	cd $(FRONTEND) && npm run format:check
+
+.PHONY: typecheck
+typecheck: ## tsc --noEmit
+	cd $(FRONTEND) && npm run typecheck
+
+.PHONY: test-go
+test-go: dist-stub ## Go tests (shuffle, no cache)
+	go test -shuffle=on -count=1 $(GO_PKGS)
+
+.PHONY: race
+# internal/web/service runs ~10x slower under -race and overruns go test's 10m default.
+race: dist-stub ## Go tests with the race detector (needs a C compiler)
+	go test -race -shuffle=on -count=1 -timeout 25m $(GO_PKGS)
+
+.PHONY: node-e2e
+# Two real panel processes (master + node); test-go only runs nodee2e as a skip.
+NODE_E2E_BIN = $(CURDIR)/.cache/node-e2e/x-ui$(shell go env GOEXE)
+node-e2e: dist-stub ## Master+node sync end to end with two real panel processes
+	go build -o $(NODE_E2E_BIN) .
+	XUI_NODE_E2E_BINARY=$(NODE_E2E_BIN) go test -count=1 -timeout 20m -v ./internal/nodee2e/
+
+.PHONY: test-fe
+test-fe: ## Frontend tests (vitest)
+	cd $(FRONTEND) && npm test
+
+.PHONY: test
+test: test-go test-fe ## All tests
+
+.PHONY: vulncheck
+vulncheck: dist-stub ## govulncheck
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+.PHONY: docs-openapi-check
+docs-openapi-check: ## Fail if the docs OpenAPI spec is not the panel's
+	cmp frontend/public/openapi.json docs/public/openapi.json
+
+.PHONY: build-fe
+build-fe: ## Build the Vite bundles into internal/web/dist
+	cd $(FRONTEND) && npm run build
+
+.PHONY: build
+build: build-fe ## Build the frontend then the Go binary
+	go build ./...
+
+.PHONY: build-storybook
+build-storybook: ## Build the static Storybook (compile-checks all stories)
+	cd $(FRONTEND) && npm run build-storybook
+
+# The PR gate. Matches ci.yml: codegen freshness, both linters, the formatter,
+# typecheck, both test suites, a full build, the Storybook compile-check and the
+# docs spec check. The dependency audit is a separate target: it needs the
+# network and a live advisory database, so an unchanged commit could pass today
+# and fail tomorrow.
+.PHONY: verify
+verify: gen-check lint format-check typecheck test build build-storybook docs-openapi-check ## Full local gate (mirrors CI)
+	@echo "verify: OK"

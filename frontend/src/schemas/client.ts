@@ -1,0 +1,426 @@
+import { z } from 'zod';
+import { OptionalClientKeepAliveSchema } from '@/schemas/primitives/keepalive';
+
+const nullableStringArray = z
+  .array(z.string())
+  .nullable()
+  .transform((v) => v ?? []);
+const nullableNumberArray = z
+  .array(z.number())
+  .nullable()
+  .transform((v) => v ?? []);
+
+export const ClientTrafficSchema = z.object({
+  up: z.number().optional(),
+  down: z.number().optional(),
+  total: z.number().optional(),
+  expiryTime: z.number().optional(),
+  enable: z.boolean().optional(),
+  lastOnline: z.number().optional(),
+  lastSubFetch: z.number().optional(),
+  resetMax: z.number().optional(),
+  resetCount: z.number().optional(),
+});
+
+export const ClientRecordSchema = z
+  .object({
+    id: z.number().optional(),
+    email: z.string(),
+    subId: z.string().optional(),
+    uuid: z.string().optional(),
+    password: z.string().optional(),
+    auth: z.string().optional(),
+    flow: z.string().optional(),
+    security: z.string().optional(),
+    // Host rules the client is bound to; null/omitted preserves, empty clears.
+    clientHostRuleIds: z.array(z.number().int()).nullable().optional(),
+    totalGB: z.number().optional(),
+    expiryTime: z.number().optional(),
+    limitIp: z.number().optional(),
+    limitHwid: z.number().optional(),
+    tgId: z.union([z.number(), z.string()]).optional(),
+    group: z.string().optional(),
+    comment: z.string().optional(),
+    enable: z.boolean().optional(),
+    reset: z.number().optional(),
+    resetDay: z.number().optional(),
+    resetWeekday: z.number().optional(),
+    resetMax: z.number().optional(),
+    trafficReset: z.string().optional(),
+    trafficResetDay: z.number().optional(),
+    inboundIds: nullableNumberArray.optional(),
+    traffic: ClientTrafficSchema.nullable().optional(),
+    reverse: z.object({ tag: z.string().optional() }).loose().nullable().optional(),
+    privateKey: z.string().optional(),
+    publicKey: z.string().optional(),
+    allowedIPs: z.string().optional(),
+    preSharedKey: z.string().optional(),
+    keepAlive: OptionalClientKeepAliveSchema,
+    forwardedPorts: z.string().optional(),
+    secret: z.string().optional(),
+    adTag: z.string().optional(),
+    createdAt: z.number().optional(),
+    updatedAt: z.number().optional(),
+  })
+  .loose();
+
+// AmneziaWG's server block, used by the clients page to render a
+// downloadable per-client .conf without a second round trip. Unlike
+// WireGuard's flattened wgPublicKey/wgMtu/wgDns below, this stays a nested
+// object — AmneziaWG has many more fields (the obfuscation parameter set) and
+// buildAmneziaWGClientConfig (pages/clients/amneziawgConfig.ts) already
+// expects this exact nested shape. Mirrors the backend's
+// InboundOption.AwgServer (internal/web/service/inbound.go).
+export const AwgServerOptionSchema = z
+  .object({
+    publicKey: z.string().optional(),
+    mtu: z.number().optional(),
+    primaryDns: z.string().optional(),
+    secondaryDns: z.string().optional(),
+    jc: z.number().optional(),
+    jmin: z.number().optional(),
+    jmax: z.number().optional(),
+    s1: z.number().optional(),
+    s2: z.number().optional(),
+    s3: z.number().optional(),
+    s4: z.number().optional(),
+    h1: z.string().optional(),
+    h2: z.string().optional(),
+    h3: z.string().optional(),
+    h4: z.string().optional(),
+    i1: z.string().optional(),
+    i2: z.string().optional(),
+    i3: z.string().optional(),
+    i4: z.string().optional(),
+    i5: z.string().optional(),
+    headerProtectionKey: z.string().optional(),
+    contentPaddingAddition: z.string().optional(),
+    rekeyAfterTime: z.string().optional(),
+    rekeyTimeout: z.string().optional(),
+    rejectAfterTime: z.string().optional(),
+    keepaliveTimeout: z.string().optional(),
+    maxHandshakeAttempts: z.string().optional(),
+    randomTrailers: z.boolean().optional(),
+    disableCookies: z.boolean().optional(),
+  })
+  .loose();
+
+export const TuicServerOptionSchema = z
+  .object({
+    certificate: z.string().optional(),
+    congestion_control: z.string().optional(),
+    alpn: z.array(z.string()).optional(),
+    udp_relay_mode: z.string().optional(),
+    zero_rtt_handshake: z.boolean().optional(),
+    log_level: z.string().optional(),
+    max_idle_time: z.number().optional(),
+    authentication_timeout: z.number().optional(),
+    max_udp_relay_packet_size: z.number().optional(),
+    sni: z.string().optional(),
+  })
+  .loose();
+
+export type TuicServerOption = z.infer<typeof TuicServerOptionSchema>;
+
+export const InboundOptionSchema = z
+  .object({
+    id: z.number(),
+    remark: z.string().optional(),
+    tag: z.string().optional(),
+    protocol: z.string().optional(),
+    port: z.number().optional(),
+    network: z.string().optional(),
+    security: z.string().optional(),
+    tlsFlowCapable: z.boolean().optional(),
+    ssMethod: z.string().optional(),
+    wgPublicKey: z.string().optional(),
+    wgMtu: z.number().optional(),
+    wgDns: z.string().optional(),
+    awgServer: AwgServerOptionSchema.nullable().optional(),
+    tuicServer: TuicServerOptionSchema.nullable().optional(),
+    mtprotoDomain: z.string().optional(),
+    // Hosting node id; absent/null for this panel's own inbounds (#4997).
+    nodeId: z.number().nullable().optional(),
+    // Share-host resolution inputs, mirroring the backend resolveInboundAddress so
+    // the clients page picks the same WireGuard endpoint host as the subscription:
+    // the hosting node address, the inbound listen, and its share-address strategy.
+    nodeAddress: z.string().optional(),
+    listen: z.string().optional(),
+    shareAddr: z.string().optional(),
+    shareAddrStrategy: z.string().optional(),
+  })
+  .loose();
+
+export const InboundOptionsSchema = z.array(InboundOptionSchema);
+
+// The *Count fields are exact; the email arrays stop at the server's cap and
+// only feed the hover popovers, so never derive a counter from their length.
+export const ClientsSummarySchema = z.object({
+  total: z.number(),
+  active: z.number(),
+  onlineCount: z.number().optional().default(0),
+  depletedCount: z.number().optional().default(0),
+  expiringCount: z.number().optional().default(0),
+  deactiveCount: z.number().optional().default(0),
+  online: nullableStringArray,
+  depleted: nullableStringArray,
+  expiring: nullableStringArray,
+  deactive: nullableStringArray,
+});
+
+const nullableClientArray = z
+  .array(ClientRecordSchema)
+  .nullable()
+  .transform((v) => v ?? []);
+
+export const ClientPageResponseSchema = z.object({
+  items: nullableClientArray,
+  total: z.number(),
+  filtered: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  summary: ClientsSummarySchema.nullable().optional(),
+  groups: nullableStringArray.optional(),
+});
+
+// A per-client external link surfaced in the client's subscription:
+// kind=link is a single share link, kind=subscription is a remote sub URL.
+export const ExternalLinkSchema = z
+  .object({
+    id: z.number().int().optional().default(0),
+    kind: z.enum(['link', 'subscription']).default('link'),
+    value: z.string(),
+    remark: z.string().optional().default(''),
+    enable: z.preprocess((v) => (v == null ? true : v), z.boolean()).default(true),
+    expiryTime: z.number().int().optional().default(0),
+    namePrefix: z.string().optional().default(''),
+    lastFetchAt: z.number().int().optional().default(0),
+    lastFetchError: z.string().optional().default(''),
+  })
+  .loose();
+
+export const ExternalLinkListSchema = z
+  .array(ExternalLinkSchema)
+  .nullable()
+  .transform((v) => v ?? []);
+
+// tunnelAllowedIPs carries the real, per-inbound AllowedIPs value (keyed by
+// inbound id) for every WireGuard/AmneziaWG inbound this client is attached
+// to. ClientRecord's own allowedIPs is a single string and cannot represent
+// two different addresses when one identity holds both a WireGuard and an
+// AmneziaWG attachment at once -- this is what lets the edit form show each
+// protocol's real, distinct address instead of one ambiguous shared field.
+export const ClientHydrateSchema = z.object({
+  client: ClientRecordSchema,
+  inboundIds: nullableNumberArray,
+  externalLinks: ExternalLinkListSchema.optional(),
+  tunnelAllowedIPs: z.record(z.number().int(), z.string()).optional(),
+});
+
+export const BulkAdjustResultSchema = z.object({
+  adjusted: z.number(),
+  skipped: z.array(z.object({ email: z.string(), reason: z.string() })).optional(),
+});
+
+export const BulkDeleteResultSchema = z.object({
+  deleted: z.number(),
+  skipped: z.array(z.object({ email: z.string(), reason: z.string() })).optional(),
+});
+
+export const BulkSetEnableResultSchema = z.object({
+  changed: z.number(),
+  skipped: z.array(z.object({ email: z.string(), reason: z.string() })).optional(),
+});
+
+export const BulkCreateResultSchema = z.object({
+  created: z.number(),
+  skipped: z.array(z.object({ email: z.string(), reason: z.string() })).optional(),
+});
+
+export const DelDepletedResultSchema = z.object({
+  deleted: z.number().optional(),
+});
+
+export const BulkAttachResultSchema = z.object({
+  attached: z
+    .array(z.string())
+    .nullable()
+    .transform((v) => v ?? []),
+  skipped: z
+    .array(z.string())
+    .nullable()
+    .transform((v) => v ?? []),
+  errors: z
+    .array(z.string())
+    .nullable()
+    .transform((v) => v ?? []),
+});
+
+export const BulkDetachResultSchema = z.object({
+  detached: z
+    .array(z.string())
+    .nullable()
+    .transform((v) => v ?? []),
+  skipped: z
+    .array(z.string())
+    .nullable()
+    .transform((v) => v ?? []),
+  errors: z
+    .array(z.string())
+    .nullable()
+    .transform((v) => v ?? []),
+});
+
+export const OnlinesSchema = nullableStringArray;
+
+export const OnlineByNodeSchema = z
+  .record(z.string(), nullableStringArray)
+  .nullable()
+  .transform((v) => v ?? {});
+
+export const ActiveInboundsByNodeSchema = z
+  .record(z.string(), nullableStringArray)
+  .nullable()
+  .transform((v) => v ?? {});
+
+export const GroupSummarySchema = z.object({
+  name: z.string(),
+  clientCount: z.number(),
+  trafficUsed: z
+    .number()
+    .nullable()
+    .transform((v) => v ?? 0),
+  up: z
+    .number()
+    .nullable()
+    .transform((v) => v ?? 0),
+  down: z
+    .number()
+    .nullable()
+    .transform((v) => v ?? 0),
+});
+
+export const GroupSummaryListSchema = z
+  .array(GroupSummarySchema)
+  .nullable()
+  .transform((v) => v ?? []);
+
+export function hasForbiddenClientChars(value: string): boolean {
+  if (value.includes('/') || value.includes('\\') || value.includes(' ')) return true;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+export const ClientFormSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .min(1, 'pages.clients.email')
+    .refine((v) => v !== '.' && v !== '..', 'pages.clients.emailReservedName')
+    .refine((v) => !hasForbiddenClientChars(v), 'pages.clients.emailInvalidChars'),
+  subId: z.string().refine((v) => !hasForbiddenClientChars(v), 'pages.clients.subIdInvalidChars'),
+  uuid: z.string(),
+  password: z.string(),
+  auth: z.string(),
+  flow: z.string(),
+  security: z.string(),
+  // Host rules the client is bound to; null/omitted preserves, empty clears.
+  clientHostRuleIds: z.array(z.number().int()).nullable().optional(),
+  reverseTag: z.string(),
+  totalGB: z.number().min(0),
+  delayedStart: z.boolean(),
+  delayedDays: z.number().int().min(0),
+  reset: z.number().int().min(0),
+  resetDay: z.number().int().min(0).max(31),
+  resetWeekday: z.number().int().min(0).max(7),
+  resetMax: z.number().int().min(0),
+  trafficReset: z.enum(['never', 'hourly', 'daily', 'weekly', 'monthly']),
+  trafficResetDay: z.number().int().min(1).max(31),
+  limitIp: z.number().int().min(0),
+  limitHwid: z.number().int().min(0),
+  tgId: z.number().int().min(0),
+  group: z.string(),
+  comment: z.string(),
+  enable: z.boolean(),
+  inboundIds: z.array(z.number()),
+});
+
+export const ClientCreateFormSchema = ClientFormSchema.extend({
+  inboundIds: z.array(z.number()).min(1, 'pages.clients.selectInbound'),
+});
+
+export const ClientBulkAdjustFormSchema = z
+  .object({
+    addDays: z.number().int(),
+    addGB: z.number(),
+    flow: z.string().optional().default(''),
+    limitHwid: z.number().int().min(0).nullable().optional(),
+    adTag: z.string().optional().default(''),
+  })
+  .refine(
+    (v) =>
+      v.addDays !== 0 ||
+      v.addGB !== 0 ||
+      v.flow !== '' ||
+      (v.limitHwid !== undefined && v.limitHwid !== null) ||
+      (v.adTag !== undefined && v.adTag.trim() !== ''),
+    {
+      error: 'pages.clients.bulkAdjustNothing',
+    },
+  )
+  .refine(
+    (v) => {
+      const tag = v.adTag?.trim();
+      if (!tag || tag === 'none') return true;
+      return /^[0-9a-fA-F]{32}$/.test(tag);
+    },
+    {
+      error: 'pages.inbounds.form.mtgAdTagInvalid',
+      path: ['adTag'],
+    },
+  );
+
+export const ClientBulkAddFormSchema = z.object({
+  emailMethod: z.number().int().min(0).max(4),
+  firstNum: z.number().int().min(1),
+  lastNum: z.number().int().min(1),
+  emailPrefix: z.string(),
+  emailPostfix: z.string(),
+  quantity: z.number().int().min(1).max(1000),
+  subId: z.string(),
+  group: z.string(),
+  comment: z.string(),
+  flow: z.string(),
+  limitIp: z.number().int().min(0),
+  limitHwid: z.number().int().min(0),
+  totalGB: z.number().min(0),
+  expiryTime: z.number(),
+  reset: z.number().int().min(0),
+  resetDay: z.number().int().min(0).max(31),
+  resetWeekday: z.number().int().min(0).max(7),
+  resetMax: z.number().int().min(0),
+  trafficReset: z.enum(['never', 'hourly', 'daily', 'weekly', 'monthly']).optional(),
+  trafficResetDay: z.number().int().min(1).max(31).optional(),
+  inboundIds: z.array(z.number()).min(1, 'pages.clients.selectInbound'),
+});
+
+export type ClientRecord = z.infer<typeof ClientRecordSchema>;
+export type ClientTraffic = z.infer<typeof ClientTrafficSchema>;
+export type InboundOption = z.infer<typeof InboundOptionSchema>;
+export type ExternalLink = z.infer<typeof ExternalLinkSchema>;
+export type ClientsSummary = z.infer<typeof ClientsSummarySchema>;
+export type ClientPageResponse = z.infer<typeof ClientPageResponseSchema>;
+export type ClientHydrate = z.infer<typeof ClientHydrateSchema>;
+export type BulkAdjustResult = z.infer<typeof BulkAdjustResultSchema>;
+export type BulkDeleteResult = z.infer<typeof BulkDeleteResultSchema>;
+export type BulkSetEnableResult = z.infer<typeof BulkSetEnableResultSchema>;
+export type BulkCreateResult = z.infer<typeof BulkCreateResultSchema>;
+export type BulkAttachResult = z.infer<typeof BulkAttachResultSchema>;
+export type BulkDetachResult = z.infer<typeof BulkDetachResultSchema>;
+export type ClientBulkAddFormValues = z.infer<typeof ClientBulkAddFormSchema>;
+export type ClientBulkAdjustFormValues = z.infer<typeof ClientBulkAdjustFormSchema>;
+export type ClientFormValues = z.infer<typeof ClientFormSchema>;
+export type GroupSummary = z.infer<typeof GroupSummarySchema>;

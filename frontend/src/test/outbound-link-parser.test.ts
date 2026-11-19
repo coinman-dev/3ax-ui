@@ -1,0 +1,1155 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  parseOutboundLink,
+  parseShadowsocksLink,
+  parseTrojanLink,
+  parseVlessLink,
+  parseVmessLink,
+  parseHysteria2Link,
+  parseWireguardLink,
+} from '@/lib/xray/outbound-link-parser';
+import { formValuesToWirePayload, rawOutboundToFormValues } from '@/lib/xray/outbound-form-adapter';
+import { Base64 } from '@/utils';
+
+// Focused acceptance tests for the share-link parsers — one happy-path
+// case per protocol family, plus a few common edge cases. The parsers
+// produce wire-shape outbound rows; the modal hands them to
+// rawOutboundToFormValues to seed Form.useForm.
+
+describe('parseVmessLink', () => {
+  it('parses a vmess:// link with ws + tls', () => {
+    const json = {
+      v: '2',
+      ps: 'imported-vmess',
+      add: '1.2.3.4',
+      port: 8443,
+      id: '11111111-2222-4333-8444-555555555555',
+      aid: 0,
+      scy: 'auto',
+      net: 'ws',
+      host: 'example.com',
+      path: '/ws',
+      tls: 'tls',
+      sni: 'example.com',
+      fp: 'chrome',
+      alpn: 'h2,http/1.1',
+    };
+    const link = `vmess://${Base64.encode(JSON.stringify(json))}`;
+    const out = parseVmessLink(link);
+    expect(out).not.toBeNull();
+    expect(out?.protocol).toBe('vmess');
+    expect(out?.tag).toBe('imported-vmess');
+    const settings = out?.settings as {
+      vnext: Array<{
+        address: string;
+        port: number;
+        users: Array<{ id: string; security: string }>;
+      }>;
+    };
+    expect(settings.vnext[0].address).toBe('1.2.3.4');
+    expect(settings.vnext[0].port).toBe(8443);
+    expect(settings.vnext[0].users[0].id).toBe('11111111-2222-4333-8444-555555555555');
+    const stream = out?.streamSettings as Record<string, unknown>;
+    expect(stream.network).toBe('ws');
+    expect(stream.security).toBe('tls');
+    expect((stream.wsSettings as Record<string, unknown>).path).toBe('/ws');
+    expect((stream.tlsSettings as Record<string, unknown>).serverName).toBe('example.com');
+    expect((stream.tlsSettings as Record<string, unknown>).alpn).toEqual(['h2', 'http/1.1']);
+  });
+
+  // The exporter writes ech/vcn/pcs into the vmess object, so the importer has
+  // to read them instead of leaving the tls checks it seeded empty.
+  it('keeps the ech, vcn and pcs certificate checks', () => {
+    const json = {
+      v: '2',
+      ps: 'pinned-vmess',
+      add: '1.2.3.4',
+      port: 8443,
+      id: '11111111-2222-4333-8444-555555555555',
+      scy: 'auto',
+      net: 'tcp',
+      tls: 'tls',
+      sni: 'vmess.example.com',
+      fp: 'chrome',
+      ech: 'AEX+DQBB',
+      vcn: 'vcn.example.com',
+      pcs: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      cs: 'TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256',
+    };
+    const link = `vmess://${Base64.encode(JSON.stringify(json))}`;
+    const out = parseVmessLink(link);
+    expect(out).not.toBeNull();
+    const stream = out?.streamSettings as Record<string, unknown>;
+    const tls = stream.tlsSettings as Record<string, unknown>;
+    expect(tls.echConfigList).toBe('AEX+DQBB');
+    expect(tls.cipherSuites).toBe('TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256');
+    expect(tls.verifyPeerCertByName).toBe('vcn.example.com');
+    expect(tls.pinnedPeerCertSha256).toBe('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
+  });
+
+  it('returns null for non-vmess links', () => {
+    expect(parseVmessLink('vless://x@y:1')).toBeNull();
+  });
+
+  it('returns null for malformed base64', () => {
+    expect(parseVmessLink('vmess://!!!not-base64!!!')).toBeNull();
+  });
+});
+
+describe('parseVmessLink — XHTTP advanced fields', () => {
+  it('round-trips xhttp knobs from the vmess JSON', () => {
+    const json = {
+      v: '2',
+      ps: 'imported-xhttp',
+      add: '1.2.3.4',
+      port: 443,
+      id: '11111111-2222-4333-8444-555555555555',
+      aid: 0,
+      scy: 'auto',
+      net: 'xhttp',
+      host: 'edge.example',
+      path: '/sp',
+      mode: 'stream-up',
+      xPaddingBytes: '500-1500',
+      scMaxEachPostBytes: '2000000',
+      scMinPostsIntervalMs: '60',
+      uplinkChunkSize: 8192,
+      noGRPCHeader: true,
+      tls: 'tls',
+      sni: 'edge.example',
+    };
+    const link = `vmess://${Base64.encode(JSON.stringify(json))}`;
+    const out = parseVmessLink(link);
+    const stream = out?.streamSettings as Record<string, unknown>;
+    const xhttp = stream.xhttpSettings as Record<string, unknown>;
+    expect(xhttp.host).toBe('edge.example');
+    expect(xhttp.path).toBe('/sp');
+    expect(xhttp.mode).toBe('stream-up');
+    expect(xhttp.xPaddingBytes).toBe('500-1500');
+    expect(xhttp.scMaxEachPostBytes).toBe('2000000');
+    expect(xhttp.scMinPostsIntervalMs).toBe('60');
+    expect(xhttp.uplinkChunkSize).toBe(8192);
+    expect(xhttp.noGRPCHeader).toBe(true);
+  });
+
+  it('round-trips xhttp padding-obfs knobs from the vmess JSON', () => {
+    const json = {
+      v: '2',
+      ps: 'imported-pad',
+      add: '1.2.3.4',
+      port: 443,
+      id: '11111111-2222-4333-8444-555555555555',
+      aid: 0,
+      scy: 'auto',
+      net: 'xhttp',
+      host: 'edge.example',
+      path: '/sp',
+      xPaddingObfsMode: true,
+      xPaddingKey: 'secret-key',
+      xPaddingHeader: 'X-Pad',
+      xPaddingPlacement: 'header',
+      xPaddingMethod: 'random',
+      sessionKey: 'X-Session',
+      seqKey: 'X-Seq',
+      noSSEHeader: true,
+      scMaxBufferedPosts: 50,
+      tls: 'tls',
+    };
+    // legacy sessionKey must alias onto the renamed sessionIDKey (#6258)
+    const link = `vmess://${Base64.encode(JSON.stringify(json))}`;
+    const out = parseVmessLink(link);
+    const xhttp = (out!.streamSettings as Record<string, unknown>).xhttpSettings as Record<
+      string,
+      unknown
+    >;
+    expect(xhttp.xPaddingObfsMode).toBe(true);
+    expect(xhttp.xPaddingKey).toBe('secret-key');
+    expect(xhttp.xPaddingHeader).toBe('X-Pad');
+    expect(xhttp.xPaddingPlacement).toBe('header');
+    expect(xhttp.xPaddingMethod).toBe('random');
+    expect(xhttp.sessionIDKey).toBe('X-Session');
+    expect(xhttp.sessionKey).toBeUndefined();
+    expect(xhttp.seqKey).toBe('X-Seq');
+    expect(xhttp.noSSEHeader).toBe(true);
+    expect(xhttp.scMaxBufferedPosts).toBe(50);
+  });
+});
+
+describe('parseVlessLink — XHTTP advanced fields', () => {
+  it('round-trips xhttp knobs from URL query params', () => {
+    const link =
+      'vless://uuid@srv.example:443' +
+      '?type=xhttp&security=tls&host=edge.example&path=%2Fsp&mode=stream-up' +
+      '&xPaddingBytes=500-1500&scMaxEachPostBytes=2000000' +
+      '&scMinPostsIntervalMs=60&uplinkChunkSize=8192&noGRPCHeader=true' +
+      '#imported-xhttp';
+    const out = parseVlessLink(link);
+    const stream = out?.streamSettings as Record<string, unknown>;
+    const xhttp = stream.xhttpSettings as Record<string, unknown>;
+    expect(xhttp.host).toBe('edge.example');
+    expect(xhttp.path).toBe('/sp');
+    expect(xhttp.mode).toBe('stream-up');
+    expect(xhttp.xPaddingBytes).toBe('500-1500');
+    expect(xhttp.scMaxEachPostBytes).toBe('2000000');
+    expect(xhttp.scMinPostsIntervalMs).toBe('60');
+    expect(xhttp.uplinkChunkSize).toBe(8192);
+    expect(xhttp.noGRPCHeader).toBe(true);
+  });
+
+  it('round-trips xhttp padding-obfs knobs from URL query params', () => {
+    const link =
+      'vless://uuid@srv.example:443' +
+      '?type=xhttp&security=tls&host=edge.example&path=%2Fsp' +
+      '&xPaddingObfsMode=true&xPaddingKey=secret-key&xPaddingHeader=X-Pad' +
+      '&xPaddingPlacement=header&xPaddingMethod=random' +
+      '&sessionIDKey=X-Session&sessionIDTable=Base62&sessionIDLength=16-32' +
+      '&seqKey=X-Seq&noSSEHeader=true' +
+      '&scMaxBufferedPosts=50' +
+      '#imported-pad';
+    const out = parseVlessLink(link);
+    const xhttp = (out!.streamSettings as Record<string, unknown>).xhttpSettings as Record<
+      string,
+      unknown
+    >;
+    expect(xhttp.xPaddingObfsMode).toBe(true);
+    expect(xhttp.xPaddingKey).toBe('secret-key');
+    expect(xhttp.xPaddingHeader).toBe('X-Pad');
+    expect(xhttp.xPaddingPlacement).toBe('header');
+    expect(xhttp.xPaddingMethod).toBe('random');
+    expect(xhttp.sessionIDKey).toBe('X-Session');
+    expect(xhttp.sessionIDTable).toBe('Base62');
+    expect(xhttp.sessionIDLength).toBe('16-32');
+    expect(xhttp.seqKey).toBe('X-Seq');
+    expect(xhttp.noSSEHeader).toBe(true);
+    expect(xhttp.scMaxBufferedPosts).toBe(50);
+  });
+});
+
+describe('parseVlessLink', () => {
+  // Older panels share xdns as string lists (pre-26.9.30, a load error) or as name/typed
+  // resolver objects (26.9.30) that xray-core 26.10.10 reads as no domain at all.
+  it.each([
+    ['pre-26.9.30 string lists', { resolvers: ['t.example.com+udp://8.8.8.8:53'] }],
+    [
+      '26.9.30 objects',
+      {
+        domains: [{ name: 't.example.com', types: [16], edns0: 1232 }],
+        resolvers: [{ type: 'udp', settings: { addr: '8.8.8.8:53' } }],
+      },
+    ],
+  ])('upgrades a %s xdns fm= mask to names/addrs', (_shape, settings) => {
+    const fm = encodeURIComponent(JSON.stringify({ udp: [{ type: 'xdns', settings }] }));
+    const out = parseVlessLink(
+      `vless://11111111-2222-4333-8444-555555555555@srv:53?type=kcp&security=none&fm=${fm}#dns`,
+    );
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as {
+      udp: Array<{ settings: unknown }>;
+    };
+    expect(finalmask.udp[0].settings).toEqual({
+      domains: [{ names: ['t.example.com'], types: [16], edns0: 1232 }],
+      resolvers: [{ addrs: ['udp://8.8.8.8:53'] }],
+    });
+  });
+
+  it('parses a vless:// link with reality', () => {
+    const link =
+      'vless://11111111-2222-4333-8444-555555555555@srv.example:443' +
+      '?type=tcp&security=reality&pbk=pubkey&sid=abcd&fp=chrome&sni=cloudflare.com&flow=xtls-rprx-vision' +
+      '&support-x25519mlkem768=true' +
+      '#imported-vless';
+    const out = parseVlessLink(link);
+    expect(out?.protocol).toBe('vless');
+    expect(out?.tag).toBe('imported-vless');
+    const settings = out?.settings as { id: string; flow: string; address: string; port: number };
+    expect(settings.id).toBe('11111111-2222-4333-8444-555555555555');
+    expect(settings.address).toBe('srv.example');
+    expect(settings.port).toBe(443);
+    expect(settings.flow).toBe('xtls-rprx-vision');
+    const stream = out?.streamSettings as Record<string, unknown>;
+    expect(stream.security).toBe('reality');
+    const reality = stream.realitySettings as Record<string, unknown>;
+    expect(reality.publicKey).toBe('pubkey');
+    expect(reality.shortId).toBe('abcd');
+    expect(reality.serverName).toBe('cloudflare.com');
+    // The hint is for Mihomo; xray-core's REALITYConfig has no such field.
+    expect(reality).not.toHaveProperty('supportX25519Mlkem768');
+
+    const form = rawOutboundToFormValues(out!);
+    const saved = formValuesToWirePayload(form);
+    const savedReality = (saved.streamSettings as Record<string, unknown>)
+      .realitySettings as Record<string, unknown>;
+    expect(savedReality).not.toHaveProperty('supportX25519Mlkem768');
+  });
+
+  it('parses encryption + pqv (post-quantum) into settings and mldsa65Verify', () => {
+    const enc = 'mlkem768x25519plus.native.0rtt.G3cdPSd1-NnlpTbWNSM5vHsT5VNzWfFzYSKwbUMnV1Y';
+    const pqv = 'GIsemxbGPjDRH1ONfmoGlVkJ4etNuLmYDvzpjmFFreDLd8WjoJxJ4Fmt_NQJaC6';
+    const link =
+      'vless://9406c224-8ac6-4675-ae0b-f93785959418@localhost:1121' +
+      `?encryption=${enc}&pqv=${pqv}` +
+      '&security=reality&sid=29cf418813d5bac7&sni=aws.amazon.com' +
+      '&pbk=aQaGBOT2hMfXWebYtjADoOVUrP8qZRdwXVap7nrId0I&fp=chrome&spx=%2FOUTjB7xHRiP4zBP&type=tcp' +
+      '#giqssbgmo9';
+    const out = parseVlessLink(link);
+    const settings = out?.settings as { encryption: string };
+    expect(settings.encryption).toBe(enc);
+    const reality = (out!.streamSettings as Record<string, unknown>).realitySettings as Record<
+      string,
+      unknown
+    >;
+    expect(reality.mldsa65Verify).toBe(pqv);
+    expect(reality.publicKey).toBe('aQaGBOT2hMfXWebYtjADoOVUrP8qZRdwXVap7nrId0I');
+  });
+});
+
+describe('mKCP share params', () => {
+  // The emitter flattens one mkcp-legacy mask per field into headerType/seed; a merged
+  // mask drops the seed in xray-core (MkcpLegacy.Build), so import rebuilds them separately.
+  type Mask = { type: string; settings: { header: string; value: string } };
+  const vmessKcp = (fields: Record<string, unknown>) =>
+    'vmess://' +
+    Base64.encode(
+      JSON.stringify({
+        v: '2',
+        add: 'h.com',
+        port: 443,
+        id: '11111111-2222-4333-8444-555555555555',
+        net: 'kcp',
+        tls: 'none',
+        ...fields,
+      }),
+    );
+  const parse = (link: string) => {
+    const out = link.startsWith('trojan://')
+      ? parseTrojanLink(link)
+      : link.startsWith('vmess://')
+        ? parseVmessLink(link)
+        : parseVlessLink(link);
+    expect(out).not.toBeNull();
+    const stream = out!.streamSettings as Record<string, unknown>;
+    const kcp = stream.kcpSettings as { mtu: number; tti: number };
+    const udp = (stream.finalmask as { udp?: Mask[] } | undefined)?.udp ?? [];
+    return {
+      kcp: { mtu: kcp.mtu, tti: kcp.tti },
+      masks: udp.map((m) => [m.type, m.settings.header, m.settings.value]),
+    };
+  };
+
+  it.each([
+    [
+      'vless header and seed become two masks, seed first',
+      'vless://11111111-2222-4333-8444-555555555555@h.com:443?type=kcp&headerType=wechat-video&seed=secret-seed&mtu=1400&tti=50&security=none#kcp1',
+      { mtu: 1400, tti: 50 },
+      [
+        ['mkcp-legacy', '', 'secret-seed'],
+        ['mkcp-legacy', 'wechat', ''],
+      ],
+    ],
+    [
+      'trojan header only adds no seed mask',
+      'trojan://pw@h.com:443?type=kcp&headerType=srtp&security=none#kcp-tj',
+      { mtu: 1350, tti: 20 },
+      [['mkcp-legacy', 'srtp', '']],
+    ],
+    [
+      'seed only adds no header mask',
+      'vless://uuid@h.com:443?type=kcp&headerType=none&seed=abc123&security=none',
+      { mtu: 1350, tti: 20 },
+      [['mkcp-legacy', '', 'abc123']],
+    ],
+    [
+      'mtu/tti outside KCPConfig.Build bounds keep the defaults',
+      'vless://uuid@h.com:443?type=kcp&mtu=10&tti=5000&security=none',
+      { mtu: 1350, tti: 20 },
+      [],
+    ],
+    [
+      'non-decimal mtu keeps the default like the Go importer',
+      'vless://uuid@h.com:443?type=kcp&mtu=1.5&tti=1e2&security=none',
+      { mtu: 1350, tti: 20 },
+      [],
+    ],
+    [
+      'a prototype key is not a header type',
+      'vless://uuid@h.com:443?type=kcp&headerType=constructor&seed=abc&security=none',
+      { mtu: 1350, tti: 20 },
+      [],
+    ],
+    [
+      'vmess header and seed from type and path',
+      vmessKcp({ type: 'wechat-video', path: 'secret-seed', mtu: 1400, tti: 50 }),
+      { mtu: 1400, tti: 50 },
+      [
+        ['mkcp-legacy', '', 'secret-seed'],
+        ['mkcp-legacy', 'wechat', ''],
+      ],
+    ],
+    [
+      'vmess fm mkcp-legacy mask wins over path',
+      vmessKcp({
+        type: 'none',
+        path: 's3cr3tSeed',
+        mtu: 1350,
+        tti: 20,
+        fm: JSON.stringify({
+          udp: [{ settings: { header: '', value: 's3cr3tSeed' }, type: 'mkcp-legacy' }],
+        }),
+      }),
+      { mtu: 1350, tti: 20 },
+      [['mkcp-legacy', '', 's3cr3tSeed']],
+    ],
+  ])('%s', (_name, link, kcp, masks) => {
+    expect(parse(link)).toEqual({ kcp, masks });
+  });
+
+  it('keeps a vmess fm udp mask', () => {
+    const fm = JSON.stringify({
+      udp: [{ type: 'salamander', settings: { password: 'obfspw123' } }],
+    });
+    const out = parseVmessLink(vmessKcp({ type: 'none', fm }));
+    expect((out!.streamSettings as Record<string, unknown>).finalmask).toEqual({
+      udp: [{ type: 'salamander', settings: { password: 'obfspw123' } }],
+    });
+  });
+});
+
+describe('parseTrojanLink', () => {
+  it('parses a trojan:// link with ws + tls', () => {
+    const link =
+      'trojan://secret-pw@srv.example:8443?type=ws&security=tls&host=example.com&path=/tj&sni=example.com#imported-trojan';
+    const out = parseTrojanLink(link);
+    expect(out?.protocol).toBe('trojan');
+    const settings = out?.settings as {
+      servers: Array<{ address: string; port: number; password: string }>;
+    };
+    expect(settings.servers[0].address).toBe('srv.example');
+    expect(settings.servers[0].port).toBe(8443);
+    expect(settings.servers[0].password).toBe('secret-pw');
+    const stream = out?.streamSettings as Record<string, unknown>;
+    expect(stream.network).toBe('ws');
+    expect((stream.wsSettings as Record<string, unknown>).path).toBe('/tj');
+  });
+
+  it('reads the cs cipher suites into tlsSettings, as the Go link parser does', () => {
+    const out = parseTrojanLink(
+      'trojan://pw@srv.example:443?type=tcp&security=tls&sni=srv.example&fp=unsafe&cs=TLS_AES_256_GCM_SHA384#cs',
+    );
+    const stream = out!.streamSettings as Record<string, unknown>;
+    const tls = stream.tlsSettings as Record<string, unknown>;
+    expect(tls.cipherSuites).toBe('TLS_AES_256_GCM_SHA384');
+  });
+});
+
+describe('parseShadowsocksLink', () => {
+  it('parses the modern userinfo@host:port form', () => {
+    // ss://base64(method:password)@host:port#remark
+    const userinfo = Base64.encode('2022-blake3-aes-128-gcm:supersecret');
+    const link = `ss://${userinfo}@1.2.3.4:8388#imported-ss`;
+    const out = parseShadowsocksLink(link);
+    expect(out?.protocol).toBe('shadowsocks');
+    expect(out?.tag).toBe('imported-ss');
+    const settings = out?.settings as {
+      servers: Array<{ address: string; port: number; method: string; password: string }>;
+    };
+    expect(settings.servers[0].address).toBe('1.2.3.4');
+    expect(settings.servers[0].port).toBe(8388);
+    expect(settings.servers[0].method).toBe('2022-blake3-aes-128-gcm');
+    expect(settings.servers[0].password).toBe('supersecret');
+  });
+
+  it('keeps the port when the link carries a query string (2022 two-key password)', () => {
+    const link =
+      'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206LzhsdFZKaU90azE2QmhKZG9WZVRmSkNNUEJlRGhjcmkycTN0dzU1OUZvYz06YUhuTTB6ZnpFaTdRejc5dzlxNWFFWWVQVnpDU0wxaHV4RnZXZFB6OFZHST0@localhost:30757?type=tcp#pahf4urt53';
+    const out = parseShadowsocksLink(link);
+    expect(out?.protocol).toBe('shadowsocks');
+    expect(out?.tag).toBe('pahf4urt53');
+    const settings = out?.settings as {
+      servers: Array<{ address: string; port: number; method: string; password: string }>;
+    };
+    expect(settings.servers[0].address).toBe('localhost');
+    expect(settings.servers[0].port).toBe(30757);
+    expect(settings.servers[0].method).toBe('2022-blake3-aes-256-gcm');
+    expect(settings.servers[0].password).toBe(
+      '/8ltVJiOtk16BhJdoVeTfJCMPBeDhcri2q3tw559Foc=:aHnM0zfzEi7Qz79w9q5aEYePVzCSL1huxFvWdPz8VGI=',
+    );
+  });
+
+  it('parses the legacy base64-of-whole form', () => {
+    // ss://base64(method:password@host:port)#remark
+    const inner = Base64.encode('aes-256-gcm:legacypw@10.0.0.1:1080');
+    const link = `ss://${inner}#imported-legacy`;
+    const out = parseShadowsocksLink(link);
+    const settings = out?.settings as {
+      servers: Array<{ address: string; port: number; method: string; password: string }>;
+    };
+    expect(settings.servers[0].address).toBe('10.0.0.1');
+    expect(settings.servers[0].port).toBe(1080);
+    expect(settings.servers[0].method).toBe('aes-256-gcm');
+    expect(settings.servers[0].password).toBe('legacypw');
+  });
+
+  it('preserves Xray TLS query params on import (round-trip)', () => {
+    const userinfo = Base64.encode('chacha20-ietf-poly1305:secretpass', true);
+    const link =
+      `ss://${userinfo}@example.com:443` +
+      '?alpn=h2%2Chttp%2F1.1&fp=firefox&security=tls&sni=example.com&type=tcp#user';
+    const out = parseShadowsocksLink(link);
+    expect(out?.protocol).toBe('shadowsocks');
+    expect(out?.tag).toBe('user');
+    const settings = out?.settings as {
+      servers: Array<{ address: string; port: number; method: string; password: string }>;
+    };
+    expect(settings.servers[0]).toMatchObject({
+      address: 'example.com',
+      port: 443,
+      method: 'chacha20-ietf-poly1305',
+      password: 'secretpass',
+    });
+    const stream = out?.streamSettings as Record<string, unknown>;
+    expect(stream.network).toBe('tcp');
+    expect(stream.security).toBe('tls');
+    const tls = stream.tlsSettings as Record<string, unknown>;
+    expect(tls.serverName).toBe('example.com');
+    expect(tls.fingerprint).toBe('firefox');
+    expect(tls.alpn).toEqual(['h2', 'http/1.1']);
+  });
+
+  // The panel exports tcp/http obfuscation as the SIP002 plugin only, so the
+  // importer has to rebuild the header it stands for.
+  it('rebuilds the tcp/http header from the obfs-local plugin', () => {
+    const userinfo = Base64.encode('aes-256-gcm:secretpass', true);
+    const plugin = encodeURIComponent('obfs-local;obfs=http;obfs-host=obfs.example.com');
+    const link = `ss://${userinfo}@example.com:8388?plugin=${plugin}#user`;
+    const stream = parseShadowsocksLink(link)?.streamSettings as Record<string, unknown>;
+    expect((stream.tcpSettings as Record<string, unknown>).header).toMatchObject({
+      type: 'http',
+      request: { headers: { Host: ['obfs.example.com'] } },
+    });
+  });
+
+  it('leaves a plugin without an xray header alone', () => {
+    const userinfo = Base64.encode('aes-256-gcm:secretpass', true);
+    const plugin = encodeURIComponent('obfs-local;obfs=tls');
+    const link = `ss://${userinfo}@example.com:8388?plugin=${plugin}#user`;
+    const stream = parseShadowsocksLink(link)?.streamSettings as Record<string, unknown>;
+    expect((stream.tcpSettings as Record<string, unknown>).header).toMatchObject({ type: 'none' });
+  });
+
+  it('decodes URL-safe base64 userinfo (as the emitter writes it)', () => {
+    const method = 'aes-256-gcm';
+    const password = '>>>';
+    const userinfo = Base64.encode(`${method}:${password}`, true);
+    expect(userinfo).toMatch(/[-_]/);
+    const out = parseShadowsocksLink(`ss://${userinfo}@1.2.3.4:8388#urlsafe`);
+    const settings = out?.settings as { servers: Array<{ method: string; password: string }> };
+    expect(settings.servers[0].method).toBe(method);
+    expect(settings.servers[0].password).toBe(password);
+  });
+});
+
+describe('parseHysteria2Link', () => {
+  // A panel older than the 26.9.9 core shares its hop range as quicParams.udpHop in fm=,
+  // which the core ignores; the import must hand it the udphop mask instead.
+  it('upgrades a legacy fm= quicParams.udpHop to the udphop mask', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({ quicParams: { udpHop: { ports: '20000-30000', interval: '5-10' } } }),
+    );
+    const out = parseHysteria2Link(
+      `hysteria2://auth@hy.example.com:443?sni=hy.example.com&fm=${fm}#hy`,
+    );
+    expect((out!.streamSettings as Record<string, unknown>).finalmask).toEqual({
+      udp: [
+        {
+          type: 'udphop',
+          settings: { mode: 'intervalRemote', remotePorts: '20000-30000', interval: '5-10' },
+        },
+      ],
+    });
+  });
+
+  // The core reverses the UDP masks and refuses a udphop anywhere but last ("incorrect index"),
+  // so an import of a link that lists it first must reorder it like the Go importer does.
+  it('moves a udphop mask listed first in fm= to the end', () => {
+    const hop = {
+      type: 'udphop',
+      settings: { mode: 'intervalRemote', remotePorts: '20000-30000' },
+    };
+    const salamander = { type: 'salamander', settings: { password: 's3cr3t' } };
+    const fm = encodeURIComponent(JSON.stringify({ udp: [hop, salamander] }));
+    const out = parseHysteria2Link(
+      `hysteria2://auth@hy.example.com:443?sni=hy.example.com&fm=${fm}#hy`,
+    );
+    expect((out!.streamSettings as Record<string, unknown>).finalmask).toEqual({
+      udp: [salamander, hop],
+    });
+  });
+
+  it('parses a hysteria2:// link with sni', () => {
+    const link = 'hysteria2://auth-secret@srv.example:443?sni=example.com#imported-hy2';
+    const out = parseHysteria2Link(link);
+    expect(out?.protocol).toBe('hysteria');
+    expect(out?.tag).toBe('imported-hy2');
+    const settings = out?.settings as { address: string; port: number; version: number };
+    expect(settings.address).toBe('srv.example');
+    expect(settings.port).toBe(443);
+    expect(settings.version).toBe(2);
+    const stream = out?.streamSettings as Record<string, unknown>;
+    const hys = stream.hysteriaSettings as Record<string, unknown>;
+    expect(hys.auth).toBe('auth-secret');
+    expect((stream.tlsSettings as Record<string, unknown>).serverName).toBe('example.com');
+  });
+
+  it('also accepts hy2:// alias', () => {
+    const out = parseHysteria2Link('hy2://auth@srv:443?sni=example.com');
+    expect(out?.protocol).toBe('hysteria');
+  });
+
+  it('parses alpn, fingerprint and the salamander UDP mask (fm) — #4760', () => {
+    const link =
+      'hysteria2://78e7795a209c4c099f896a816fc8448f@news.domain.org:8443?' +
+      'alpn=h2%2Chttp%2F1.1&' +
+      'fm=%7B%22udp%22%3A%5B%7B%22settings%22%3A%7B%22password%22%3A%22ftwfgb9655hh2mgo%22%7D%2C%22type%22%3A%22salamander%22%7D%5D%7D&' +
+      'fp=chrome&obfs=salamander&obfs-password=655hh2mgo&security=tls&sni=news.domain.org' +
+      '#hy2-ej596ty350qs';
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const stream = out!.streamSettings as Record<string, unknown>;
+    const tls = stream.tlsSettings as Record<string, unknown>;
+    expect(tls.alpn).toEqual(['h2', 'http/1.1']);
+    expect(tls.fingerprint).toBe('chrome');
+    expect(tls.serverName).toBe('news.domain.org');
+    const finalmask = stream.finalmask as Record<string, unknown>;
+    expect(finalmask).toBeDefined();
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    expect(udp).toHaveLength(1);
+    expect(udp[0].type).toBe('salamander');
+    expect((udp[0].settings as Record<string, unknown>).password).toBe('ftwfgb9655hh2mgo');
+  });
+
+  it('reconstructs the salamander mask from standard obfs= without fm=', () => {
+    const link =
+      'hysteria2://auth@news.domain.org:8443?security=tls&sni=news.domain.org' +
+      '&obfs=salamander&obfs-password=ftwfgb9655hh2mgo#hy2-std-obfs';
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    expect(finalmask).toBeDefined();
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    expect(udp).toHaveLength(1);
+    expect(udp[0].type).toBe('salamander');
+    expect((udp[0].settings as Record<string, unknown>).password).toBe('ftwfgb9655hh2mgo');
+  });
+
+  it('adds no salamander mask when the link carries neither obfs nor fm', () => {
+    const out = parseHysteria2Link('hysteria2://auth@srv:443?security=tls&sni=srv#hy2-plain');
+    expect(out).not.toBeNull();
+    expect((out!.streamSettings as Record<string, unknown>).finalmask).toBeUndefined();
+  });
+
+  it('ignores obfs=salamander when no obfs-password is present', () => {
+    const out = parseHysteria2Link(
+      'hysteria2://auth@srv:443?security=tls&obfs=salamander#hy2-nopw',
+    );
+    expect(out).not.toBeNull();
+    expect((out!.streamSettings as Record<string, unknown>).finalmask).toBeUndefined();
+  });
+
+  it.each([
+    ['obfs_password', 'obfs_password=aliaspw', 'aliaspw'],
+    ['obfsPassword', 'obfsPassword=camelpw', 'camelpw'],
+    ['case-insensitive type', 'obfs=Salamander&obfs-password=mixed', 'mixed'],
+  ])('accepts the %s form of the obfs pair', (_name, query, want) => {
+    const base = query.includes('obfs=') ? query : `obfs=salamander&${query}`;
+    const out = parseHysteria2Link(`hysteria2://auth@srv:443?security=tls&${base}#hy2-alias`);
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    expect(udp).toHaveLength(1);
+    expect(udp[0].type).toBe('salamander');
+    expect((udp[0].settings as Record<string, unknown>).password).toBe(want);
+  });
+
+  it('appends the obfs salamander mask alongside a non-salamander fm mask', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        udp: [{ type: 'mkcp-legacy', settings: { header: 'srtp' } }],
+      }),
+    );
+    const link = `hysteria2://auth@srv:443?security=tls&fm=${fm}&obfs=salamander&obfs-password=added#hy2-append`;
+    const out = parseHysteria2Link(link);
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    expect(udp).toHaveLength(2);
+    expect(udp[0].type).toBe('mkcp-legacy');
+    expect(udp[1].type).toBe('salamander');
+    expect((udp[1].settings as Record<string, unknown>).password).toBe('added');
+  });
+
+  it('fills the password of a password-less fm salamander mask from obfs', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        udp: [{ type: 'salamander', settings: {} }],
+      }),
+    );
+    const link = `hysteria2://auth@srv:443?security=tls&fm=${fm}&obfs=salamander&obfs-password=fromobfs#hy2-fill`;
+    const out = parseHysteria2Link(link);
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    expect(udp).toHaveLength(1);
+    expect((udp[0].settings as Record<string, unknown>).password).toBe('fromobfs');
+  });
+
+  // xray-core 26.9.9 ignores quicParams.udpHop; hopping is a 'udphop' UDP mask
+  // and its mode must be one the core's UDPHop.Build() accepts.
+  it('reconstructs a udphop mask from the standard mport param', () => {
+    const out = parseHysteria2Link(
+      'hysteria2://auth@srv:443?security=tls&mport=20000-50000#hy2-mport',
+    );
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    const hop = udp.find((mask) => mask.type === 'udphop');
+    expect(hop).toBeDefined();
+    const settings = hop!.settings as Record<string, unknown>;
+    expect(settings.remotePorts).toBe('20000-50000');
+    expect(settings.interval).toBe('5-10');
+    expect(settings.mode).toBe('intervalremote');
+    expect((finalmask.quicParams as Record<string, unknown> | undefined)?.udpHop).toBeUndefined();
+  });
+
+  it('lets an fm= udphop mask win over mport', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        udp: [
+          {
+            type: 'udphop',
+            settings: { mode: 'intervalremote', interval: '7-9', remotePorts: '30000-40000' },
+          },
+        ],
+      }),
+    );
+    const link = `hysteria2://auth@srv:443?security=tls&mport=1-2&fm=${fm}#hy2-mport-fm`;
+    const out = parseHysteria2Link(link);
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    expect(udp).toHaveLength(1);
+    const settings = udp[0].settings as Record<string, unknown>;
+    expect(settings.remotePorts).toBe('30000-40000');
+    expect(settings.interval).toBe('7-9');
+  });
+
+  it('round-trips the salamander packetSize (Gecko) under fm', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        udp: [
+          { type: 'salamander', settings: { password: 'ftwfgb9655hh2mgo', packetSize: '100-200' } },
+        ],
+      }),
+    );
+    const link = `hysteria2://78e7795a209c4c099f896a816fc8448f@news.domain.org:8443?security=tls&sni=news.domain.org&fm=${fm}#hy2-gecko`;
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    const settings = udp[0].settings as Record<string, unknown>;
+    expect(udp[0].type).toBe('salamander');
+    expect(settings.password).toBe('ftwfgb9655hh2mgo');
+    expect(settings.packetSize).toBe('100-200');
+  });
+
+  it('coerces string quicParams numerics under fm to integers — #5783', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        quicParams: {
+          keepAlivePeriod: '10s',
+          maxIdleTimeout: '30',
+          initStreamReceiveWindow: 524288,
+          maxIncomingStreams: true,
+          brutalUp: '100 mbps',
+        },
+      }),
+    );
+    const link = `hysteria2://78e7795a209c4c099f896a816fc8448f@news.domain.org:8443?security=tls&sni=news.domain.org&fm=${fm}#hy2-quic`;
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const quic = finalmask.quicParams as Record<string, unknown>;
+    expect(quic.keepAlivePeriod).toBe(10);
+    expect(quic.maxIdleTimeout).toBe(30);
+    expect(quic.initStreamReceiveWindow).toBe(524288);
+    expect('maxIncomingStreams' in quic).toBe(false);
+    expect(quic.brutalUp).toBe('100 mbps');
+  });
+
+  it('clamps quicParams to the ranges xray accepts and drops junk — #5783', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        quicParams: {
+          keepAlivePeriod: '1s',
+          maxIdleTimeout: '10m',
+          maxIncomingStreams: 4,
+          initStreamReceiveWindow: 'inf',
+          maxStreamReceiveWindow: -5,
+          initConnectionReceiveWindow: 1e30,
+        },
+      }),
+    );
+    const link = `hysteria2://78e7795a209c4c099f896a816fc8448f@news.domain.org:8443?security=tls&sni=news.domain.org&fm=${fm}#hy2-clamp`;
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const quic = finalmask.quicParams as Record<string, unknown>;
+    expect(quic.keepAlivePeriod).toBe(2);
+    expect(quic.maxIdleTimeout).toBe(120);
+    expect(quic.maxIncomingStreams).toBe(8);
+    expect('initStreamReceiveWindow' in quic).toBe(false);
+    expect('maxStreamReceiveWindow' in quic).toBe(false);
+    expect('initConnectionReceiveWindow' in quic).toBe(false);
+  });
+
+  it('round-trips the realm tlsConfig under fm', () => {
+    const fm = encodeURIComponent(
+      JSON.stringify({
+        udp: [
+          {
+            type: 'realm',
+            settings: {
+              url: 'realm://public@example.com/my-realm',
+              stunServers: ['stun.l.google.com:19302'],
+              tlsConfig: {
+                serverName: 'example.com',
+                alpn: ['h3'],
+                fingerprint: 'chrome',
+                allowInsecure: false,
+              },
+            },
+          },
+        ],
+      }),
+    );
+    const link = `hysteria2://auth@srv:443?security=tls&sni=srv&fm=${fm}#hy2-realm`;
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as Record<
+      string,
+      unknown
+    >;
+    const udp = finalmask.udp as Array<Record<string, unknown>>;
+    const settings = udp[0].settings as Record<string, unknown>;
+    expect(udp[0].type).toBe('realm');
+    expect(settings.url).toBe('realm://public@example.com/my-realm');
+    const tlsConfig = settings.tlsConfig as Record<string, unknown>;
+    expect(tlsConfig.serverName).toBe('example.com');
+    expect(tlsConfig.alpn).toEqual(['h3']);
+    expect(tlsConfig.fingerprint).toBe('chrome');
+  });
+
+  it('defaults alpn to h3 when the link omits it', () => {
+    const out = parseHysteria2Link('hysteria2://auth@srv:443?sni=example.com');
+    const tls = (out!.streamSettings as Record<string, unknown>).tlsSettings as Record<
+      string,
+      unknown
+    >;
+    expect(tls.alpn).toEqual(['h3']);
+  });
+});
+
+describe('parseVlessLink — extra / fm / x_padding_bytes (B20)', () => {
+  it('round-trips a real inbound-generated link with extra+fm+reality+xhttp', () => {
+    // Real user-reported link — bundled xhttp knobs via `extra` JSON,
+    // full finalmask via `fm` JSON, reality auth, snake_case
+    // x_padding_bytes alias. All three parse-paths must combine.
+    const link =
+      'vless://b622ac2f-f155-47db-a3b2-b64e8d7f6342@localhost:37723?' +
+      'encryption=none&' +
+      'extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22scMinPostsIntervalMs%22%3A%2230%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&' +
+      'fm=%7B%22quicParams%22%3A%7B%22congestion%22%3A%22bbr%22%2C%22maxIdleTimeout%22%3A30%2C%22udpHop%22%3A%7B%22interval%22%3A%225-10%22%2C%22ports%22%3A%2220000-50000%22%7D%7D%7D&' +
+      'fp=chrome&host=&mode=auto&path=%2F&' +
+      'pbk=nJw4k4CPf5jf64V8nnDwWa8iClDnUvQ1lCI4iKzfJ0o&' +
+      'security=reality&sid=14ebccc4d3&sni=aws.amazon.com&' +
+      'spx=%2F97L2FjycXEwrE67&type=xhttp&x_padding_bytes=100-1000' +
+      '#sda-8ud3us6rt';
+    const parsed = parseVlessLink(link);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.tag).toBe('sda-8ud3us6rt');
+
+    const stream = parsed!.streamSettings as Record<string, unknown>;
+    expect(stream.network).toBe('xhttp');
+    expect(stream.security).toBe('reality');
+
+    const xhttp = stream.xhttpSettings as Record<string, unknown>;
+    expect(xhttp.xPaddingBytes).toBe('100-1000');
+    expect(xhttp.scMaxEachPostBytes).toBe('1000000');
+    expect(xhttp.scMinPostsIntervalMs).toBe('30');
+
+    const reality = stream.realitySettings as Record<string, unknown>;
+    expect(reality.publicKey).toBe('nJw4k4CPf5jf64V8nnDwWa8iClDnUvQ1lCI4iKzfJ0o');
+    expect(reality.shortId).toBe('14ebccc4d3');
+    expect(reality.spiderX).toBe('/97L2FjycXEwrE67');
+    expect(reality.serverName).toBe('aws.amazon.com');
+
+    const finalmask = stream.finalmask as Record<string, unknown>;
+    expect(finalmask).toBeDefined();
+    const quicParams = finalmask.quicParams as Record<string, unknown>;
+    expect(quicParams.congestion).toBe('bbr');
+    expect(quicParams.maxIdleTimeout).toBe(30);
+    // xray-core 26.9.9 ignores quicParams.udpHop; the import moves it to the udphop mask.
+    expect(quicParams.udpHop).toBeUndefined();
+    expect(finalmask.udp).toEqual([
+      {
+        type: 'udphop',
+        settings: { mode: 'intervalRemote', remotePorts: '20000-50000', interval: '5-10' },
+      },
+    ]);
+  });
+
+  it('falls back to x_padding_bytes when extra has no xPaddingBytes', () => {
+    const link =
+      'vless://u@h:1?type=xhttp&security=none&path=%2F&host=&mode=auto&x_padding_bytes=200-2000#t';
+    const parsed = parseVlessLink(link);
+    const xhttp = (parsed!.streamSettings as Record<string, unknown>).xhttpSettings as Record<
+      string,
+      unknown
+    >;
+    expect(xhttp.xPaddingBytes).toBe('200-2000');
+  });
+
+  it('extra takes precedence — camelCase wins over snake_case alias', () => {
+    const link =
+      'vless://u@h:1?type=xhttp&security=none&path=%2F&host=&mode=auto' +
+      '&xPaddingBytes=900-9000&x_padding_bytes=100-1000#t';
+    const parsed = parseVlessLink(link);
+    const xhttp = (parsed!.streamSettings as Record<string, unknown>).xhttpSettings as Record<
+      string,
+      unknown
+    >;
+    expect(xhttp.xPaddingBytes).toBe('900-9000');
+  });
+
+  it('extracts the nested xmux object from the extra JSON blob', () => {
+    // The inbound link bundles xmux into `extra` as a nested object
+    // (sub/service.go). It must survive import so the outbound form's
+    // XMUX sub-form populates rather than silently dropping it (#5353).
+    const extra = encodeURIComponent(
+      JSON.stringify({
+        xmux: { maxConcurrency: '8-16', hMaxRequestTimes: '700-1000' },
+      }),
+    );
+    const link =
+      'vless://u@h:1?type=xhttp&security=none&path=%2F&host=&mode=auto' + '&extra=' + extra + '#t';
+    const parsed = parseVlessLink(link);
+    const xhttp = (parsed!.streamSettings as Record<string, unknown>).xhttpSettings as Record<
+      string,
+      unknown
+    >;
+    const xmux = xhttp.xmux as Record<string, unknown>;
+    expect(xmux).toBeDefined();
+    expect(xmux.maxConcurrency).toBe('8-16');
+    expect(xmux.hMaxRequestTimes).toBe('700-1000');
+  });
+
+  it('ignores malformed extra JSON without breaking the rest of the link', () => {
+    const link =
+      'vless://u@h:1?type=xhttp&security=none&path=%2F&host=&mode=auto' +
+      '&extra=not-json&fp=chrome#t';
+    const parsed = parseVlessLink(link);
+    expect(parsed).not.toBeNull();
+    const stream = parsed!.streamSettings as Record<string, unknown>;
+    expect((stream.xhttpSettings as Record<string, unknown>).mode).toBe('auto');
+  });
+
+  it('round-trips ech and pcs from a TLS vless link', () => {
+    const ech =
+      'AFb+DQBSAAAgACAL7gYwrvaSFCIEs34G3SkfpuIbjMuYQxAiJsPK1oO7cwAkAAEAAQABAAIAAQADAAIAAQACAAIAAgADAAMAAQADAAIAAwADAAMxMjMAAA==';
+    const pcs = '6fbc15ba46dfed152ad6c8d2129dd774707dd667a9ab4965476fa0f79ba82670';
+    const link =
+      'vless://e3d307ae-c074-4aa3-af08-4f9e0f1d298b@localhost:15282?' +
+      'alpn=h3&ech=' +
+      encodeURIComponent(ech) +
+      '&encryption=none&fp=firefox&host=&' +
+      'mode=packet-up&path=%2F&pcs=' +
+      pcs +
+      '&security=tls&sni=123&type=xhttp#i5sboxj07w';
+    const parsed = parseVlessLink(link);
+    expect(parsed).not.toBeNull();
+    const tls = (parsed!.streamSettings as Record<string, unknown>).tlsSettings as Record<
+      string,
+      unknown
+    >;
+    expect(tls.echConfigList).toBe(ech);
+    expect(tls.pinnedPeerCertSha256).toBe(pcs);
+    expect(tls.serverName).toBe('123');
+    expect(tls.fingerprint).toBe('firefox');
+  });
+});
+
+describe('parseWireguardLink', () => {
+  it('parses a wireguard:// link with percent-encoded secret and publickey', () => {
+    const link =
+      'wireguard://IKeuy2+BNspvMffiC47z16seLIGxGtbDIYiZcbh9C1U%3D@localhost:22824' +
+      '?publickey=3CnNsCy74TOlupjaii%2BRFp%2FgDMk5vvUuFD0SNZ%2FGl2s%3D' +
+      '&address=10.0.0.2%2F32&mtu=1420#-1';
+    const out = parseWireguardLink(link);
+    expect(out?.protocol).toBe('wireguard');
+    expect(out?.tag).toBe('-1');
+    const settings = out?.settings as {
+      secretKey: string;
+      address: string[];
+      mtu: number;
+      peers: Array<{ publicKey: string; endpoint: string; allowedIPs: string[] }>;
+    };
+    expect(settings.secretKey).toBe('IKeuy2+BNspvMffiC47z16seLIGxGtbDIYiZcbh9C1U=');
+    expect(settings.address).toEqual(['10.0.0.2/32']);
+    expect(settings.mtu).toBe(1420);
+    expect(settings.peers[0].publicKey).toBe('3CnNsCy74TOlupjaii+RFp/gDMk5vvUuFD0SNZ/Gl2s=');
+    expect(settings.peers[0].endpoint).toBe('localhost:22824');
+    expect(settings.peers[0].allowedIPs).toEqual(['0.0.0.0/0', '::/0']);
+  });
+
+  it('parses reserved, presharedkey and keepalive aliases', () => {
+    const link =
+      'wireguard://privkey@1.2.3.4:51820' +
+      '?publickey=peerpub&address=10.0.0.2/32,fd00::2/128' +
+      '&reserved=1,2,3&presharedkey=psk-secret&persistentkeepalive=25' +
+      '&allowedips=0.0.0.0/0#wg-peer';
+    const out = parseWireguardLink(link);
+    const settings = out?.settings as {
+      reserved: number[];
+      peers: Array<{ preSharedKey: string; keepAlive: number; allowedIPs: string[] }>;
+      address: string[];
+    };
+    expect(settings.address).toEqual(['10.0.0.2/32', 'fd00::2/128']);
+    expect(settings.reserved).toEqual([1, 2, 3]);
+    expect(settings.peers[0].preSharedKey).toBe('psk-secret');
+    expect(settings.peers[0].keepAlive).toBe(25);
+    expect(settings.peers[0].allowedIPs).toEqual(['0.0.0.0/0']);
+  });
+
+  it('returns null for non-wireguard links', () => {
+    expect(parseWireguardLink('vless://x@y:1')).toBeNull();
+  });
+});
+
+describe('parseOutboundLink dispatcher', () => {
+  it('dispatches vmess via base64 JSON', () => {
+    const json = {
+      v: '2',
+      ps: 'x',
+      add: '1.1.1.1',
+      port: 443,
+      id: '11111111-2222-4333-8444-555555555555',
+      net: 'tcp',
+      tls: 'none',
+    };
+    const link = `vmess://${Base64.encode(JSON.stringify(json))}`;
+    expect(parseOutboundLink(link)?.protocol).toBe('vmess');
+  });
+
+  it('dispatches vless via URL', () => {
+    expect(parseOutboundLink('vless://uuid@host:443?type=tcp&security=none')?.protocol).toBe(
+      'vless',
+    );
+  });
+
+  it('dispatches wireguard via URL', () => {
+    expect(
+      parseOutboundLink('wireguard://pk@host:22824?publickey=pub&address=10.0.0.2/32')?.protocol,
+    ).toBe('wireguard');
+  });
+
+  it('returns null for an unknown scheme', () => {
+    expect(parseOutboundLink('socks5://user:pass@host:1080')).toBeNull();
+  });
+
+  it('returns null for empty input', () => {
+    expect(parseOutboundLink('')).toBeNull();
+    expect(parseOutboundLink('   ')).toBeNull();
+  });
+});
+
+describe('obfs=gecko packetSize validation', () => {
+  const base = 'hysteria2://secret@1.2.3.4:443?security=tls&obfs=gecko&obfs-password=pw';
+
+  const packetSizeOf = (link: string): string | undefined => {
+    const out = parseHysteria2Link(link);
+    expect(out).not.toBeNull();
+    const finalmask = (out!.streamSettings as Record<string, unknown>).finalmask as
+      | Record<string, unknown>
+      | undefined;
+    const udp = (finalmask?.udp ?? []) as Array<Record<string, unknown>>;
+    const mask = udp.find((m) => m.type === 'salamander');
+    return (mask?.settings as Record<string, unknown> | undefined)?.packetSize as
+      | string
+      | undefined;
+  };
+
+  it('stores a valid range', () => {
+    expect(packetSizeOf(`${base}&minPacketSize=512&maxPacketSize=1200`)).toBe('512-1200');
+  });
+
+  it.each([
+    ['min only', `${base}&minPacketSize=512`],
+    ['max only', `${base}&maxPacketSize=1200`],
+    ['non-numeric', `${base}&minPacketSize=abc&maxPacketSize=def`],
+    ['zero min', `${base}&minPacketSize=0&maxPacketSize=1200`],
+    ['inverted', `${base}&minPacketSize=1200&maxPacketSize=512`],
+    ['over cap', `${base}&minPacketSize=512&maxPacketSize=4096`],
+  ])('drops the %s range', (_name, link) => {
+    expect(packetSizeOf(link)).toBeUndefined();
+  });
+});
+
+describe('parseOutboundLink — host-local keys', () => {
+  it('drops keys that redirect the dial or name host files, however they are cased', () => {
+    const extra = encodeURIComponent(
+      JSON.stringify({
+        downloadSettings: {
+          address: '8.8.8.8',
+          port: 443,
+          sockopt: { dialerProxy: 'api', tcpFastOpen: true },
+          tlsSettings: {
+            serverName: 'cdn.example.com',
+            certificates: [{ CERTIFICATEFILE: '/dev/zero', keyFile: '/etc/shadow' }],
+            maſterKeyLog: '/root/keys',
+          },
+        },
+      }),
+    );
+    const fm = encodeURIComponent(
+      JSON.stringify({ tcp: [{ type: 'header-custom', settings: { DialerProxy: 'api' } }] }),
+    );
+    const out = parseOutboundLink(
+      `vless://uuid@8.8.8.8:443?type=xhttp&security=tls&extra=${extra}&fm=${fm}#node`,
+    );
+    const json = JSON.stringify(out);
+    expect(json).not.toMatch(/dialerproxy|certificatefile|keyfile|maſterkeylog/i);
+    expect(json).toContain('"tcpFastOpen":true');
+    expect(json).toContain('"serverName":"cdn.example.com"');
+  });
+});

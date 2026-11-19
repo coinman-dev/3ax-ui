@@ -1,0 +1,565 @@
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button, Input, Select, Space, Switch, Tabs, message } from 'antd';
+import {
+  BranchesOutlined,
+  BuildOutlined,
+  CloudSyncOutlined,
+  DesktopOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import type { AllSetting } from '@/models/setting';
+import { SettingListItem } from '@/components/ui';
+import { buildHappPresetDeeplink } from './happPresets';
+import HappRoutingEditorModal from './HappRoutingEditorModal';
+import { catTabLabel } from './catTabLabel';
+
+interface HappSettingsContentProps {
+  allSetting: AllSetting;
+  updateSetting: (patch: Partial<AllSetting>) => void;
+  isMobile: boolean;
+  remoteSourceBadge: (val: string) => React.ReactNode;
+}
+
+export default function HappSettingsContent({
+  allSetting,
+  updateSetting,
+  isMobile,
+  remoteSourceBadge,
+}: HappSettingsContentProps) {
+  const { t } = useTranslation();
+  const [messageApi, messageContextHolder] = message.useMessage();
+  // Generator choices stay local until Apply updates the draft; page Save persists it.
+  const [selectedPreset, setSelectedPreset] = useState<string>('iran-bypass');
+  const [includeAdblock, setIncludeAdblock] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const applyPreset = () => {
+    const payload = buildHappPresetDeeplink(selectedPreset, includeAdblock);
+    if (payload) {
+      updateSetting({ subRoutingRules: payload });
+      messageApi.success(t('pages.settings.subHappPresetApplied'));
+    }
+  };
+
+  const handleBuildDeeplink = (deeplink: string) => {
+    updateSetting({ subRoutingRules: deeplink });
+    setIsModalOpen(false);
+    messageApi.success(t('pages.settings.subHappDeeplinkGenerated'));
+  };
+
+  return (
+    <>
+      {messageContextHolder}
+      <SettingListItem
+        paddings="small"
+        title={t('pages.settings.subHappAutoDetect')}
+        description={t('pages.settings.subHappAutoDetectDesc')}
+      >
+        <Switch
+          checked={allSetting.subHappAutoDetect}
+          onChange={(v) => updateSetting({ subHappAutoDetect: v })}
+        />
+      </SettingListItem>
+
+      <SettingListItem
+        paddings="small"
+        title={t('pages.settings.happLinkEnable')}
+        description={t('pages.settings.happLinkEnableDesc')}
+      >
+        <Switch
+          checked={allSetting.happLinkEnable}
+          onChange={(v) => updateSetting({ happLinkEnable: v })}
+        />
+      </SettingListItem>
+
+      <Tabs
+        type="card"
+        size="small"
+        items={[
+          {
+            key: 'routing',
+            label: catTabLabel(
+              <BranchesOutlined aria-hidden />,
+              t('pages.settings.subHappGroupRouting'),
+              isMobile,
+            ),
+            children: (
+              <>
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subEnableRouting')}
+                  description={t('pages.settings.subEnableRoutingDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subEnableRouting}
+                    onChange={(v) => updateSetting({ subEnableRouting: v })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappPresets')}
+                  description={t('pages.settings.subHappPresetsDesc')}
+                >
+                  <Space orientation="horizontal" wrap style={{ width: '100%' }}>
+                    <Select
+                      aria-label={t('pages.settings.subHappPresets')}
+                      value={selectedPreset}
+                      style={{ minWidth: 170 }}
+                      onChange={setSelectedPreset}
+                      options={[
+                        { value: 'iran-bypass', label: t('pages.settings.subHappPresetIran') },
+                        { value: 'china-direct', label: t('pages.settings.subHappPresetChina') },
+                        { value: 'global', label: t('pages.settings.subHappPresetGlobal') },
+                        { value: 'lan-bypass', label: t('pages.settings.subHappPresetLocal') },
+                        { value: 'off', label: t('pages.settings.subHappPresetOff') },
+                      ]}
+                    />
+                    <Space size="small">
+                      <Switch
+                        aria-label={t('pages.settings.subHappIncludeAdblock')}
+                        checked={includeAdblock}
+                        disabled={selectedPreset === 'off'}
+                        onChange={setIncludeAdblock}
+                      />
+                      <span>{t('pages.settings.subHappIncludeAdblock')}</span>
+                    </Space>
+                    <Button type="primary" onClick={applyPreset}>
+                      {t('pages.settings.subHappApplyPreset')}
+                    </Button>
+                  </Space>
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappVisualBuilder')}
+                  description={t('pages.settings.subHappVisualBuilderDesc')}
+                >
+                  <Button icon={<BuildOutlined aria-hidden />} onClick={() => setIsModalOpen(true)}>
+                    {t('pages.settings.subHappVisualBuilder')}
+                  </Button>
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subRoutingRules')}
+                  badge={remoteSourceBadge(allSetting.subRoutingRules)}
+                  description={t('pages.settings.subRoutingRulesDesc')}
+                >
+                  <Input.TextArea
+                    value={allSetting.subRoutingRules}
+                    rows={4}
+                    placeholder="happ://routing/onadd/... or https://.../DEFAULT.DEEPLINK"
+                    onChange={(e) => updateSetting({ subRoutingRules: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappNoLimit')}
+                  description={t('pages.settings.subHappNoLimitDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHappNoLimit}
+                    onChange={(v) => updateSetting({ subHappNoLimit: v })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHideSettings')}
+                  description={t('pages.settings.subHideSettingsDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHideSettings}
+                    onChange={(v) => updateSetting({ subHideSettings: v })}
+                  />
+                </SettingListItem>
+              </>
+            ),
+          },
+          {
+            key: 'appearance',
+            label: catTabLabel(
+              <DesktopOutlined aria-hidden />,
+              t('pages.settings.subHappGroupThemes'),
+              isMobile,
+            ),
+            children: (
+              <>
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappSubInfoText')}
+                  description={t('pages.settings.subHappSubInfoTextDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappSubInfoText}
+                    maxLength={200}
+                    placeholder="Welcome to our high-speed network!"
+                    onChange={(e) => updateSetting({ subHappSubInfoText: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappSubInfoColor')}
+                  description={t('pages.settings.subHappSubInfoColorDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappSubInfoColor || 'blue'}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappSubInfoColor: v })}
+                    options={[
+                      { value: 'blue', label: t('pages.settings.subHappColorBlue') },
+                      { value: 'green', label: t('pages.settings.subHappColorGreen') },
+                      { value: 'red', label: t('pages.settings.subHappColorRed') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappSubInfoButtonText')}
+                  description={t('pages.settings.subHappSubInfoButtonTextDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappSubInfoButtonText}
+                    maxLength={25}
+                    placeholder="Support Channel"
+                    onChange={(e) => updateSetting({ subHappSubInfoButtonText: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappSubInfoButtonLink')}
+                  description={t('pages.settings.subHappSubInfoButtonLinkDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappSubInfoButtonLink}
+                    placeholder="https://t.me/your_channel"
+                    onChange={(e) => updateSetting({ subHappSubInfoButtonLink: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappSubExpire')}
+                  description={t('pages.settings.subHappSubExpireDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHappSubExpire}
+                    onChange={(v) => updateSetting({ subHappSubExpire: v })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappSubExpireButtonLink')}
+                  description={t('pages.settings.subHappSubExpireButtonLinkDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappSubExpireButtonLink}
+                    placeholder="https://example.com/renew"
+                    onChange={(e) => updateSetting({ subHappSubExpireButtonLink: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappNotificationExpire')}
+                  description={t('pages.settings.subHappNotificationExpireDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHappNotificationExpire}
+                    onChange={(v) => updateSetting({ subHappNotificationExpire: v })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappColorProfile')}
+                  description={t('pages.settings.subHappColorProfileDesc')}
+                >
+                  <Space orientation="vertical" style={{ width: '100%' }}>
+                    <Input
+                      aria-label={t('pages.settings.subHappColorProfile')}
+                      value={allSetting.subHappColorProfile}
+                      placeholder='{"serverRowBackgroundColor":"#21003D67"} or resetcolors'
+                      onChange={(e) => updateSetting({ subHappColorProfile: e.target.value })}
+                    />
+                    <Space wrap size="small">
+                      <Button
+                        size="small"
+                        onClick={() => updateSetting({ subHappColorProfile: 'resetcolors' })}
+                      >
+                        {t('reset')}
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          updateSetting({
+                            subHappColorProfile:
+                              '{"serverRowBackgroundColor":"#21003D67","cardBackgroundColor":"#120023B3"}',
+                          })
+                        }
+                      >
+                        Violet
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          updateSetting({
+                            subHappColorProfile:
+                              '{"serverRowBackgroundColor":"#002B3667","cardBackgroundColor":"#001F27B3"}',
+                          })
+                        }
+                      >
+                        Turquoise
+                      </Button>
+                    </Space>
+                  </Space>
+                </SettingListItem>
+              </>
+            ),
+          },
+          {
+            key: 'network',
+            label: catTabLabel(
+              <ThunderboltOutlined aria-hidden />,
+              t('pages.settings.subHappGroupNetwork'),
+              isMobile,
+            ),
+            children: (
+              <>
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappTunMode')}
+                  description={t('pages.settings.subHappTunModeDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappTunMode}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappTunMode: v })}
+                    options={[
+                      // happ.su documents tun-mode as system|gvisor only, so
+                      // Default is the unset state rather than a third value.
+                      { value: '', label: t('pages.settings.subHappTunModeDefault') },
+                      { value: 'system', label: t('pages.settings.subHappTunModeSystem') },
+                      { value: 'gvisor', label: t('pages.settings.subHappTunModeGvisor') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappTunType')}
+                  description={t('pages.settings.subHappTunTypeDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappTunType || 'default'}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappTunType: v })}
+                    options={[
+                      { value: 'singbox', label: t('pages.settings.subHappTunTypeSingbox') },
+                      { value: 'tun2proxy', label: t('pages.settings.subHappTunTypeTun2proxy') },
+                      { value: 'default', label: t('pages.settings.subHappTunTypeDefault') },
+                      { value: 'xray', label: t('pages.settings.subHappTunTypeXray') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappExcludeRoutes')}
+                  description={t('pages.settings.subHappExcludeRoutesDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappExcludeRoutes}
+                    placeholder="192.168.0.0/16, 10.0.0.0/8"
+                    onChange={(e) => updateSetting({ subHappExcludeRoutes: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappExcludeApns')}
+                  description={t('pages.settings.subHappExcludeApnsDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHappExcludeApns}
+                    onChange={(v) => updateSetting({ subHappExcludeApns: v })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappPingType')}
+                  description={t('pages.settings.subHappPingTypeDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappPingType || 'proxy'}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappPingType: v })}
+                    options={[
+                      { value: 'proxy', label: t('pages.settings.subHappPingProxy') },
+                      { value: 'proxy-head', label: t('pages.settings.subHappPingProxyHead') },
+                      { value: 'tcp', label: t('pages.settings.subHappPingTcp') },
+                      { value: 'icmp', label: t('pages.settings.subHappPingIcmp') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappLocalProxyAuth')}
+                  description={t('pages.settings.subHappLocalProxyAuthDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappLocalProxyAuth ?? 'auto'}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappLocalProxyAuth: v })}
+                    options={[
+                      { value: 'auto', label: t('pages.settings.subHappLocalProxyAuthAuto') },
+                      { value: 'disable', label: t('pages.settings.subHappLocalProxyAuthDisable') },
+                      { value: '', label: t('pages.settings.subHappLocalProxyAuthUnset') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappAutoConnect')}
+                  description={t('pages.settings.subHappAutoConnectDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHappAutoConnect}
+                    onChange={(v) => updateSetting({ subHappAutoConnect: v })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappAutoConnectType')}
+                  description={t('pages.settings.subHappAutoConnectTypeDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappAutoConnectType || 'lowestdelay'}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappAutoConnectType: v })}
+                    options={[
+                      {
+                        value: 'lowestdelay',
+                        label: t('pages.settings.subHappAutoConnectLowestDelay'),
+                      },
+                      { value: 'lastused', label: t('pages.settings.subHappAutoConnectLastUsed') },
+                      { value: 'random', label: t('pages.settings.subHappAutoConnectRandom') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappPerAppMode')}
+                  description={t('pages.settings.subHappPerAppModeDesc')}
+                >
+                  <Select
+                    value={allSetting.subHappPerAppMode || 'off'}
+                    style={{ width: '100%' }}
+                    onChange={(v) => updateSetting({ subHappPerAppMode: v })}
+                    options={[
+                      { value: 'off', label: t('pages.settings.subHappPerAppOff') },
+                      { value: 'on', label: t('pages.settings.subHappPerAppOn') },
+                      { value: 'bypass', label: t('pages.settings.subHappPerAppBypass') },
+                    ]}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappPerAppList')}
+                  description={t('pages.settings.subHappPerAppListDesc')}
+                >
+                  <Input.TextArea
+                    value={allSetting.subHappPerAppList}
+                    rows={4}
+                    placeholder="org.telegram.messenger, com.google.android.youtube"
+                    onChange={(e) => updateSetting({ subHappPerAppList: e.target.value })}
+                  />
+                </SettingListItem>
+              </>
+            ),
+          },
+          {
+            key: 'failover',
+            label: catTabLabel(
+              <CloudSyncOutlined aria-hidden />,
+              t('pages.settings.subHappGroupFailover'),
+              isMobile,
+            ),
+            children: (
+              <>
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappProviderId')}
+                  description={t('pages.settings.subHappProviderIdDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappProviderId}
+                    placeholder="my-happ-provider"
+                    onChange={(e) => updateSetting({ subHappProviderId: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappNewUrl')}
+                  description={t('pages.settings.subHappNewUrlDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappNewUrl}
+                    placeholder="https://new-domain.com/sub/..."
+                    onChange={(e) => updateSetting({ subHappNewUrl: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappFallbackUrl')}
+                  description={t('pages.settings.subHappFallbackUrlDesc')}
+                >
+                  <Input
+                    value={allSetting.subHappFallbackUrl}
+                    placeholder="https://backup-domain.com/sub/..."
+                    onChange={(e) => updateSetting({ subHappFallbackUrl: e.target.value })}
+                  />
+                </SettingListItem>
+
+                <SettingListItem
+                  paddings="small"
+                  title={t('pages.settings.subHappAlwaysHwid')}
+                  description={t('pages.settings.subHappAlwaysHwidDesc')}
+                >
+                  <Switch
+                    checked={allSetting.subHappAlwaysHwid}
+                    onChange={(v) => updateSetting({ subHappAlwaysHwid: v })}
+                  />
+                </SettingListItem>
+              </>
+            ),
+          },
+        ]}
+      />
+
+      {/* Mount per opening so canceled edits are discarded and the latest parent draft is loaded. */}
+      {isModalOpen ? (
+        <HappRoutingEditorModal
+          input={allSetting.subRoutingRules}
+          onCancel={() => setIsModalOpen(false)}
+          onGenerate={handleBuildDeeplink}
+        />
+      ) : null}
+    </>
+  );
+}
