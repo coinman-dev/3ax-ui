@@ -44,7 +44,6 @@ type axTunnelServer struct {
 	IPv6Enabled            bool   `gorm:"column:ipv6_enabled"`
 	IPv6Address            string `gorm:"column:ipv6_address"`
 	IPv6Pool               string `gorm:"column:ipv6_pool"`
-	IPv6Gateway            string `gorm:"column:ipv6_gateway"`
 	Jc, Jmin, Jmax         int
 	S1, S2, S3, S4         int
 	H1, H2, H3, H4         string
@@ -473,16 +472,7 @@ func tunnelInboundSettings(s axTunnelServer, clients []model.Client) (string, er
 	if err != nil {
 		return "", err
 	}
-	var serverMap map[string]any
-	if err := json.Unmarshal(raw, &serverMap); err != nil {
-		return "", err
-	}
-	// The NDP proxy for public client IPv6 needs the upstream gateway; nothing
-	// in this base reads it yet, so it rides along for the kernel-mode port.
-	if g := strings.TrimSpace(s.IPv6Gateway); g != "" {
-		serverMap["ipv6Gateway"] = g
-	}
-	out, err := json.Marshal(map[string]any{"server": serverMap, "clients": clients})
+	out, err := json.Marshal(map[string]any{"server": json.RawMessage(raw), "clients": clients})
 	return string(out), err
 }
 

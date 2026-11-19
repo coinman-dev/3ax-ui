@@ -155,13 +155,6 @@ func TestAx181AmneziaWGServerBecomesKernelModeInbound(t *testing.T) {
 	if srv.PrimaryDNS != "1.1.1.1" || srv.SecondaryDNS != "2606:4700:4700::1111" {
 		t.Errorf("dns %q %q", srv.PrimaryDNS, srv.SecondaryDNS)
 	}
-	var raw struct {
-		Server map[string]any `json:"server"`
-	}
-	_ = json.Unmarshal([]byte(ib.Settings), &raw)
-	if raw.Server["ipv6Gateway"] != "fe80::1" {
-		t.Errorf("ipv6Gateway not kept for the NDP port: %v", raw.Server["ipv6Gateway"])
-	}
 	if len(s.Clients) != 2 {
 		t.Fatalf("inbound 2 has %d clients, want bob and the renamed alice: %+v", len(s.Clients), s.Clients)
 	}
