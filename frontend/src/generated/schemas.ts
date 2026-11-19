@@ -144,6 +144,12 @@ export const SCHEMAS: Record<string, unknown> = {
       "panelOutbound": {
         "type": "string"
       },
+      "qrCodeSize": {
+        "example": 450,
+        "maximum": 600,
+        "minimum": 300,
+        "type": "integer"
+      },
       "realityScanCandidates": {
         "type": "string"
       },
@@ -626,6 +632,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "outboundDownThreshold",
       "pageSize",
       "panelOutbound",
+      "qrCodeSize",
       "realityScanCandidates",
       "remarkTemplate",
       "restartXrayOnClientDisable",
@@ -934,6 +941,12 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "panelOutbound": {
         "type": "string"
+      },
+      "qrCodeSize": {
+        "example": 450,
+        "maximum": 600,
+        "minimum": 300,
+        "type": "integer"
       },
       "realityScanCandidates": {
         "type": "string"
@@ -1425,6 +1438,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "outboundDownThreshold",
       "pageSize",
       "panelOutbound",
+      "qrCodeSize",
       "realityScanCandidates",
       "remarkTemplate",
       "restartXrayOnClientDisable",

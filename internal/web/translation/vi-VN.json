@@ -1875,7 +1875,9 @@
       "subHostSortMode": "Thứ tự nút đăng ký",
       "subHostSortInbound": "Thứ tự kết nối vào (mặc định)",
       "subHostSortHosts": "Thứ tự máy chủ",
-      "subHostSortModeDesc": "Theo thứ tự trên trang Máy chủ giữa các kết nối vào. Thiết lập này quyết định thứ tự do máy chủ xuất ra; ứng dụng khách có thể tự sắp xếp lại."
+      "subHostSortModeDesc": "Theo thứ tự trên trang Máy chủ giữa các kết nối vào. Thiết lập này quyết định thứ tự do máy chủ xuất ra; ứng dụng khách có thể tự sắp xếp lại.",
+      "qrCodeSize": "Kích thước mã QR",
+      "qrCodeSizeDesc": "Kích thước mã QR mà bảng điều khiển hiển thị cho liên kết và gói đăng ký."
     },
     "xray": {
       "importRules": "Nhập quy tắc",

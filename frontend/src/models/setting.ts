@@ -26,6 +26,7 @@ export class AllSetting {
   subTrafficDepletedTemplate =
     '🚫 {{EMAIL}} | Traffic Depleted | {{TRAFFIC_USED}}/{{TRAFFIC_TOTAL}}';
   datepicker: 'gregorian' | 'jalalian' = 'gregorian';
+  qrCodeSize = 450;
   tgBotEnable = false;
   tgBotToken = '';
   tgBotAPIServer = '';

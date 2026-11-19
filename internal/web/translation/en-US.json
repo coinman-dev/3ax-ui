@@ -1996,7 +1996,9 @@
       "subHostSortMode": "Subscription Node Ordering",
       "subHostSortInbound": "Inbound order (default)",
       "subHostSortHosts": "Hosts order",
-      "subHostSortModeDesc": "Hosts order follows the Hosts page across inbounds. This controls the order emitted by the server; client apps may apply their own sorting."
+      "subHostSortModeDesc": "Hosts order follows the Hosts page across inbounds. This controls the order emitted by the server; client apps may apply their own sorting.",
+      "qrCodeSize": "QR code size",
+      "qrCodeSizeDesc": "Size of the QR codes the panel shows for links and subscriptions."
     },
     "xray": {
       "save": "Save",

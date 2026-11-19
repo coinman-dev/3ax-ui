@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { setQrCodeSize } from '@/hooks/useQrCodeSize';
 import { Input, InputNumber, Select, Switch, Tabs } from 'antd';
 import {
   ApartmentOutlined,
@@ -490,6 +491,21 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                     { value: 'gregorian', label: t('pages.settings.calendarGregorian') },
                     { value: 'jalalian', label: t('pages.settings.calendarJalalian') },
                   ]}
+                />
+              </SettingListItem>
+              <SettingListItem
+                paddings="small"
+                title={t('pages.settings.qrCodeSize')}
+                description={t('pages.settings.qrCodeSizeDesc')}
+              >
+                <Select
+                  value={allSetting.qrCodeSize || 450}
+                  onChange={(v) => {
+                    updateSetting({ qrCodeSize: v });
+                    setQrCodeSize(v);
+                  }}
+                  style={{ width: '100%' }}
+                  options={[300, 450, 600].map((v) => ({ value: v, label: `${v} px` }))}
                 />
               </SettingListItem>
             </>

@@ -1996,7 +1996,9 @@
       "subHostSortMode": "Poradie uzlov v predplatnom",
       "subHostSortInbound": "Poradie inboundov (predvolené)",
       "subHostSortHosts": "Poradie hostiteľov",
-      "subHostSortModeDesc": "Poradie hostiteľov sa riadi stránkou Hostitelia naprieč inboundmi. Určuje poradie, ktoré odosiela server; klientske aplikácie môžu použiť vlastné triedenie."
+      "subHostSortModeDesc": "Poradie hostiteľov sa riadi stránkou Hostitelia naprieč inboundmi. Určuje poradie, ktoré odosiela server; klientske aplikácie môžu použiť vlastné triedenie.",
+      "qrCodeSize": "Veľkosť QR kódu",
+      "qrCodeSizeDesc": "Veľkosť QR kódov, ktoré panel zobrazuje pre odkazy a predplatné."
     },
     "xray": {
       "save": "Uložiť",

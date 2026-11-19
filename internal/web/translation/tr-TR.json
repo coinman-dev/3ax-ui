@@ -1875,7 +1875,9 @@
       "subHostSortMode": "Abonelik düğümü sıralaması",
       "subHostSortInbound": "Gelen bağlantı sırası (varsayılan)",
       "subHostSortHosts": "Ana bilgisayar sırası",
-      "subHostSortModeDesc": "Farklı gelen bağlantılarda Ana Bilgisayarlar sayfasının sırasını izler. Sunucunun çıktı sırasını belirler; istemci uygulamaları kendi sıralamalarını uygulayabilir."
+      "subHostSortModeDesc": "Farklı gelen bağlantılarda Ana Bilgisayarlar sayfasının sırasını izler. Sunucunun çıktı sırasını belirler; istemci uygulamaları kendi sıralamalarını uygulayabilir.",
+      "qrCodeSize": "QR kodu boyutu",
+      "qrCodeSizeDesc": "Panelin bağlantılar ve abonelikler için gösterdiği QR kodlarının boyutu."
     },
     "xray": {
       "save": "Kaydet",

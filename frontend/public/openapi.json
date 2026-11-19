@@ -170,6 +170,12 @@
           "panelOutbound": {
             "type": "string"
           },
+          "qrCodeSize": {
+            "example": 450,
+            "maximum": 600,
+            "minimum": 300,
+            "type": "integer"
+          },
           "realityScanCandidates": {
             "type": "string"
           },
@@ -652,6 +658,7 @@
           "outboundDownThreshold",
           "pageSize",
           "panelOutbound",
+          "qrCodeSize",
           "realityScanCandidates",
           "remarkTemplate",
           "restartXrayOnClientDisable",
@@ -960,6 +967,12 @@
           },
           "panelOutbound": {
             "type": "string"
+          },
+          "qrCodeSize": {
+            "example": 450,
+            "maximum": 600,
+            "minimum": 300,
+            "type": "integer"
           },
           "realityScanCandidates": {
             "type": "string"
@@ -1451,6 +1464,7 @@
           "outboundDownThreshold",
           "pageSize",
           "panelOutbound",
+          "qrCodeSize",
           "realityScanCandidates",
           "remarkTemplate",
           "restartXrayOnClientDisable",

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQrCodeSize } from '@/hooks/useQrCodeSize';
 import { Button, QRCode, Tag, Tooltip, message } from 'antd';
 import { CopyOutlined, DownloadOutlined, PictureOutlined } from '@ant-design/icons';
 
@@ -59,10 +60,12 @@ export default function QrPanel({
   value,
   remark = '',
   downloadName = '',
-  size = 360,
+  size: sizeProp,
   showQr = true,
 }: QrPanelProps) {
   const { t } = useTranslation();
+  const panelQrSize = useQrCodeSize();
+  const size = sizeProp ?? panelQrSize;
   const [messageApi, messageContextHolder] = message.useMessage();
   const qrRef = useRef<HTMLDivElement | null>(null);
 

@@ -1875,7 +1875,9 @@
       "subHostSortMode": "訂閱節點排序",
       "subHostSortInbound": "入站順序（預設）",
       "subHostSortHosts": "主機順序",
-      "subHostSortModeDesc": "跨入站使用主機頁面中的排序。此設定決定伺服器輸出順序；用戶端應用程式仍可能自行排序。"
+      "subHostSortModeDesc": "跨入站使用主機頁面中的排序。此設定決定伺服器輸出順序；用戶端應用程式仍可能自行排序。",
+      "qrCodeSize": "QR 碼尺寸",
+      "qrCodeSizeDesc": "面板為連結和訂閱顯示的 QR 碼尺寸。"
     },
     "xray": {
       "save": "儲存",

@@ -43,6 +43,7 @@ type AllSetting struct {
 	SubExpiredTemplate         string `json:"subExpiredTemplate" form:"subExpiredTemplate"`
 	SubTrafficDepletedTemplate string `json:"subTrafficDepletedTemplate" form:"subTrafficDepletedTemplate"`
 	Datepicker                 string `json:"datepicker" form:"datepicker"`
+	QrCodeSize                 int    `json:"qrCodeSize" form:"qrCodeSize" validate:"omitempty,gte=300,lte=600" example:"450"`
 
 	TgBotEnable     bool   `json:"tgBotEnable" form:"tgBotEnable"`
 	TgBotToken      string `json:"tgBotToken" form:"tgBotToken"`

@@ -1875,7 +1875,9 @@
       "subHostSortMode": "订阅节点排序",
       "subHostSortInbound": "入站顺序（默认）",
       "subHostSortHosts": "主机顺序",
-      "subHostSortModeDesc": "跨入站使用主机页面中的排序。此设置决定服务器输出顺序；客户端应用仍可能自行排序。"
+      "subHostSortModeDesc": "跨入站使用主机页面中的排序。此设置决定服务器输出顺序；客户端应用仍可能自行排序。",
+      "qrCodeSize": "二维码尺寸",
+      "qrCodeSizeDesc": "面板为链接和订阅显示的二维码尺寸。"
     },
     "xray": {
       "importRules": "导入规则",

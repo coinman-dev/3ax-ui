@@ -15,6 +15,7 @@ export const DefaultsPayloadSchema = z
     subClashEnable: z.boolean().optional(),
     pageSize: z.number().optional(),
     datepicker: z.enum(['gregorian', 'jalalian']).optional(),
+    qrCodeSize: z.number().int().optional(),
     ipLimitEnable: z.boolean().optional(),
     accessLogEnable: z.boolean().optional(),
     webDomain: z.string().optional(),

@@ -52,6 +52,7 @@ export interface AllSetting {
   outboundDownThreshold: number;
   pageSize: number;
   panelOutbound: string;
+  qrCodeSize: number;
   realityScanCandidates: string;
   remarkTemplate: string;
   restartXrayOnClientDisable: boolean;
@@ -243,6 +244,7 @@ export interface AllSettingView {
   outboundDownThreshold: number;
   pageSize: number;
   panelOutbound: string;
+  qrCodeSize: number;
   realityScanCandidates: string;
   remarkTemplate: string;
   restartXrayOnClientDisable: boolean;

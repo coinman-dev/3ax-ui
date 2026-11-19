@@ -1875,7 +1875,9 @@
       "subHostSortMode": "Ordem dos nós da assinatura",
       "subHostSortInbound": "Ordem das entradas (padrão)",
       "subHostSortHosts": "Ordem dos hosts",
-      "subHostSortModeDesc": "Segue a ordem da página de hosts entre diferentes entradas. Define a ordem emitida pelo servidor; os aplicativos clientes podem aplicar sua própria ordenação."
+      "subHostSortModeDesc": "Segue a ordem da página de hosts entre diferentes entradas. Define a ordem emitida pelo servidor; os aplicativos clientes podem aplicar sua própria ordenação.",
+      "qrCodeSize": "Tamanho do QR code",
+      "qrCodeSizeDesc": "Tamanho dos QR codes que o painel exibe para links e assinaturas."
     },
     "xray": {
       "importRules": "Importar regras",
