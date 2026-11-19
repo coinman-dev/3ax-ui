@@ -55,6 +55,11 @@ export const StatusSchema = z.object({
   appUptime: z.number().optional(),
   appStats: AppStatsSchema.optional(),
   xray: XrayInfoSchema.optional(),
+  // 3AX-UI: enabled MTProto inbounds, running mtg processes, mtg-multi version.
+  mtproto: z
+    .object({ configured: z.number(), running: z.number(), version: z.string() })
+    .partial()
+    .optional(),
 });
 
 export type StatusInput = z.infer<typeof StatusSchema>;

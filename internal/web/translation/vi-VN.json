@@ -299,7 +299,8 @@
       "importKeepHostSettings": "Giữ cài đặt của máy này",
       "importKeepHostSettingsDesc": "Giữ nguyên địa chỉ lắng nghe, cổng, đường dẫn cơ sở, chứng chỉ và danh tính node của bảng điều khiển này thay vì lấy chúng từ tệp đã tải lên.",
       "logLines": "Số dòng",
-      "timeRange": "Khoảng thời gian"
+      "timeRange": "Khoảng thời gian",
+      "mtprotoRunning": "Proxy MTProto đang chạy: {running} / {total}"
     },
     "inbounds": {
       "totalDownUp": "Tổng tải lên/tải xuống",

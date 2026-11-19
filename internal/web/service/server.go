@@ -108,12 +108,14 @@ type Status struct {
 		Configured bool `json:"configured"`
 		Running    bool `json:"running"`
 	} `json:"amneziawg"`
-	PanelVersion string    `json:"panelVersion"`
-	PanelGuid    string    `json:"panelGuid"`
-	Uptime       uint64    `json:"uptime"`
-	Loads        []float64 `json:"loads"`
-	TcpCount     int       `json:"tcpCount"`
-	UdpCount     int       `json:"udpCount"`
+	// Mtproto is 3AX-UI's dashboard view of the mtg-multi sidecars.
+	Mtproto      axMtprotoStatus `json:"mtproto"`
+	PanelVersion string          `json:"panelVersion"`
+	PanelGuid    string          `json:"panelGuid"`
+	Uptime       uint64          `json:"uptime"`
+	Loads        []float64       `json:"loads"`
+	TcpCount     int             `json:"tcpCount"`
+	UdpCount     int             `json:"udpCount"`
 	NetIO        struct {
 		Up      uint64 `json:"up"`
 		Down    uint64 `json:"down"`
@@ -767,6 +769,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	}
 	status.AmneziaWG.Configured = amneziawgCount > 0
 	status.AmneziaWG.Running = amneziawgnet.GetManager().HasRunning() || amneziawgkern.GetManager().HasRunning()
+	status.Mtproto = currentMtprotoStatus()
 
 	status.PanelVersion = config.GetPanelVersion()
 	if guid, err := s.settingService.GetPanelGuid(); err == nil {

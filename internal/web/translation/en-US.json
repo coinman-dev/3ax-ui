@@ -299,7 +299,8 @@
       "importKeepHostSettings": "Keep this machine's settings",
       "importKeepHostSettingsDesc": "Keeps this panel's listen addresses, ports, base path, certificates and node identity instead of taking them from the uploaded file.",
       "logLines": "Number of lines",
-      "timeRange": "Time range"
+      "timeRange": "Time range",
+      "mtprotoRunning": "{running} of {total} MTProto proxies running"
     },
     "inbounds": {
       "totalDownUp": "Total Sent/Received",

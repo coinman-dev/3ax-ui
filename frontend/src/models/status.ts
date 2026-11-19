@@ -67,6 +67,12 @@ export interface AmneziaWGInfo {
   running: boolean;
 }
 
+export interface MtprotoInfo {
+  configured: number;
+  running: number;
+  version: string;
+}
+
 interface StatusInput extends Pick<ParsedStatusInput, 'resourceScope' | 'unavailableMetrics'> {
   cpu?: number;
   cpuCores?: number;
@@ -86,6 +92,7 @@ interface StatusInput extends Pick<ParsedStatusInput, 'resourceScope' | 'unavail
   appStats?: AppStats;
   xray?: Partial<XrayInfo>;
   amneziawg?: Partial<AmneziaWGInfo>;
+  mtproto?: Partial<MtprotoInfo>;
 }
 
 export class Status {
@@ -114,6 +121,7 @@ export class Status {
   appStats: AppStats = { threads: 0, mem: 0, uptime: 0 };
   xray: XrayInfo = { state: 'stop', errorMsg: '', version: '', color: '' };
   amneziawg: AmneziaWGInfo = { configured: false, running: false };
+  mtproto: MtprotoInfo = { configured: 0, running: 0, version: '' };
 
   constructor(data?: StatusInput | null) {
     if (data == null) return;
@@ -139,5 +147,6 @@ export class Status {
     this.xray = { ...this.xray, ...(data.xray || {}) };
     this.xray.color = XRAY_STATE_COLORS[this.xray.state] ?? 'gray';
     this.amneziawg = { ...this.amneziawg, ...(data.amneziawg || {}) };
+    this.mtproto = { ...this.mtproto, ...(data.mtproto || {}) };
   }
 }

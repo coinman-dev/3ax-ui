@@ -299,7 +299,8 @@
       "importKeepHostSettings": "Ponechať nastavenia tohto servera",
       "importKeepHostSettingsDesc": "Ponechajú sa adresy počúvania, porty, základná cesta, certifikáty a identita tohto servera namiesto nastavení z nahraného súboru.",
       "logLines": "Počet riadkov",
-      "timeRange": "Časový rozsah"
+      "timeRange": "Časový rozsah",
+      "mtprotoRunning": "Bežiace MTProto proxy: {running} z {total}"
     },
     "inbounds": {
       "totalDownUp": "Celkom odoslané/prijaté",

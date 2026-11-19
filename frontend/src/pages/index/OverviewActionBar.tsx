@@ -192,6 +192,19 @@ export default function OverviewActionBar({
         statePill
       )}
 
+      {status.mtproto.configured > 0 ? (
+        <Tooltip
+          title={t('pages.index.mtprotoRunning', {
+            running: status.mtproto.running,
+            total: status.mtproto.configured,
+          })}
+        >
+          <Tag color={status.mtproto.running >= status.mtproto.configured ? 'success' : 'warning'}>
+            {`MTProto${status.mtproto.version ? ` v${status.mtproto.version}` : ''}`}
+          </Tag>
+        </Tooltip>
+      ) : null}
+
       {status.xray.state === 'running' && status.xray.errorMsg ? (
         <Tooltip title={<span className="ov-error-detail">{status.xray.errorMsg}</span>}>
           <Tag color="error">{t('pages.index.xrayStatusError')}</Tag>

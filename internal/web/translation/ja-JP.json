@@ -299,7 +299,8 @@
       "importKeepHostSettings": "このマシンの設定を保持する",
       "importKeepHostSettingsDesc": "アップロードしたファイルの値ではなく、このパネルのリッスンアドレス、ポート、ベースパス、証明書、ノード ID を保持します。",
       "logLines": "行数",
-      "timeRange": "期間"
+      "timeRange": "期間",
+      "mtprotoRunning": "稼働中の MTProto プロキシ: {running} / {total}"
     },
     "inbounds": {
       "totalDownUp": "総アップロード / ダウンロード",

@@ -299,7 +299,8 @@
       "importKeepHostSettings": "保留本机设置",
       "importKeepHostSettingsDesc": "保留本面板的监听地址、端口、基础路径、证书和节点身份，而不是使用上传文件中的值。",
       "logLines": "行数",
-      "timeRange": "时间范围"
+      "timeRange": "时间范围",
+      "mtprotoRunning": "运行中的 MTProto 代理：{running} / {total}"
     },
     "inbounds": {
       "totalDownUp": "总上传 / 下载",
