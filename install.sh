@@ -88,6 +88,17 @@ resolve_newest_tag() {
         sort -V -k1,1 | tail -n 1 | awk '{print $2}'
 }
 
+# 3AX-UI: also print the panel's IPv6 address when it is reached by IP; a
+# domain certificate would not match an address, so it is skipped then.
+print_ipv6_access_url() {
+    local scheme="$1" host="$2" port="$3" path="$4" ipv6
+    is_ip "$host" || return 0
+    [[ "${XUI_DEBUG_INSTALL:-0}" == "1" ]] && return 0
+    ipv6=$(curl -6 -s --max-time 3 https://api6.ipify.org 2> /dev/null | tr -d '[:space:]')
+    is_ipv6 "$ipv6" || return 0
+    echo -e "${green}Access URL (IPv6): ${scheme}://[${ipv6}]:${port}/${path}${plain}"
+}
+
 # Simple helpers
 is_ipv4() {
     [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && return 0 || return 1
@@ -1415,6 +1426,7 @@ EOF
             echo -e "${green}WebBasePath: ${config_webBasePath}${plain}"
             echo -e "${green}Database:    ${db_label}${plain}"
             echo -e "${green}Access URL:  ${SSL_SCHEME}://${SSL_HOST}:${config_port}/${config_webBasePath}${plain}"
+            print_ipv6_access_url "${SSL_SCHEME}" "${SSL_HOST}" "${config_port}" "${config_webBasePath}"
             echo -e "${green}API Token:   ${config_apiToken}${plain}"
             echo -e "${green}═══════════════════════════════════════════${plain}"
             echo -e "${yellow}⚠ IMPORTANT: Save these credentials securely!${plain}"
