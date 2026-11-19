@@ -26,10 +26,12 @@ INSERT INTO inbounds (id, user_id, up, down, total, all_time, remark, enable, ex
  (1, 1, 0, 0, 0, 0, 'vless', 1, 0, 'never', '', 443, 'vless', '{"clients":[{"id":"6f1c3c5e-6c0a-4b8e-9d0c-2f3a1b2c3d4e","email":"alice","enable":true,"subId":"alicesub"}],"decryption":"none"}', '{"network":"tcp","security":"none"}', 'inbound-443', '{}', 0),
  (2, 1, 0, 0, 0, 0, 'awg', 1, 0, 'monthly', '', 40000, 'amneziawg', '{"clients":[{"id":"u-bob","email":"bob","enable":true,"_awgId":1}]}', '', 'inbound-40000', '', 0),
  (3, 1, 0, 0, 0, 0, 'wg', 1, 0, 'never', '', 51821, 'nativewg', '{"clients":[]}', '', 'inbound-51821', '', 0),
- (4, 1, 0, 0, 0, 0, 'tg', 1, 0, 'never', '', 8443, 'mtproto', '{"fakeTlsDomain":"www.cloudflare.com","routeThroughXray":false,"antiReplay":{"enabled":true}}', '', 'inbound-8443', '', 0);
+ (4, 1, 0, 0, 0, 0, 'tg', 1, 0, 'never', '', 8443, 'mtproto', '{"fakeTlsDomain":"www.cloudflare.com","routeThroughXray":false,"antiReplay":{"enabled":true}}', '', 'inbound-8443', '', 0),
+ (5, 1, 0, 0, 0, 0, 'socks', 1, 0, 'never', '', 1080, 'mixed', '{"clients":[{"email":"frank","password":"frankpass","limitIp":0,"totalGB":0,"expiryTime":0,"enable":true,"tgId":"","subId":"franksub","comment":"","reset":0}],"auth":"password","udp":false,"ip":"127.0.0.1"}', '', 'inbound-1080', '', 0);
 INSERT INTO client_traffics (inbound_id, enable, email, up, down, all_time, expiry_time, total, reset, last_online) VALUES
  (1, 1, 'alice', 5, 6, 11, 0, 0, 0, 0),
- (2, 1, 'bob', 999, 999, 0, 0, 0, 0, 0);
+ (2, 1, 'bob', 999, 999, 0, 0, 0, 0, 0),
+ (5, 1, 'frank', 40, 50, 90, 0, 0, 0, 0);
 INSERT INTO tunnel_servers (kind, id, enable, interface_name, listen_port, mtu, private_key, public_key, ipv4_address, ipv4_pool,
   ipv6_enabled, ipv6_address, ipv6_pool, ipv6_gateway, jc, jmin, jmax, s1, s2, s3, s4, h1, h2, h3, h4, i1, i2, i3, i4, i5,
   header_protection_key, content_padding_addition, rekey_after_time, rekey_timeout, reject_after_time, keepalive_timeout, max_handshake_attempts,
@@ -218,8 +220,24 @@ func TestAx181CollidingNamesAreRenamedNotMerged(t *testing.T) {
 	for _, r := range records {
 		emails = append(emails, r.Email)
 	}
-	if want := []string{"alice", "alice-awg", "bob", "carol", "dave", "dave-2"}; !slices.Equal(emails, want) {
+	if want := []string{"alice", "alice-awg", "bob", "carol", "dave", "dave-2", "frank"}; !slices.Equal(emails, want) {
 		t.Errorf("client records = %v, want %v", emails, want)
+	}
+}
+
+// 1.x kept SOCKS5/HTTP users in settings.clients already; they must arrive as
+// clients with their passwords, which the generated Xray accounts are built from.
+func TestAx181SocksUsersBecomeClients(t *testing.T) {
+	migratedAx181(t)
+	var rec model.ClientRecord
+	if err := GetDB().Where("email = ?", "frank").First(&rec).Error; err != nil {
+		t.Fatalf("SOCKS user frank was not carried over: %v", err)
+	}
+	if rec.Password != "frankpass" || rec.SubID != "franksub" {
+		t.Errorf("frank = password %q subId %q", rec.Password, rec.SubID)
+	}
+	if ct := trafficByEmail(t, "frank"); ct.InboundId != 5 || ct.Up != 40 || ct.Down != 50 {
+		t.Errorf("frank traffic = %+v", ct)
 	}
 }
 
@@ -284,8 +302,8 @@ func TestAx181MigrationBacksUpAndRunsOnce(t *testing.T) {
 	}
 	var count int64
 	GetDB().Model(&xray.ClientTraffic{}).Count(&count)
-	if count != 6 {
-		t.Errorf("client_traffics rows after a second start = %d, want 6", count)
+	if count != 7 {
+		t.Errorf("client_traffics rows after a second start = %d, want 7", count)
 	}
 	backups, _ = filepath.Glob(path + ".3ax-1x-backup-*")
 	if len(backups) != 1 {

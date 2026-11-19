@@ -40,6 +40,8 @@ const MULTI_CLIENT_PROTOCOLS = new Set([
   'amneziawg',
   'tuic',
   'masque',
+  'mixed',
+  'http',
 ]);
 
 const EMPTY: ClientBulkAddFormValues = {

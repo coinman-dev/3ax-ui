@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { TrojanClientSchema } from './trojan';
+
 export const MixedAuthSchema = z.enum(['password', 'noauth']);
 export type MixedAuth = z.infer<typeof MixedAuthSchema>;
 
@@ -17,5 +19,7 @@ export const MixedInboundSettingsSchema = z.object({
   accounts: z.array(MixedAccountSchema).optional(),
   udp: z.boolean().default(false),
   ip: z.string().default('127.0.0.1'),
+  // 3AX-UI: panel clients (email = SOCKS username); Xray gets them as accounts.
+  clients: z.array(TrojanClientSchema).optional(),
 });
 export type MixedInboundSettings = z.infer<typeof MixedInboundSettingsSchema>;

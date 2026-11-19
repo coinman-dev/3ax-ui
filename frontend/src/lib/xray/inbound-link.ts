@@ -1456,9 +1456,30 @@ export function getInboundClients(inbound: Inbound): ClientShape[] | null {
       return (inbound.settings.clients ?? []) as ClientShape[];
     case 'shadowsocks':
       return (inbound.settings.clients ?? []) as ClientShape[];
+    case 'mixed':
+    case 'http':
+      return (inbound.settings.clients ?? []) as ClientShape[];
     default:
       return null;
   }
+}
+
+// 3AX-UI: socks:// and http:// links (v2rayN, sing-box, NekoBox, Hiddify) carry
+// base64("user:pass") as userinfo; the client email is the proxy username.
+export function genProxyLink(input: {
+  inbound: Inbound;
+  address: string;
+  port?: number;
+  remark?: string;
+  client: ClientShape;
+}): string {
+  const { inbound, address, port = inbound.port, remark = '', client } = input;
+  if (inbound.protocol !== 'mixed' && inbound.protocol !== 'http') return '';
+  if (!client.email) return '';
+  const scheme = inbound.protocol === 'mixed' ? 'socks' : 'http';
+  const userinfo = Base64.encode(`${client.email}:${client.password ?? ''}`);
+  const fragment = remark ? `#${encodeURIComponent(remark)}` : '';
+  return `${scheme}://${userinfo}@${address}:${port}${fragment}`;
 }
 
 export interface GenLinkInput {
@@ -1547,6 +1568,9 @@ export function genLink(input: GenLinkInput): string {
       });
     case 'mtproto':
       return genMtprotoLink({ inbound, address, port, clientSecret: client.secret ?? '' });
+    case 'mixed':
+    case 'http':
+      return genProxyLink({ inbound, address, port, remark, client });
     case 'tuic':
       return genTuicLink({
         inbound,

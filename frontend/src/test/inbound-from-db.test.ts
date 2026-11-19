@@ -265,8 +265,8 @@ describe('getInboundClients with schema-shaped inbound', () => {
     expect(getInboundClients(inbound)).toHaveLength(1);
   });
 
-  it('returns null for non-client protocols (http/mixed/tun/tunnel)', () => {
-    for (const protocol of ['http', 'mixed', 'tun', 'tunnel']) {
+  it('returns null for non-client protocols (tun/tunnel)', () => {
+    for (const protocol of ['tun', 'tunnel']) {
       const inbound = inboundFromDb({
         ...BASE_DB_FIELDS,
         protocol,
@@ -274,6 +274,19 @@ describe('getInboundClients with schema-shaped inbound', () => {
         streamSettings: '',
       });
       expect(getInboundClients(inbound)).toBeNull();
+    }
+  });
+
+  // 3AX-UI: SOCKS5/HTTP inbounds carry panel clients, so none yet is an empty list.
+  it('returns an empty client list for http/mixed without clients', () => {
+    for (const protocol of ['http', 'mixed']) {
+      const inbound = inboundFromDb({
+        ...BASE_DB_FIELDS,
+        protocol,
+        settings: {},
+        streamSettings: '',
+      });
+      expect(getInboundClients(inbound)).toEqual([]);
     }
   });
 });

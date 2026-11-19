@@ -93,6 +93,8 @@ export function isInboundMultiUser(record: { protocol: string }): boolean {
     case 'amneziawg':
     case 'tuic':
     case 'masque':
+    case 'mixed':
+    case 'http':
       return true;
     default:
       return false;

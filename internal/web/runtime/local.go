@@ -283,6 +283,9 @@ func (l *Local) AddUser(_ context.Context, ib *model.Inbound, userMap map[string
 	if ib.Protocol == model.MTProto || ib.Protocol == model.AmneziaWG {
 		return nil
 	}
+	if ib.Protocol == model.Mixed || ib.Protocol == model.HTTP {
+		return ErrProxyAccountsNeedReload
+	}
 	return l.withAPI(func(api *xray.XrayAPI) error {
 		return api.AddUser(string(ib.Protocol), ib.Tag, userMap)
 	})
@@ -297,6 +300,9 @@ func (l *Local) RemoveUser(_ context.Context, ib *model.Inbound, email string) e
 	}
 	if ib.Protocol == model.MTProto || ib.Protocol == model.AmneziaWG {
 		return nil
+	}
+	if ib.Protocol == model.Mixed || ib.Protocol == model.HTTP {
+		return ErrProxyAccountsNeedReload
 	}
 	return l.withAPI(func(api *xray.XrayAPI) error {
 		return api.RemoveUser(ib.Tag, email)

@@ -18,6 +18,8 @@ const MULTI_USER_PROTOCOLS = new Set([
   'amneziawg',
   'tuic',
   'masque',
+  'mixed',
+  'http',
 ]);
 
 interface BulkAttachInboundsModalProps {

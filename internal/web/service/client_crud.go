@@ -482,6 +482,10 @@ func (s *ClientService) fillProtocolDefaultsAgainstExisting(c *model.Client, ib 
 		if c.Password == "" {
 			c.Password = strings.ReplaceAll(uuid.NewString(), "-", "")
 		}
+	case model.Mixed, model.HTTP:
+		if err := fillProxyClientDefaults(c); err != nil {
+			return err
+		}
 	case model.Shadowsocks:
 		method := shadowsocksMethodFromSettings(ib.Settings)
 		if c.Password == "" || !validShadowsocksClientKey(method, c.Password) {

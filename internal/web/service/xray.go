@@ -249,6 +249,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 
 		finalClients := make([]any, 0, len(dbClients))
 		var wgPeers []any
+		var proxyAccounts []any
 		excludedBefore := excludedClients
 		for i := range dbClients {
 			c := dbClients[i]
@@ -304,6 +305,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 				if c.Password != "" {
 					entry["password"] = c.Password
 				}
+			case model.Mixed, model.HTTP:
+				proxyAccounts = append(proxyAccounts, proxyAccount(c))
+				continue
 			case model.WireGuard:
 				if inboundClient, ok := wireguardClientsByEmail[strings.ToLower(strings.TrimSpace(c.Email))]; ok {
 					c.AllowedIPs = inboundClient.AllowedIPs
@@ -334,6 +338,8 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 			}
 			settings["peers"] = wgPeers
 			mutated = true
+		} else if isProxyClientProtocol(inbound.Protocol) {
+			mutated = applyProxyAccounts(settings, inbound.Protocol, proxyAccounts, len(dbClients) > 0)
 		} else {
 			_, hadClients := settings["clients"]
 			mutated = hadClients || len(finalClients) > 0

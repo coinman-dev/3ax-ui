@@ -14,6 +14,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/random"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"gorm.io/gorm"
@@ -244,6 +245,8 @@ func (s *InboundService) buildTargetClientFromSource(source model.Client, target
 		}
 	case model.Trojan, model.Shadowsocks, model.MASQUE:
 		target.Password = s.generateRandomCredential(targetProtocol)
+	case model.Mixed, model.HTTP:
+		target.Password = random.Seq(proxyPasswordLength)
 	case model.Hysteria:
 		target.Auth = s.generateRandomCredential(targetProtocol)
 	case model.MTProto:
