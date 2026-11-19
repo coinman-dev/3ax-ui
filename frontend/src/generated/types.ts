@@ -737,6 +737,7 @@ export interface Inbound {
   originNodeGuid?: string;
   port: number;
   protocol: Protocol;
+  publicPort: number;
   remark: string;
   settings: unknown;
   shareAddr: string;

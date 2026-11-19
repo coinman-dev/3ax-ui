@@ -16,6 +16,7 @@ import {
   SPEED_TAG_STYLE,
 } from '@/components/utility/speedTagStyle';
 import { InboundSpeedTag, isActiveSpeed } from './InboundSpeedTag';
+import { useNginxPortColumn } from './NginxPort';
 import {
   readStreamHints,
   networkLabel,
@@ -58,6 +59,7 @@ export function useInboundColumns({
 }: UseInboundColumnsParams): TableColumnType<DBInboundRecord>[] {
   const { t } = useTranslation();
   const { datepicker } = useDatepicker();
+  const nginxPortColumn = useNginxPortColumn();
 
   return useMemo(() => {
     const compareText = (a: string | undefined | null, b: string | undefined | null) =>
@@ -208,6 +210,7 @@ export function useInboundColumns({
         align: 'center',
         width: 80,
         sorter: (a, b) => a.port - b.port,
+        ...nginxPortColumn,
       },
       {
         title: t('pages.inbounds.protocol'),
@@ -484,5 +487,6 @@ export function useInboundColumns({
     datepicker,
     onRowAction,
     onSwitchEnable,
+    nginxPortColumn,
   ]);
 }

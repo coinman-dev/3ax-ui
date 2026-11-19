@@ -15,6 +15,7 @@ import {
   mixedNetworkLabel,
 } from './helpers';
 import { InboundSpeedTag, isActiveSpeed } from './InboundSpeedTag';
+import { NginxPortTag } from './NginxPort';
 import type { ClientCountEntry, DBInboundRecord, InboundSpeedEntry } from './types';
 
 interface InboundStatsModalProps {
@@ -94,7 +95,7 @@ export default function InboundStatsModal({
           </div>
           <div className="stat-row">
             <span className="stat-label">{t('pages.inbounds.port')}</span>
-            <Tag>{record.port}</Tag>
+            <NginxPortTag inboundId={record.id} port={record.port} />
           </div>
           {hasActiveNode && (
             <div className="stat-row">

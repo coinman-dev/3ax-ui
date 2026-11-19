@@ -627,6 +627,7 @@ func main() {
 	var tokenName string
 	var tokenScope string
 	var resetTwoFactor bool
+	var nginxMode string
 	settingCmd.BoolVar(&reset, "reset", false, "Reset all settings")
 	settingCmd.BoolVar(&show, "show", false, "Display current settings")
 	settingCmd.IntVar(&port, "port", 0, "Set panel port number")
@@ -646,6 +647,7 @@ func main() {
 	settingCmd.StringVar(&tgbotRuntime, "tgbotRuntime", "", "Set cron time for Telegram bot notifications")
 	settingCmd.StringVar(&tgbotchatid, "tgbotchatid", "", "Set chat ID for Telegram bot notifications")
 	settingCmd.BoolVar(&enabletgbot, "enabletgbot", false, "Enable notifications via Telegram bot")
+	settingCmd.StringVar(&nginxMode, "nginxMode", "", "Switch the nginx front-end on port 443: off or shared")
 
 	oldUsage := flag.Usage
 	flag.Usage = func() {
@@ -747,6 +749,13 @@ func main() {
 		}
 		if enabletgbot {
 			updateTgbotEnableSts(enabletgbot)
+		}
+		if nginxMode != "" {
+			if err := (&service.SettingService{}).SetNginxMode(nginxMode); err != nil {
+				fmt.Println("nginxMode:", err)
+			} else {
+				fmt.Println("nginx mode set successfully:", nginxMode)
+			}
 		}
 	case "cert":
 		err := settingCmd.Parse(os.Args[2:])

@@ -2890,4 +2890,129 @@ export const sections: readonly Section[] = [
       },
     ],
   },
+  {
+    id: 'nginx',
+    title: 'Nginx front-end',
+    description:
+      '3AX-UI: put the TLS protocols behind port 443 with nginx (split by SNI), serve a cover page to browsers, publish the panel and subscriptions there, and optionally close every other port. All endpoints under /panel/api/nginx.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/status',
+        summary:
+          'Whether nginx and its stream module are installed, the current mode and what it serves.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/settings',
+        summary:
+          'The stored front-end settings: mode, domain, cover page, firewall and what is published on 443.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/certificate',
+        summary:
+          'Check that a certificate for the domain is present and valid before it is used on 443.',
+        params: [{ name: 'domain', in: 'query', type: 'string', desc: 'Domain to check.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/plan',
+        summary:
+          'Dry run: which inbounds would move where, which links change port, what stays open and what would be cut off, for the posted settings. Changes nothing.',
+        params: [
+          {
+            name: 'settings',
+            in: 'body (json)',
+            type: 'object',
+            desc: 'Front-end settings to plan for.',
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/apply',
+        summary:
+          'Apply the posted settings. Closing ports must be confirmed with /confirm before the deadline, or the previous mode is restored.',
+        params: [
+          {
+            name: 'settings',
+            in: 'body (json)',
+            type: 'object',
+            desc: 'Front-end settings to apply.',
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/confirm',
+        summary:
+          'Keep a mode that closed ports; without it the panel rolls back when the deadline passes.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/stubs',
+        summary: 'The cover-page gallery: built-in templates and the pages saved on this panel.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/stub/:id',
+        summary: 'One saved cover page, with its HTML.',
+        params: [{ name: 'id', in: 'path', type: 'integer', desc: 'Cover page id.' }],
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/stub/:id/preview',
+        summary: 'The saved cover page as text/html, for a live preview.',
+        params: [{ name: 'id', in: 'path', type: 'integer', desc: 'Cover page id.' }],
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/stub-open',
+        summary: 'Open a built-in template (key) or a saved page (id) as text/html in a new tab.',
+        params: [
+          {
+            name: 'key',
+            in: 'query',
+            type: 'string',
+            desc: 'Built-in template key.',
+            optional: true,
+          },
+          { name: 'id', in: 'query', type: 'integer', desc: 'Saved page id.', optional: true },
+        ],
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/nginx/stub-templates',
+        summary: 'The built-in cover-page templates.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/stub/save',
+        summary:
+          'Create or update a cover page (single-file HTML); returns it with any warnings about outside requests.',
+        params: [
+          { name: 'site', in: 'body (json)', type: 'object', desc: 'id (0 for new), name, html.' },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/stub/del/:id',
+        summary: 'Delete a saved cover page.',
+        params: [{ name: 'id', in: 'path', type: 'integer', desc: 'Cover page id.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/stub/activate/:id',
+        summary: 'Serve this saved page as the cover page.',
+        params: [{ name: 'id', in: 'path', type: 'integer', desc: 'Cover page id.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/nginx/stub/activate-template/:key',
+        summary: 'Serve a built-in template as the cover page.',
+        params: [{ name: 'key', in: 'path', type: 'string', desc: 'Built-in template key.' }],
+      },
+    ],
+  },
 ];

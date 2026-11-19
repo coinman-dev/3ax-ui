@@ -56,6 +56,74 @@ prepare_ax1x_kernel_awg() {
     command -v nft > /dev/null 2>&1 || echo -e "${yellow}Could not install nftables; AmneziaWG kernel mode will report it as missing in the panel.${plain}"
 }
 
+# 3AX-UI: the panel can put every TLS protocol behind nginx on 443. Nothing here
+# fails the install; the panel starts nginx itself once its own config exists.
+nginx_ready=0
+install_nginx() {
+    local fresh=0
+    [[ "${XUI_DEBUG_INSTALL:-0}" == "1" ]] && return 0
+    if ! command -v nginx > /dev/null 2>&1; then
+        echo -e "${green}Installing nginx...${plain}"
+        fresh=1
+        case "${release}" in
+            ubuntu | debian | armbian)
+                # The stream module is a separate package here; without it 443 cannot be split by SNI.
+                apt-get install -y -q nginx libnginx-mod-stream > /dev/null 2>&1 ||
+                    apt-get install -y -q nginx > /dev/null 2>&1 || true
+                ;;
+            fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol | centos)
+                dnf install -y -q nginx nginx-mod-stream > /dev/null 2>&1 ||
+                    dnf install -y -q nginx > /dev/null 2>&1 ||
+                    yum install -y -q nginx > /dev/null 2>&1 || true
+                ;;
+            arch | manjaro | parch)
+                pacman -Sy --noconfirm --needed nginx > /dev/null 2>&1 || true
+                ;;
+            opensuse-tumbleweed | opensuse-leap)
+                zypper -q install -y nginx > /dev/null 2>&1 || true
+                ;;
+            alpine)
+                apk add --no-cache nginx nginx-mod-stream > /dev/null 2>&1 ||
+                    apk add --no-cache nginx > /dev/null 2>&1 || true
+                ;;
+        esac
+    fi
+    if ! command -v nginx > /dev/null 2>&1; then
+        echo -e "${yellow}nginx is not installed; the panel works as before, without the «everything on 443» modes.${plain}"
+        return 0
+    fi
+
+    if [[ "$fresh" == 1 ]]; then
+        # A package that starts its stock site on port 80 blocks acme.sh's standalone
+        # challenge; the panel brings nginx up with its own config instead.
+        systemctl stop nginx > /dev/null 2>&1 || rc-service nginx stop > /dev/null 2>&1 || true
+        [[ -L /etc/nginx/sites-enabled/default ]] && rm -f /etc/nginx/sites-enabled/default
+        [[ -f /etc/nginx/http.d/default.conf ]] && mv -f /etc/nginx/http.d/default.conf /etc/nginx/http.d/default.conf.disabled
+    fi
+    # A distro nginx.conf includes conf.d inside http {}, where a stream block is invalid.
+    mkdir -p /etc/nginx/stream-enabled /usr/local/x-ui/www
+
+    if ! nginx -V 2>&1 | grep -q -- '--with-stream' &&
+        ! ls /etc/nginx/modules-enabled/*stream*.conf > /dev/null 2>&1 &&
+        ! ls /usr/lib/nginx/modules/*stream* /usr/lib64/nginx/modules/*stream* > /dev/null 2>&1; then
+        echo -e "${yellow}This nginx has no stream module, so port 443 cannot be split by server name.${plain}"
+        case "${release}" in
+            ubuntu | debian | armbian) echo -e "${yellow}  Fix: apt-get install -y libnginx-mod-stream${plain}" ;;
+            alpine) echo -e "${yellow}  Fix: apk add nginx-mod-stream${plain}" ;;
+            *) echo -e "${yellow}  Install the nginx stream module for your distribution.${plain}" ;;
+        esac
+        return 0
+    fi
+    if ! nginx -t > /dev/null 2>&1; then
+        echo -e "${red}nginx refuses its current configuration:${plain}"
+        nginx -t 2>&1 | sed 's/^/    /'
+        echo -e "${yellow}Port 443 stays down until this is fixed; reapplying the mode on the panel's Nginx page rewrites the panel's part.${plain}"
+        return 0
+    fi
+    nginx_ready=1
+    echo -e "${green}nginx: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
+}
+
 # Check command exist function
 _command_exists() {
     type "$1" &> /dev/null
@@ -879,4 +947,5 @@ update_x-ui() {
 echo -e "${green}Running...${plain}"
 require_writable_update_paths
 install_base
+install_nginx
 update_x-ui $1

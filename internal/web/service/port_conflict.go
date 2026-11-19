@@ -280,6 +280,9 @@ func (s *InboundService) checkPortConflict(inbound *model.Inbound, ignoreId int)
 
 func checkPortConflictTx(db *gorm.DB, inbound *model.Inbound, ignoreId int) (*portConflictDetail, error) {
 	newBits := inboundTransports(inbound.Protocol, inbound.StreamSettings, inbound.Settings)
+	if conflict := nginxPublicPortConflict(inbound, newBits); conflict != nil {
+		return conflict, nil
+	}
 
 	// The internal Xray API inbound (tag "api", loopback TCP) isn't a DB row,
 	// so a local user inbound reusing its port would leave Xray binding the

@@ -6,6 +6,7 @@ import { fillStreamDefaults } from './stream-defaults';
 
 export interface DbInboundLike {
   port: number;
+  publicPort?: number;
   listen: string;
   protocol: string;
   settings: unknown;
@@ -45,7 +46,8 @@ export function inboundFromDb(raw: DbInboundLike): Inbound {
       : fillStreamDefaults(streamSettingsRaw);
   return {
     protocol: raw.protocol,
-    port: raw.port,
+    // 3AX-UI: behind nginx the inbound binds a loopback port; links carry the public one.
+    port: raw.publicPort && raw.publicPort > 0 ? raw.publicPort : raw.port,
     listen: raw.listen ?? '',
     tag: raw.tag ?? '',
     remark: raw.remark ?? '',

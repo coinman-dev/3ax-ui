@@ -34,6 +34,7 @@ export type DBInboundInit = Partial<{
   lastTrafficResetTime: number;
   listen: string;
   port: number;
+  publicPort: number;
   protocol: string;
   settings: RawJsonField;
   streamSettings: RawJsonField;
@@ -84,6 +85,7 @@ export class DBInbound {
 
   listen: string;
   port: number;
+  publicPort: number;
   protocol: string;
   settings: RawJsonField;
   streamSettings: RawJsonField;
@@ -116,6 +118,7 @@ export class DBInbound {
 
     this.listen = '';
     this.port = 0;
+    this.publicPort = 0;
     this.protocol = '';
     this.settings = '';
     this.streamSettings = '';

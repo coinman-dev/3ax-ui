@@ -836,6 +836,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "originNodeGuid": "",
     "port": 443,
     "protocol": "vless",
+    "publicPort": 0,
     "remark": "VLESS-443",
     "settings": null,
     "shareAddr": "",

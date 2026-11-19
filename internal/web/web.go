@@ -355,6 +355,10 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	_, _ = s.cron.AddJob(cadenceAmneziaWG, awgJob)
 	go awgJob.Run()
 
+	// 3AX-UI: keep the nginx front-end in step with the inbounds; half a minute
+	// is soon enough after an edit and rare enough not to churn nginx reloads.
+	_, _ = s.cron.AddJob("@every 30s", job.NewNginxJob())
+
 	tuicJob := job.NewTuicJob()
 	_, _ = s.cron.AddJob(cadenceTuic, tuicJob)
 	go tuicJob.Run()

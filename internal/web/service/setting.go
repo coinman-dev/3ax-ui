@@ -398,7 +398,8 @@ func getEnv(key, fallback string) string {
 func (s *SettingService) ResetSettings() error {
 	db := database.GetDB()
 	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(model.Setting{}).Error; err != nil {
+		// 3AX-UI: nginx state records where the inbounds physically are; see nginxResetSurvivors.
+		if err := tx.Where("key NOT IN ?", nginxResetSurvivors).Delete(model.Setting{}).Error; err != nil {
 			return err
 		}
 		paths := []model.Setting{
@@ -1939,6 +1940,9 @@ func extractHostname(host string) string {
 // Information page) and the subscription page so both render subscription
 // URLs identically.
 func (s *SettingService) BuildSubURIBase(host string) string {
+	if scheme, publicHost, ok := PublicSubBase(); ok {
+		return scheme + "://" + publicHost // 3AX-UI: nginx serves the subs on 443.
+	}
 	subPort, _ := s.GetSubPort()
 	subDomain, _ := s.GetSubDomain()
 	subKeyFile, _ := s.GetSubKeyFile()

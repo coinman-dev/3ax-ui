@@ -3250,6 +3250,11 @@
             "example": "vless",
             "type": "string"
           },
+          "publicPort": {
+            "description": "PublicPort is where clients connect when the nginx front-end (3AX-UI) has\nmoved the inbound to a loopback port; zero means Port. Panel-managed only.",
+            "example": 0,
+            "type": "integer"
+          },
           "remark": {
             "description": "Human-readable remark",
             "example": "VLESS-443",
@@ -3319,6 +3324,7 @@
           "listen",
           "port",
           "protocol",
+          "publicPort",
           "remark",
           "settings",
           "shareAddr",
@@ -5000,6 +5006,10 @@
     {
       "name": "WebSocket",
       "description": "Real-time status updates via WebSocket. Connect once at <code>ws://<panel>/ws</code> to receive a stream of JSON messages without polling. Requires an authenticated session cookie (Bearer token auth is not supported). Each message has a <code>type</code> field that identifies the payload shape."
+    },
+    {
+      "name": "Nginx front-end",
+      "description": "3AX-UI: put the TLS protocols behind port 443 with nginx (split by SNI), serve a cover page to browsers, publish the panel and subscriptions there, and optionally close every other port. All endpoints under /panel/api/nginx."
     }
   ],
   "paths": {
@@ -5260,6 +5270,7 @@
                       "originNodeGuid": "",
                       "port": 443,
                       "protocol": "vless",
+                      "publicPort": 0,
                       "remark": "VLESS-443",
                       "settings": null,
                       "shareAddr": "",
@@ -16832,6 +16843,7 @@
                   "originNodeGuid": "",
                   "port": 443,
                   "protocol": "vless",
+                  "publicPort": 0,
                   "remark": "VLESS-443",
                   "settings": null,
                   "shareAddr": "",
@@ -17038,6 +17050,599 @@
             }
           }
         ]
+      }
+    },
+    "/panel/api/nginx/status": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Whether nginx and its stream module are installed, the current mode and what it serves.",
+        "operationId": "get_panel_api_nginx_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/settings": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "The stored front-end settings: mode, domain, cover page, firewall and what is published on 443.",
+        "operationId": "get_panel_api_nginx_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/certificate": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Check that a certificate for the domain is present and valid before it is used on 443.",
+        "operationId": "get_panel_api_nginx_certificate",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "description": "Domain to check.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/plan": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Dry run: which inbounds would move where, which links change port, what stays open and what would be cut off, for the posted settings. Changes nothing.",
+        "operationId": "post_panel_api_nginx_plan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "settings": {
+                    "type": "object",
+                    "description": "Front-end settings to plan for."
+                  }
+                },
+                "required": [
+                  "settings"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/apply": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Apply the posted settings. Closing ports must be confirmed with /confirm before the deadline, or the previous mode is restored.",
+        "operationId": "post_panel_api_nginx_apply",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "settings": {
+                    "type": "object",
+                    "description": "Front-end settings to apply."
+                  }
+                },
+                "required": [
+                  "settings"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/confirm": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Keep a mode that closed ports; without it the panel rolls back when the deadline passes.",
+        "operationId": "post_panel_api_nginx_confirm",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stubs": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "The cover-page gallery: built-in templates and the pages saved on this panel.",
+        "operationId": "get_panel_api_nginx_stubs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub/{id}": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "One saved cover page, with its HTML.",
+        "operationId": "get_panel_api_nginx_stub_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Cover page id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub/{id}/preview": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "The saved cover page as text/html, for a live preview.",
+        "operationId": "get_panel_api_nginx_stub_id_preview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Cover page id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub-open": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Open a built-in template (key) or a saved page (id) as text/html in a new tab.",
+        "operationId": "get_panel_api_nginx_stub_open",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "required": false,
+            "description": "Built-in template key.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Saved page id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub-templates": {
+      "get": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "The built-in cover-page templates.",
+        "operationId": "get_panel_api_nginx_stub_templates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub/save": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Create or update a cover page (single-file HTML); returns it with any warnings about outside requests.",
+        "operationId": "post_panel_api_nginx_stub_save",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "description": "id (0 for new), name, html."
+                  }
+                },
+                "required": [
+                  "site"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub/del/{id}": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Delete a saved cover page.",
+        "operationId": "post_panel_api_nginx_stub_del_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Cover page id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub/activate/{id}": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Serve this saved page as the cover page.",
+        "operationId": "post_panel_api_nginx_stub_activate_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Cover page id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/nginx/stub/activate-template/{key}": {
+      "post": {
+        "tags": [
+          "Nginx front-end"
+        ],
+        "summary": "Serve a built-in template as the cover page.",
+        "operationId": "post_panel_api_nginx_stub_activate_template_key",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "description": "Built-in template key.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

@@ -269,6 +269,7 @@ export default function InboundsPage() {
       const projected = JSON.parse(JSON.stringify(child)) as DBInbound;
       projected.listen = master.listen;
       projected.port = master.port;
+      projected.publicPort = master.publicPort; // 3AX-UI: a master behind nginx is dialled on 443.
       const masterStream = coerceInboundJsonField(master.streamSettings) as Record<string, unknown>;
       const childStream = {
         ...(coerceInboundJsonField(child.streamSettings) as Record<string, unknown>),

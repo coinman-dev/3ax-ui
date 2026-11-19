@@ -339,3 +339,7 @@ func (m *Manager) healExtras(id int, cur *managed) {
 		logger.Warning("amneziawgkern: restoring TPROXY for ", cur.spec.name, ": ", err)
 	}
 }
+
+// InterfaceName is the kernel link an inbound runs on; the nginx front-end's
+// firewall lets traffic from it through untouched.
+func InterfaceName(id int) string { return ownedInterfaceName(id) }

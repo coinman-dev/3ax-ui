@@ -80,6 +80,10 @@ type Inbound struct {
 
 	DisableFlow bool `json:"disableFlow" form:"disableFlow" gorm:"column:disable_flow;default:false" example:"false"`
 
+	// PublicPort is where clients connect when the nginx front-end (3AX-UI) has
+	// moved the inbound to a loopback port; zero means Port. Panel-managed only.
+	PublicPort int `json:"publicPort" form:"publicPort" gorm:"column:public_port;default:0" example:"0"`
+
 	// OriginNodeGuid is the panelGuid of the node that physically hosts this
 	// inbound, propagated up across hops (#4983). Empty for an inbound that
 	// lives on this panel's own xray; set to the originating node's GUID when

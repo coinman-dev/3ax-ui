@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coming soon</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f5f6f8; color: #1d2129; padding: 24px;
+  }
+  main { max-width: 520px; text-align: center; }
+  .mark {
+    width: 56px; height: 56px; margin: 0 auto 28px; border-radius: 14px;
+    background: #1d2129; display: grid; place-items: center;
+    color: #fff; font-weight: 700; font-size: 22px; letter-spacing: .5px;
+  }
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 12px; font-weight: 650; }
+  p { margin: 0 0 28px; color: #5b6472; }
+  .bar { height: 4px; border-radius: 2px; background: #e2e5ea; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 62%; background: #1d2129; border-radius: 2px; }
+  footer { margin-top: 28px; font-size: 13px; color: #8a94a3; }
+  a { color: inherit; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #14171c; color: #e6e8eb; }
+    .mark { background: #e6e8eb; color: #14171c; }
+    p { color: #9aa4b2; }
+    .bar { background: #262b33; }
+    .bar > i { background: #e6e8eb; }
+    footer { color: #6b7482; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark">&#9679;</div>
+  <h1>We are putting the finishing touches on it</h1>
+  <p>The site is being rebuilt. Everything will be back shortly &mdash; thank you for your patience.</p>
+  <div class="bar"><i></i></div>
+  <footer>For anything urgent, write to <a href="mailto:hello@example.com">hello@example.com</a></footer>
+</main>
+</body>
+</html>

@@ -169,7 +169,9 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 	}
 
 	host := subDomain
-	if (subPort == 443 && tls) || (subPort == 80 && !tls) {
+	if frontScheme, frontHost, ok := service.PublicSubBase(); ok {
+		scheme, host = frontScheme, frontHost // 3AX-UI: nginx serves the subs on 443.
+	} else if (subPort == 443 && tls) || (subPort == 80 && !tls) {
 		// standard ports: no port in host
 	} else {
 		host = fmt.Sprintf("%s:%d", subDomain, subPort)

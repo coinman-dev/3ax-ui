@@ -1,0 +1,1419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Neon Blocks</title>
+<style>
+  :root {
+    --bg: #070611;
+    --card: rgba(21, 19, 42, 0.82);
+    --line: rgba(150, 108, 255, 0.2);
+    --violet: #a855f7;
+    --cyan: #22d3ee;
+    --gold: #ffc94a;
+    --red: #fb7185;
+    --text: #f1eefc;
+    --dim: #8b87ad;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    overflow-x: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    background: radial-gradient(120% 90% at 50% -10%, #1d1440 0%, var(--bg) 62%);
+  }
+  .aurora i {
+    position: absolute;
+    display: block;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.38;
+  }
+  .aurora i:nth-child(1) {
+    width: 56vmax; height: 56vmax;
+    left: -20vmax; top: -18vmax;
+    background: radial-gradient(circle, rgba(168, 85, 247, 0.9), transparent 68%);
+    animation: drift-a 24s ease-in-out infinite alternate;
+  }
+  .aurora i:nth-child(2) {
+    width: 52vmax; height: 52vmax;
+    right: -20vmax; bottom: -22vmax;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.75), transparent 68%);
+    animation: drift-b 30s ease-in-out infinite alternate;
+  }
+  @keyframes drift-a { to { transform: translate3d(12vmax, 10vmax, 0) scale(1.14); } }
+  @keyframes drift-b { to { transform: translate3d(-10vmax, -9vmax, 0) scale(1.1); } }
+
+  .arcade {
+    width: 100%;
+    max-width: 470px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+                0 0 40px rgba(168, 85, 247, 0.1);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .mark {
+    width: 38px; height: 38px; flex: none;
+    background: linear-gradient(140deg, var(--violet), var(--cyan));
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 18px rgba(168, 85, 247, 0.4);
+  }
+  .mark svg { width: 20px; height: 20px; fill: #10091f; }
+  .brand h1 {
+    font-size: 19px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; line-height: 1.1;
+    background: linear-gradient(92deg, #ffffff, #c9a6ff);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .brand p { font-size: 10.5px; color: var(--dim); letter-spacing: 1.6px; text-transform: uppercase; }
+  .tools { display: flex; gap: 8px; flex: none; }
+  .tool {
+    width: 38px; height: 38px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    color: var(--text);
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background .16s, border-color .16s, color .16s, transform .16s;
+  }
+  .tool:hover { background: rgba(255, 255, 255, 0.11); transform: translateY(-1px); }
+  .tool.on { color: var(--cyan); border-color: rgba(34, 211, 238, 0.45); box-shadow: 0 0 12px rgba(34, 211, 238, 0.2); }
+  .tool svg { width: 18px; height: 18px; fill: currentColor; }
+
+  .stage { display: grid; grid-template-columns: 84px 1fr 84px; gap: 12px; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 9px; }
+  .cell {
+    background: rgba(9, 8, 20, 0.66);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 13px;
+    padding: 7px 6px 8px;
+    text-align: center;
+  }
+  .cell span { display: block; font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  .cell b {
+    display: block; margin-top: 3px;
+    font-size: 17px; font-weight: 800; color: #fff;
+    font-variant-numeric: tabular-nums; line-height: 1.15;
+    word-break: break-all;
+  }
+  .cell b.score { color: var(--cyan); }
+  .cell b.best { color: var(--gold); font-size: 15px; }
+  .cell b.bump { animation: bump .28s ease; }
+  @keyframes bump { 50% { transform: scale(1.18); } }
+  .cell canvas { display: block; width: 100%; margin-top: 4px; }
+  .cell.hold canvas { aspect-ratio: 72 / 52; }
+  .cell.next canvas { aspect-ratio: 72 / 138; }
+
+  .board {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 10 / 20;
+    background: #05040d;
+    border-radius: 14px;
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    overflow: hidden;
+    box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.9), 0 0 22px rgba(168, 85, 247, 0.1);
+    transition: box-shadow .3s, border-color .3s;
+  }
+  .board.danger {
+    border-color: rgba(251, 113, 133, 0.6);
+    box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.9), 0 0 26px rgba(251, 113, 133, 0.35);
+  }
+  #game { display: block; width: 100%; height: 100%; }
+
+  .veil {
+    position: absolute; inset: 0;
+    background: rgba(6, 5, 15, 0.86);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 13px; padding: 16px; text-align: center;
+    transition: opacity .22s ease;
+  }
+  .veil.hidden { opacity: 0; pointer-events: none; }
+  .veil h2 { font-size: 25px; font-weight: 900; letter-spacing: 1.4px; text-transform: uppercase; }
+  .veil h2.ready {
+    background: linear-gradient(92deg, var(--cyan), var(--violet));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .veil h2.go {
+    background: linear-gradient(92deg, var(--red), #ff9a3d);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .hint { font-size: 11.5px; color: var(--dim); line-height: 1.7; }
+  .hint b { color: var(--text); font-weight: 700; }
+  .final { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  .final b { display: block; margin-top: 2px; font-size: 26px; color: #fff; font-variant-numeric: tabular-nums; }
+  .badge {
+    padding: 4px 11px;
+    background: rgba(255, 201, 74, 0.14);
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 10px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase;
+    border-radius: 999px;
+    animation: glow 1.6s ease-in-out infinite;
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 0 rgba(255, 201, 74, 0); }
+    50% { box-shadow: 0 0 16px rgba(255, 201, 74, 0.45); }
+  }
+  .go-btn {
+    background: linear-gradient(140deg, var(--violet), #6366f1);
+    color: #fff;
+    border: none;
+    font-size: 14px; font-weight: 900; letter-spacing: 1.4px; text-transform: uppercase;
+    padding: 11px 26px;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 8px 22px rgba(168, 85, 247, 0.4);
+    transition: transform .16s, box-shadow .16s;
+  }
+  .go-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(168, 85, 247, 0.55); }
+  .go-btn:active { transform: translateY(1px); }
+
+  .pad { display: flex; flex-direction: column; gap: 8px; }
+  .pad-row { display: flex; gap: 8px; justify-content: center; }
+  .key {
+    flex: 1;
+    max-width: 96px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    color: var(--text);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; letter-spacing: 1.2px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background .1s, transform .1s;
+  }
+  .key:active { background: rgba(168, 85, 247, 0.85); color: #fff; transform: scale(.94); }
+  .key svg { width: 20px; height: 20px; fill: currentColor; }
+  .key.rot { background: rgba(34, 211, 238, 0.14); border-color: rgba(34, 211, 238, 0.35); color: var(--cyan); }
+  .key.drop { background: rgba(251, 113, 133, 0.14); border-color: rgba(251, 113, 133, 0.35); color: var(--red); }
+  .key.hold { background: rgba(255, 201, 74, 0.12); border-color: rgba(255, 201, 74, 0.3); color: var(--gold); }
+  @media (hover: hover) and (pointer: fine) { .pad { display: none; } }
+
+  .foot { text-align: center; font-size: 10.5px; color: var(--dim); letter-spacing: .5px; }
+  .foot b { color: rgba(255, 255, 255, 0.7); font-weight: 700; }
+
+  @media (max-width: 390px) {
+    .arcade { padding: 13px; gap: 11px; }
+    .stage { grid-template-columns: 70px 1fr 70px; gap: 8px; }
+    .cell b { font-size: 15px; }
+    .brand h1 { font-size: 17px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora i, .badge, .cell b.bump { animation: none; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="aurora"><i></i><i></i></div>
+
+<div class="arcade">
+  <div class="head">
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24"><path d="M3 3h8v6H9V5H5v4H3V3zm10 0h8v8h-2V5h-4v4h-2V3zM3 11h6v2H5v6h4v2H3V11zm8 0h10v10H11v-2h8v-6h-8v-2z"/></svg>
+      </div>
+      <div>
+        <h1>Neon Blocks</h1>
+        <p>Tetris Arcade</p>
+      </div>
+    </div>
+    <div class="tools">
+      <button class="tool" id="soundBtn" type="button" title="Sound" aria-label="Sound">
+        <svg id="soundOn" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        <svg id="soundOff" viewBox="0 0 24 24" style="display:none"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+      </button>
+      <button class="tool" id="pauseBtn" type="button" title="Pause (P)" aria-label="Pause">
+        <svg id="pauseIco" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        <svg id="playIco" viewBox="0 0 24 24" style="display:none"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="col">
+      <div class="cell hold"><span>Hold</span><canvas id="holdCv" width="72" height="52"></canvas></div>
+      <div class="cell"><span>Best</span><b class="best" id="bestEl">0</b></div>
+      <div class="cell"><span>Lines</span><b id="linesEl">0</b></div>
+    </div>
+
+    <div class="board" id="boardBox">
+      <canvas id="game" width="320" height="640"></canvas>
+
+      <div class="veil" id="readyVeil">
+        <h2 class="ready">Neon Blocks</h2>
+        <p class="hint">
+          <b>&larr; &rarr;</b> move &middot; <b>&uarr;</b> rotate<br>
+          <b>&darr;</b> soft drop &middot; <b>Space</b> hard drop<br>
+          <b>C</b> hold &middot; <b>P</b> pause
+        </p>
+        <button class="go-btn" id="startBtn" type="button">Play</button>
+      </div>
+
+      <div class="veil hidden" id="pauseVeil">
+        <h2>Paused</h2>
+        <p class="hint">Press <b>P</b> to carry on</p>
+        <button class="go-btn" id="resumeBtn" type="button">Resume</button>
+      </div>
+
+      <div class="veil hidden" id="overVeil">
+        <h2 class="go">Game Over</h2>
+        <div class="final">Score<b id="finalEl">0</b></div>
+        <div class="badge" id="newBest" style="display:none">New record</div>
+        <button class="go-btn" id="againBtn" type="button">Play again</button>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cell next"><span>Next</span><canvas id="nextCv" width="72" height="138"></canvas></div>
+      <div class="cell"><span>Score</span><b class="score" id="scoreEl">0</b></div>
+      <div class="cell"><span>Level</span><b id="levelEl">1</b></div>
+    </div>
+  </div>
+
+  <div class="pad">
+    <div class="pad-row">
+      <button class="key hold" id="kHold" type="button">HOLD</button>
+      <button class="key rot" id="kRot" type="button" aria-label="Rotate">
+        <svg viewBox="0 0 24 24"><path d="M7.1 8.5L5.7 7.1A8 8 0 0 0 4.1 11h2a6 6 0 0 1 1-2.5zM6.1 13h-2a8 8 0 0 0 1.6 3.9l1.4-1.4A6 6 0 0 1 6.1 13zm1 5.3a8 8 0 0 0 3.9 1.6v-2a6 6 0 0 1-2.5-1l-1.4 1.4zM13 4.1V1L8.5 5.6 13 10V6.1a7 7 0 0 1 6 6.9 6.9 6.9 0 0 1-1 3.5l1.5 1.5A8.9 8.9 0 0 0 21 13a9 9 0 0 0-8-8.9z"/></svg>
+      </button>
+      <button class="key drop" id="kDrop" type="button">DROP</button>
+    </div>
+    <div class="pad-row">
+      <button class="key" id="kLeft" type="button" aria-label="Left"><svg viewBox="0 0 24 24"><path d="M15.4 7.4L14 6l-6 6 6 6 1.4-1.4-4.6-4.6z"/></svg></button>
+      <button class="key" id="kDown" type="button" aria-label="Down"><svg viewBox="0 0 24 24"><path d="M7.4 8.6L12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg></button>
+      <button class="key" id="kRight" type="button" aria-label="Right"><svg viewBox="0 0 24 24"><path d="M10 6L8.6 7.4l4.6 4.6-4.6 4.6L10 18l6-6z"/></svg></button>
+    </div>
+  </div>
+
+  <div class="foot"><b>Space</b> hard drop &middot; <b>C</b> hold &middot; <b>Z</b> rotate back</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var boardBox = document.getElementById('boardBox');
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var holdCv = document.getElementById('holdCv');
+  var holdCtx = holdCv.getContext('2d');
+  var nextCv = document.getElementById('nextCv');
+  var nextCtx = nextCv.getContext('2d');
+
+  var scoreEl = document.getElementById('scoreEl');
+  var bestEl = document.getElementById('bestEl');
+  var linesEl = document.getElementById('linesEl');
+  var levelEl = document.getElementById('levelEl');
+  var finalEl = document.getElementById('finalEl');
+  var newBest = document.getElementById('newBest');
+  var readyVeil = document.getElementById('readyVeil');
+  var pauseVeil = document.getElementById('pauseVeil');
+  var overVeil = document.getElementById('overVeil');
+  var soundBtn = document.getElementById('soundBtn');
+  var soundOn = document.getElementById('soundOn');
+  var soundOff = document.getElementById('soundOff');
+  var pauseBtn = document.getElementById('pauseBtn');
+  var pauseIco = document.getElementById('pauseIco');
+  var playIco = document.getElementById('playIco');
+
+  // ---- geometry -------------------------------------------------------
+  // The well is drawn in a fixed 320x640 space and scaled onto however many
+  // device pixels the board has, so nothing is a stretched bitmap.
+  var COLS = 10, ROWS = 20, CELL = 32;
+  var W = COLS * CELL, H = ROWS * CELL;
+  var viewScale = 1;
+  var bg = document.createElement('canvas');
+  var bgCtx = bg.getContext('2d');
+
+  function fitBoard() {
+    var rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    var pw = Math.max(1, Math.round(rect.width * dpr));
+    var ph = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== pw || canvas.height !== ph) {
+      canvas.width = pw;
+      canvas.height = ph;
+      bg.width = pw;
+      bg.height = ph;
+      viewScale = pw / W;
+      paintBackdrop();
+    }
+  }
+
+  function fitMini(cv, lw, lh) {
+    var rect = cv.getBoundingClientRect();
+    if (!rect.width) return 1;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    var pw = Math.max(1, Math.round(rect.width * dpr));
+    var ph = Math.max(1, Math.round(rect.height * dpr));
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    return pw / lw;
+  }
+
+  function paintBackdrop() {
+    var c = bgCtx;
+    c.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    c.clearRect(0, 0, W, H);
+
+    var floor = c.createLinearGradient(0, 0, W, H);
+    floor.addColorStop(0, '#0b0919');
+    floor.addColorStop(0.55, '#070612');
+    floor.addColorStop(1, '#05040c');
+    c.fillStyle = floor;
+    c.fillRect(0, 0, W, H);
+
+    c.strokeStyle = 'rgba(160, 130, 255, 0.055)';
+    c.lineWidth = 1;
+    for (var x = 1; x < COLS; x++) {
+      c.beginPath();
+      c.moveTo(x * CELL + 0.5, 0);
+      c.lineTo(x * CELL + 0.5, H);
+      c.stroke();
+    }
+    for (var y = 1; y < ROWS; y++) {
+      c.beginPath();
+      c.moveTo(0, y * CELL + 0.5);
+      c.lineTo(W, y * CELL + 0.5);
+      c.stroke();
+    }
+
+    var vig = c.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, H * 0.72);
+    vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    vig.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+    c.fillStyle = vig;
+    c.fillRect(0, 0, W, H);
+  }
+
+  // ---- storage --------------------------------------------------------
+  function readStore(key, fallback) {
+    try {
+      var v = window.localStorage.getItem(key);
+      return v === null ? fallback : v;
+    } catch (e) { return fallback; }
+  }
+  function writeStore(key, value) {
+    try { window.localStorage.setItem(key, value); } catch (e) {}
+  }
+
+  // ---- pieces ---------------------------------------------------------
+  var SHAPES = {
+    I: { light: '#67e8f9', color: '#22d3ee', dark: '#0e7490', rgb: '34, 211, 238',
+         matrix: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]] },
+    J: { light: '#93c5fd', color: '#3b82f6', dark: '#1d4ed8', rgb: '59, 130, 246',
+         matrix: [[1,0,0],[1,1,1],[0,0,0]] },
+    L: { light: '#fdba74', color: '#fb923c', dark: '#c2410c', rgb: '251, 146, 60',
+         matrix: [[0,0,1],[1,1,1],[0,0,0]] },
+    O: { light: '#fde68a', color: '#fbbf24', dark: '#b45309', rgb: '251, 191, 36',
+         matrix: [[1,1],[1,1]] },
+    S: { light: '#6ee7b7', color: '#34d399', dark: '#047857', rgb: '52, 211, 153',
+         matrix: [[0,1,1],[1,1,0],[0,0,0]] },
+    T: { light: '#d8b4fe', color: '#c084fc', dark: '#7e22ce', rgb: '192, 132, 252',
+         matrix: [[0,1,0],[1,1,1],[0,0,0]] },
+    Z: { light: '#fda4af', color: '#fb7185', dark: '#be123c', rgb: '251, 113, 133',
+         matrix: [[1,1,0],[0,1,1],[0,0,0]] }
+  };
+  var TYPES = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
+
+  // Super Rotation System kick tables, written for a y-down grid.
+  var KICKS = {
+    '0>1': [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+    '1>0': [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+    '1>2': [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+    '2>1': [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+    '2>3': [[0,0],[1,0],[1,-1],[0,2],[1,2]],
+    '3>2': [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+    '3>0': [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+    '0>3': [[0,0],[1,0],[1,-1],[0,2],[1,2]]
+  };
+  var KICKS_I = {
+    '0>1': [[0,0],[-2,0],[1,0],[-2,1],[1,-2]],
+    '1>0': [[0,0],[2,0],[-1,0],[2,-1],[-1,2]],
+    '1>2': [[0,0],[-1,0],[2,0],[-1,-2],[2,1]],
+    '2>1': [[0,0],[1,0],[-2,0],[1,2],[-2,-1]],
+    '2>3': [[0,0],[2,0],[-1,0],[2,-1],[-1,2]],
+    '3>2': [[0,0],[-2,0],[1,0],[-2,1],[1,-2]],
+    '3>0': [[0,0],[1,0],[-2,0],[1,2],[-2,-1]],
+    '0>3': [[0,0],[-1,0],[2,0],[-1,-2],[2,1]]
+  };
+
+  var LOCK_DELAY = 480;
+  var LOCK_RESETS = 12;
+  var DAS = 150, ARR = 40, SOFT_MS = 45;
+
+  // ---- state ----------------------------------------------------------
+  var grid = emptyGrid();
+  var piece = null;
+  var queue = [];          // the three pieces on deck
+  var bag = [];
+  var holdType = null;
+  var canHold = true;
+
+  var score = 0;
+  var best = parseInt(readStore('tetris_best_score', '0'), 10) || 0;
+  var bestAtStart = best;
+  var lines = 0;
+  var level = 1;
+  var combo = -1;
+  var backToBack = false;
+
+  var state = 'ready';     // ready | playing | paused | over
+  var dropMs = 1000;
+  var dropAcc = 0;
+  var lockTimer = 0;
+  var lockResets = 0;
+  var lastTime = 0;
+  var softHeld = false;
+  var moveDir = 0;
+  var dasAcc = 0;
+  var arrAcc = 0;
+  var lastMoveWasRotate = false;
+
+  var clearing = null;     // { rows: [], t: 0, span: 320 }
+  var particles = [];
+  var floats = [];
+  var trails = [];
+  var shake = 0;
+  var flash = 0;
+  var idleAcc = 0;
+
+  bestEl.textContent = best;
+
+  // ---- sound ----------------------------------------------------------
+  var audio = null, master = null;
+  var muted = readStore('tetris_sound_muted', 'false') === 'true';
+  paintSoundIcon();
+
+  function initAudio() {
+    if (!audio) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try {
+        audio = new AC();
+        master = audio.createGain();
+        master.gain.value = 0.16;
+        master.connect(audio.destination);
+      } catch (e) { audio = null; }
+    }
+    if (audio && audio.state === 'suspended') audio.resume();
+  }
+
+  function tone(freq, wave, dur, endFreq, delay) {
+    if (muted || !audio) return;
+    try {
+      var t0 = audio.currentTime + (delay || 0);
+      var osc = audio.createOscillator();
+      var gain = audio.createGain();
+      osc.type = wave || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(1, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    } catch (e) {}
+  }
+
+  function sound(name) {
+    initAudio();
+    if (name === 'move') tone(200, 'sine', 0.03);
+    else if (name === 'rotate') tone(340, 'triangle', 0.05, 460);
+    else if (name === 'lock') tone(150, 'triangle', 0.08, 70);
+    else if (name === 'drop') tone(190, 'square', 0.07, 60);
+    else if (name === 'hold') tone(420, 'sine', 0.07, 300);
+    else if (name === 'clear') { tone(540, 'triangle', 0.1, 760); tone(760, 'sine', 0.14, 1040, 0.07); }
+    else if (name === 'tetris') {
+      tone(523, 'square', 0.09);
+      tone(659, 'square', 0.09, null, 0.09);
+      tone(784, 'square', 0.1, null, 0.18);
+      tone(1046, 'triangle', 0.28, null, 0.27);
+    } else if (name === 'level') { tone(660, 'triangle', 0.1, 990); tone(990, 'triangle', 0.16, 1320, 0.09); }
+    else if (name === 'over') { tone(300, 'sawtooth', 0.45, 70); tone(150, 'square', 0.3, 50, 0.06); }
+  }
+
+  function paintSoundIcon() {
+    soundOn.style.display = muted ? 'none' : 'block';
+    soundOff.style.display = muted ? 'block' : 'none';
+    soundBtn.classList.toggle('on', !muted);
+  }
+
+  soundBtn.addEventListener('click', function () {
+    muted = !muted;
+    writeStore('tetris_sound_muted', muted ? 'true' : 'false');
+    paintSoundIcon();
+    if (!muted) { initAudio(); tone(600, 'triangle', 0.08, 900); }
+  });
+
+  // ---- rules ----------------------------------------------------------
+  function emptyGrid() {
+    var g = [];
+    for (var y = 0; y < ROWS; y++) {
+      g.push(new Array(COLS).fill(0));
+    }
+    return g;
+  }
+
+  function bagNext() {
+    if (!bag.length) {
+      bag = TYPES.slice();
+      for (var i = bag.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var t = bag[i]; bag[i] = bag[j]; bag[j] = t;
+      }
+    }
+    return bag.pop();
+  }
+
+  function makePiece(type) {
+    var def = SHAPES[type];
+    var m = def.matrix.map(function (row) { return row.slice(); });
+    return {
+      type: type,
+      matrix: m,
+      rot: 0,
+      x: Math.floor((COLS - m[0].length) / 2),
+      // Row 0 of the matrix, not of the shape: an I stood upright at spawn
+      // then has all four cells inside the well instead of one behind the
+      // ceiling where nobody can see it.
+      y: 0
+    };
+  }
+
+  function collides(p, offX, offY, matrix) {
+    var m = matrix || p.matrix;
+    var px = p.x + (offX || 0);
+    var py = p.y + (offY || 0);
+    for (var y = 0; y < m.length; y++) {
+      for (var x = 0; x < m[y].length; x++) {
+        if (!m[y][x]) continue;
+        var bx = px + x, by = py + y;
+        if (bx < 0 || bx >= COLS || by >= ROWS) return true;
+        if (by >= 0 && grid[by][bx]) return true;
+      }
+    }
+    return false;
+  }
+
+  function spin(matrix, dir) {
+    var n = matrix.length;
+    var out = [];
+    for (var y = 0; y < n; y++) {
+      out.push(new Array(n).fill(0));
+      for (var x = 0; x < n; x++) {
+        out[y][x] = dir > 0 ? matrix[n - 1 - x][y] : matrix[x][n - 1 - y];
+      }
+    }
+    return out;
+  }
+
+  function rotate(dir) {
+    if (state !== 'playing' || !piece || clearing) return;
+    if (piece.type === 'O') return;
+    var from = piece.rot;
+    var to = (from + (dir > 0 ? 1 : 3)) % 4;
+    var spun = spin(piece.matrix, dir);
+    var table = piece.type === 'I' ? KICKS_I : KICKS;
+    var tests = table[from + '>' + to] || [[0, 0]];
+    for (var i = 0; i < tests.length; i++) {
+      var dx = tests[i][0], dy = tests[i][1];
+      if (!collides(piece, dx, dy, spun)) {
+        piece.matrix = spun;
+        piece.rot = to;
+        piece.x += dx;
+        piece.y += dy;
+        lastMoveWasRotate = true;
+        touchLock();
+        sound('rotate');
+        return;
+      }
+    }
+  }
+
+  function move(dir) {
+    if (state !== 'playing' || !piece || clearing) return false;
+    if (collides(piece, dir, 0)) return false;
+    piece.x += dir;
+    lastMoveWasRotate = false;
+    touchLock();
+    sound('move');
+    return true;
+  }
+
+  // Every successful nudge buys a little more time before the piece welds
+  // itself to the stack — but only a dozen of them, or you could stall forever.
+  function touchLock() {
+    if (lockTimer > 0 && lockResets < LOCK_RESETS) {
+      lockTimer = 0;
+      lockResets++;
+    }
+  }
+
+  function softDrop() {
+    if (state !== 'playing' || !piece || clearing) return;
+    if (collides(piece, 0, 1)) return;
+    piece.y++;
+    lastMoveWasRotate = false;
+    addScore(1);
+  }
+
+  function hardDrop() {
+    if (state !== 'playing' || !piece || clearing) return;
+    var cells = piece.matrix.length;
+    var from = piece.y;
+    var dist = 0;
+    while (!collides(piece, 0, 1)) { piece.y++; dist++; }
+    if (dist > 0) {
+      var def = SHAPES[piece.type];
+      for (var x = 0; x < piece.matrix[0].length; x++) {
+        for (var y = cells - 1; y >= 0; y--) {
+          if (piece.matrix[y][x]) {
+            trails.push({
+              x: (piece.x + x) * CELL,
+              y0: (from + y) * CELL,
+              y1: (piece.y + y) * CELL,
+              rgb: def.rgb,
+              life: 1
+            });
+            break;
+          }
+        }
+      }
+      addScore(dist * 2);
+      shake = Math.max(shake, Math.min(9, 3 + dist * 0.35));
+    }
+    lastMoveWasRotate = false;
+    sound('drop');
+    lock();
+  }
+
+  function hold() {
+    if (state !== 'playing' || !piece || !canHold || clearing) return;
+    var current = piece.type;
+    if (holdType === null) {
+      holdType = current;
+      spawn();
+    } else {
+      var swap = holdType;
+      holdType = current;
+      piece = makePiece(swap);
+      if (collides(piece, 0, 0)) { gameOver(); return; }
+    }
+    canHold = false;
+    lockTimer = 0;
+    lockResets = 0;
+    sound('hold');
+    paintHold();
+  }
+
+  function ghostY() {
+    var gy = piece.y;
+    var probe = { x: piece.x, y: gy, matrix: piece.matrix };
+    while (!collides(probe, 0, 1)) { probe.y++; gy++; }
+    return gy;
+  }
+
+  // The three-corner rule: a T that ends a rotation wedged into a notch.
+  function isTSpin() {
+    if (!piece || piece.type !== 'T' || !lastMoveWasRotate) return false;
+    var corners = [[0, 0], [2, 0], [0, 2], [2, 2]];
+    var filled = 0;
+    for (var i = 0; i < corners.length; i++) {
+      var bx = piece.x + corners[i][0];
+      var by = piece.y + corners[i][1];
+      if (bx < 0 || bx >= COLS || by >= ROWS) filled++;
+      else if (by >= 0 && grid[by][bx]) filled++;
+    }
+    return filled >= 3;
+  }
+
+  function lock() {
+    var spun = isTSpin();
+    for (var y = 0; y < piece.matrix.length; y++) {
+      for (var x = 0; x < piece.matrix[y].length; x++) {
+        if (!piece.matrix[y][x]) continue;
+        var by = piece.y + y, bx = piece.x + x;
+        if (by < 0) continue;
+        grid[by][bx] = piece.type;
+      }
+    }
+    sound('lock');
+    lockTimer = 0;
+    lockResets = 0;
+
+    var full = [];
+    for (var r = 0; r < ROWS; r++) {
+      var solid = true;
+      for (var c = 0; c < COLS; c++) if (!grid[r][c]) { solid = false; break; }
+      if (solid) full.push(r);
+    }
+
+    if (full.length) {
+      startClear(full, spun);
+    } else {
+      if (spun) {
+        combo = -1;
+        addScore(100 * level);
+        floatText('T-SPIN', W / 2, (piece.y + 1) * CELL, '#c084fc');
+      } else {
+        combo = -1;
+      }
+      piece = null;
+      spawn();
+    }
+  }
+
+  function startClear(rows, spun) {
+    clearing = { rows: rows, t: 0, span: 260 };
+    piece = null;
+    combo++;
+
+    var count = rows.length;
+    var base = [0, 100, 300, 500, 800][count] || 800;
+    if (spun) base += 400 * count;
+    var hard = count === 4 || (spun && count > 0);
+    if (hard && backToBack) base = Math.round(base * 1.5);
+    var gained = base * level;
+    if (combo > 0) gained += 50 * combo * level;
+    addScore(gained);
+
+    lines += count;
+    linesEl.textContent = lines;
+    var nextLevel = Math.floor(lines / 10) + 1;
+    if (nextLevel > level) {
+      level = nextLevel;
+      levelEl.textContent = level;
+      bumpEl(levelEl);
+      dropMs = Math.max(90, Math.round(1000 * Math.pow(0.83, level - 1)));
+      sound('level');
+      floatText('LEVEL ' + level, W / 2, H * 0.4, '#22d3ee');
+    }
+    backToBack = hard;
+
+    var label = spun ? 'T-SPIN' : ['', 'SINGLE', 'DOUBLE', 'TRIPLE', 'TETRIS'][count];
+    var mid = rows[Math.floor(rows.length / 2)];
+    floatText(label + ' +' + gained, W / 2, (mid + 0.5) * CELL, count === 4 ? '#ffc94a' : '#ffffff');
+    if (combo > 0) floatText('COMBO x' + (combo + 1), W / 2, (mid - 1) * CELL, '#34d399');
+
+    shake = Math.max(shake, count === 4 ? 12 : 5 + count);
+    flash = count === 4 ? 0.85 : 0.4;
+    sound(count === 4 ? 'tetris' : 'clear');
+
+    for (var i = 0; i < rows.length; i++) {
+      for (var c = 0; c < COLS; c++) {
+        var type = grid[rows[i]][c];
+        var rgb = SHAPES[type] ? SHAPES[type].rgb : '255, 255, 255';
+        burst((c + 0.5) * CELL, (rows[i] + 0.5) * CELL, rgb, 3);
+      }
+    }
+  }
+
+  function finishClear() {
+    var rows = clearing.rows.slice().sort(function (a, b) { return a - b; });
+    for (var i = 0; i < rows.length; i++) {
+      grid.splice(rows[i], 1);
+      grid.unshift(new Array(COLS).fill(0));
+    }
+    clearing = null;
+    spawn();
+  }
+
+  function spawn() {
+    while (queue.length < 4) queue.push(bagNext());
+    piece = makePiece(queue.shift());
+    canHold = true;
+    lockTimer = 0;
+    lockResets = 0;
+    dropAcc = 0;
+    lastMoveWasRotate = false;
+    paintNext();
+    if (collides(piece, 0, 0)) gameOver();
+  }
+
+  function addScore(v) {
+    score += v;
+    scoreEl.textContent = score;
+    bumpEl(scoreEl);
+    if (score > best) {
+      best = score;
+      bestEl.textContent = best;
+      writeStore('tetris_best_score', String(best));
+    }
+  }
+
+  function bumpEl(el) {
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+  }
+
+  function burst(cx, cy, rgb, count) {
+    for (var i = 0; i < count; i++) {
+      var a = Math.random() * Math.PI * 2;
+      var s = 0.05 + Math.random() * 0.09;
+      particles.push({
+        x: cx, y: cy,
+        vx: Math.cos(a) * s * CELL,
+        vy: Math.sin(a) * s * CELL - 0.5,
+        r: 1.6 + Math.random() * 2.4,
+        rgb: rgb,
+        life: 1,
+        decay: 0.0014 + Math.random() * 0.0016
+      });
+    }
+  }
+
+  function floatText(text, x, y, color) {
+    floats.push({ text: text, x: x, y: y, color: color, life: 1 });
+  }
+
+  function gameOver() {
+    state = 'over';
+    piece = null;
+    sound('over');
+    shake = 14;
+    flash = 0.6;
+    finalEl.textContent = score;
+    newBest.style.display = score > bestAtStart && score > 0 ? 'inline-block' : 'none';
+    pauseIco.style.display = 'block';
+    playIco.style.display = 'none';
+    boardBox.classList.remove('danger');
+    setTimeout(function () {
+      if (state === 'over') overVeil.classList.remove('hidden');
+    }, 450);
+  }
+
+  function togglePause() {
+    if (state === 'playing') {
+      state = 'paused';
+      pauseVeil.classList.remove('hidden');
+      pauseIco.style.display = 'none';
+      playIco.style.display = 'block';
+    } else if (state === 'paused') {
+      state = 'playing';
+      pauseVeil.classList.add('hidden');
+      pauseIco.style.display = 'block';
+      playIco.style.display = 'none';
+    }
+  }
+
+  function start() {
+    initAudio();
+    grid = emptyGrid();
+    holdType = null;
+    canHold = true;
+    score = 0;
+    lines = 0;
+    level = 1;
+    combo = -1;
+    backToBack = false;
+    bestAtStart = best;
+    dropMs = 1000;
+    dropAcc = 0;
+    lockTimer = 0;
+    lockResets = 0;
+    clearing = null;
+    particles = [];
+    floats = [];
+    trails = [];
+    shake = 0;
+    flash = 0;
+    softHeld = false;
+    moveDir = 0;
+    scoreEl.textContent = '0';
+    linesEl.textContent = '0';
+    levelEl.textContent = '1';
+    paintHold();
+    spawn();
+    state = 'playing';
+    readyVeil.classList.add('hidden');
+    overVeil.classList.add('hidden');
+    pauseVeil.classList.add('hidden');
+    pauseIco.style.display = 'block';
+    playIco.style.display = 'none';
+  }
+
+  // ---- input ----------------------------------------------------------
+  document.getElementById('startBtn').addEventListener('click', start);
+  document.getElementById('againBtn').addEventListener('click', start);
+  document.getElementById('resumeBtn').addEventListener('click', togglePause);
+  pauseBtn.addEventListener('click', function () {
+    if (state === 'playing' || state === 'paused') togglePause();
+    else start();
+  });
+
+  function bindKey(id, fn, repeats) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var timer = null, tapped = 0;
+    var fire = function () {
+      if (state === 'ready' || state === 'over') { start(); return; }
+      fn();
+    };
+    var down = function (e) {
+      if (e.type === 'click' && Date.now() - tapped < 500) return;
+      if (e.type === 'touchstart') { e.preventDefault(); tapped = Date.now(); }
+      initAudio();
+      fire();
+      if (repeats) {
+        clearTimeout(timer);
+        timer = setTimeout(function tick() {
+          fire();
+          timer = setTimeout(tick, ARR + 40);
+        }, DAS + 60);
+      }
+    };
+    var up = function () { clearTimeout(timer); timer = null; };
+    el.addEventListener('touchstart', down, { passive: false });
+    el.addEventListener('click', down);
+    el.addEventListener('touchend', up);
+    el.addEventListener('touchcancel', up);
+    el.addEventListener('mouseup', up);
+    el.addEventListener('mouseleave', up);
+  }
+  bindKey('kLeft', function () { move(-1); }, true);
+  bindKey('kRight', function () { move(1); }, true);
+  bindKey('kDown', function () { softDrop(); }, true);
+  bindKey('kRot', function () { rotate(1); }, false);
+  bindKey('kDrop', function () { hardDrop(); }, false);
+  bindKey('kHold', function () { hold(); }, false);
+
+  var BLOCKED = { ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1, ' ': 1, Spacebar: 1 };
+  window.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (BLOCKED[e.key]) e.preventDefault();
+    if (e.repeat) return;          // auto-repeat is handled below, evenly
+    initAudio();
+
+    var k = e.key;
+    if (k === 'p' || k === 'P' || k === 'з' || k === 'З') {
+      if (state === 'playing' || state === 'paused') togglePause();
+      else start();
+      return;
+    }
+    if (state === 'ready' || state === 'over') {
+      if (k === ' ' || k === 'Spacebar' || k === 'Enter') start();
+      return;
+    }
+    if (state !== 'playing') return;
+
+    switch (k) {
+      case 'ArrowLeft': case 'a': case 'A': case 'ф': case 'Ф':
+        moveDir = -1; dasAcc = 0; arrAcc = 0; move(-1); break;
+      case 'ArrowRight': case 'd': case 'D': case 'в': case 'В':
+        moveDir = 1; dasAcc = 0; arrAcc = 0; move(1); break;
+      case 'ArrowDown': case 's': case 'S': case 'ы': case 'Ы':
+        softHeld = true; softDrop(); dropAcc = 0; break;
+      case 'ArrowUp': case 'w': case 'W': case 'x': case 'X': case 'ц': case 'Ц':
+        rotate(1); break;
+      case 'z': case 'Z': case 'я': case 'Я':
+        rotate(-1); break;
+      case ' ': case 'Spacebar':
+        hardDrop(); break;
+      case 'c': case 'C': case 'Shift': case 'с': case 'С':
+        hold(); break;
+    }
+  });
+
+  window.addEventListener('keyup', function (e) {
+    var k = e.key;
+    if (k === 'ArrowLeft' || k === 'a' || k === 'A' || k === 'ф' || k === 'Ф') {
+      if (moveDir === -1) moveDir = 0;
+    } else if (k === 'ArrowRight' || k === 'd' || k === 'D' || k === 'в' || k === 'В') {
+      if (moveDir === 1) moveDir = 0;
+    } else if (k === 'ArrowDown' || k === 's' || k === 'S' || k === 'ы' || k === 'Ы') {
+      softHeld = false;
+    }
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && state === 'playing') togglePause();
+  });
+  window.addEventListener('blur', function () {
+    moveDir = 0;
+    softHeld = false;
+    if (state === 'playing') togglePause();
+  });
+
+  // ---- drawing --------------------------------------------------------
+  function roundRect(c, x, y, w, h, r) {
+    var rad = Math.min(r, w / 2, h / 2);
+    c.beginPath();
+    c.moveTo(x + rad, y);
+    c.lineTo(x + w - rad, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + rad);
+    c.lineTo(x + w, y + h - rad);
+    c.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+    c.lineTo(x + rad, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - rad);
+    c.lineTo(x, y + rad);
+    c.quadraticCurveTo(x, y, x + rad, y);
+    c.closePath();
+  }
+
+  // One block: gradient body, lit top-left bevel, shaded bottom-right, gloss.
+  function drawBlock(c, px, py, size, type, alpha) {
+    var def = SHAPES[type] || SHAPES.I;
+    var pad = Math.max(1, size * 0.05);
+    var x = px + pad, y = py + pad, s = size - pad * 2;
+    var r = Math.max(2, size * 0.16);
+
+    c.save();
+    if (alpha !== undefined) c.globalAlpha = alpha;
+
+    var body = c.createLinearGradient(x, y, x + s * 0.35, y + s);
+    body.addColorStop(0, def.light);
+    body.addColorStop(0.45, def.color);
+    body.addColorStop(1, def.dark);
+    c.fillStyle = body;
+    roundRect(c, x, y, s, s, r);
+    c.fill();
+
+    c.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+    c.lineWidth = Math.max(1, size * 0.03);
+    roundRect(c, x, y, s, s, r);
+    c.stroke();
+
+    var inset = s * 0.16;
+    c.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    c.lineWidth = Math.max(1, size * 0.055);
+    c.beginPath();
+    c.moveTo(x + inset, y + s - inset * 0.7);
+    c.lineTo(x + inset, y + inset);
+    c.lineTo(x + s - inset * 0.7, y + inset);
+    c.stroke();
+
+    c.strokeStyle = 'rgba(0, 0, 0, 0.28)';
+    c.beginPath();
+    c.moveTo(x + s - inset, y + inset * 0.7);
+    c.lineTo(x + s - inset, y + s - inset);
+    c.lineTo(x + inset * 0.7, y + s - inset);
+    c.stroke();
+
+    var gloss = c.createLinearGradient(x, y, x, y + s * 0.5);
+    gloss.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+    gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    c.fillStyle = gloss;
+    roundRect(c, x + s * 0.12, y + s * 0.1, s * 0.76, s * 0.36, r * 0.6);
+    c.fill();
+    c.restore();
+  }
+
+  function drawGhost(c, px, py, size, type) {
+    var def = SHAPES[type];
+    var pad = Math.max(1, size * 0.05);
+    var x = px + pad, y = py + pad, s = size - pad * 2;
+    c.save();
+    c.fillStyle = 'rgba(' + def.rgb + ', 0.1)';
+    roundRect(c, x, y, s, s, Math.max(2, size * 0.16));
+    c.fill();
+    c.strokeStyle = 'rgba(' + def.rgb + ', 0.5)';
+    c.lineWidth = Math.max(1, size * 0.06);
+    c.setLineDash([size * 0.22, size * 0.16]);
+    c.stroke();
+    c.restore();
+  }
+
+  function paintMini(cv, c, types, lw, lh) {
+    var scale = fitMini(cv, lw, lh);
+    c.setTransform(scale, 0, 0, scale, 0, 0);
+    c.clearRect(0, 0, lw, lh);
+    var slot = lh / types.length;
+    for (var i = 0; i < types.length; i++) {
+      var type = types[i];
+      if (!type) continue;
+      var def = SHAPES[type];
+      var m = def.matrix;
+      // Trim the empty rows and columns so every preview sits centred.
+      var minX = 9, maxX = -1, minY = 9, maxY = -1;
+      for (var y = 0; y < m.length; y++) {
+        for (var x = 0; x < m[y].length; x++) {
+          if (!m[y][x]) continue;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+      var wCells = maxX - minX + 1, hCells = maxY - minY + 1;
+      var size = Math.min(lw * 0.72 / wCells, slot * 0.62 / hCells);
+      if (i === 0) size *= 1.12;
+      var ox = (lw - wCells * size) / 2 - minX * size;
+      var oy = i * slot + (slot - hCells * size) / 2 - minY * size;
+      for (var yy = minY; yy <= maxY; yy++) {
+        for (var xx = minX; xx <= maxX; xx++) {
+          if (m[yy][xx]) drawBlock(c, ox + xx * size, oy + yy * size, size, type, i === 0 ? 1 : 0.6);
+        }
+      }
+    }
+  }
+
+  function paintNext() {
+    paintMini(nextCv, nextCtx, [queue[0], queue[1], queue[2]], 72, 138);
+  }
+  function paintHold() {
+    paintMini(holdCv, holdCtx, [holdType], 72, 52);
+  }
+
+  function drawStack(now) {
+    var pulse = 0;
+    if (clearing) pulse = Math.min(1, clearing.t / (clearing.span * 0.75));
+    for (var y = 0; y < ROWS; y++) {
+      var wiping = clearing && clearing.rows.indexOf(y) !== -1;
+      for (var x = 0; x < COLS; x++) {
+        if (!grid[y][x]) continue;
+        if (wiping) continue;
+        drawBlock(ctx, x * CELL, y * CELL, CELL, grid[y][x]);
+      }
+      if (wiping) {
+        // The row whites out and squeezes shut before the stack drops.
+        var shrink = Math.max(0, 1 - pulse);
+        var h = CELL * shrink;
+        var cy = y * CELL + CELL / 2;
+        var g = ctx.createLinearGradient(0, cy - h / 2, 0, cy + h / 2);
+        g.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+        g.addColorStop(0.5, 'rgba(255, 255, 255, ' + (0.55 + 0.45 * pulse).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(255, 255, 255, 0.15)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, cy - h / 2, W, h);
+      }
+    }
+  }
+
+  function drawPiece() {
+    if (!piece) return;
+    var gy = ghostY();
+    var m = piece.matrix;
+    var y, x;
+    if (gy !== piece.y) {
+      for (y = 0; y < m.length; y++) {
+        for (x = 0; x < m[y].length; x++) {
+          if (m[y][x] && gy + y >= 0) drawGhost(ctx, (piece.x + x) * CELL, (gy + y) * CELL, CELL, piece.type);
+        }
+      }
+    }
+    // A faint beam marks the columns the piece is about to fall through.
+    var def = SHAPES[piece.type];
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (x = 0; x < m[0].length; x++) {
+      var any = false;
+      for (y = 0; y < m.length; y++) if (m[y][x]) { any = true; break; }
+      if (!any) continue;
+      var beam = ctx.createLinearGradient(0, piece.y * CELL, 0, (gy + m.length) * CELL);
+      beam.addColorStop(0, 'rgba(' + def.rgb + ', 0.16)');
+      beam.addColorStop(1, 'rgba(' + def.rgb + ', 0)');
+      ctx.fillStyle = beam;
+      ctx.fillRect((piece.x + x) * CELL + 2, piece.y * CELL, CELL - 4, (gy + m.length - piece.y) * CELL);
+    }
+    ctx.restore();
+
+    var lockGlow = lockTimer > 0 ? Math.min(1, lockTimer / LOCK_DELAY) : 0;
+    ctx.save();
+    if (lockGlow > 0) {
+      ctx.shadowColor = 'rgba(' + def.rgb + ', ' + (0.4 + lockGlow * 0.6).toFixed(2) + ')';
+      ctx.shadowBlur = 8 + lockGlow * 14;
+    }
+    for (y = 0; y < m.length; y++) {
+      for (x = 0; x < m[y].length; x++) {
+        if (m[y][x] && piece.y + y >= 0) drawBlock(ctx, (piece.x + x) * CELL, (piece.y + y) * CELL, CELL, piece.type);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawEffects(dt) {
+    var i, p;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (i = trails.length - 1; i >= 0; i--) {
+      p = trails[i];
+      p.life -= dt * 0.005;
+      if (p.life <= 0) { trails.splice(i, 1); continue; }
+      var g = ctx.createLinearGradient(0, p.y0, 0, p.y1);
+      g.addColorStop(0, 'rgba(' + p.rgb + ', 0)');
+      g.addColorStop(1, 'rgba(' + p.rgb + ', ' + (p.life * 0.5).toFixed(3) + ')');
+      ctx.fillStyle = g;
+      ctx.fillRect(p.x + 3, p.y0, CELL - 6, Math.max(0, p.y1 - p.y0));
+    }
+    ctx.restore();
+
+    for (i = particles.length - 1; i >= 0; i--) {
+      p = particles[i];
+      p.x += p.vx * dt * 0.06;
+      p.y += p.vy * dt * 0.06;
+      p.vy += dt * 0.0012;
+      p.life -= dt * p.decay;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.fillStyle = 'rgba(' + p.rgb + ', ' + p.life.toFixed(3) + ')';
+      ctx.fillRect(p.x, p.y, p.r * p.life * 1.6, p.r * p.life * 1.6);
+    }
+
+    ctx.textAlign = 'center';
+    for (i = floats.length - 1; i >= 0; i--) {
+      p = floats[i];
+      p.y -= dt * 0.022;
+      p.life -= dt * 0.0013;
+      if (p.life <= 0) { floats.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.min(1, p.life * 1.7);
+      ctx.font = '900 19px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.strokeText(p.text, p.x, p.y);
+      ctx.fillStyle = p.color;
+      ctx.fillText(p.text, p.x, p.y);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function stackHeight() {
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) if (grid[y][x]) return ROWS - y;
+    }
+    return 0;
+  }
+
+  function render(now, dt) {
+    ctx.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0.2) {
+      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+      shake *= Math.pow(0.86, dt / 16.67);
+    } else shake = 0;
+
+    ctx.drawImage(bg, 0, 0, W, H);
+
+    // The well glows red once the stack climbs into the top quarter.
+    var high = stackHeight();
+    if (high >= ROWS - 5 && state === 'playing') {
+      var warn = Math.min(1, (high - (ROWS - 5)) / 4);
+      var g = ctx.createLinearGradient(0, 0, 0, H * 0.4);
+      g.addColorStop(0, 'rgba(251, 113, 133, ' + (0.14 * warn * (0.7 + 0.3 * Math.sin(now / 220))).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(251, 113, 133, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H * 0.4);
+    }
+
+    drawStack(now);
+    drawPiece();
+    drawEffects(dt);
+
+    if (flash > 0.01) {
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + (flash * 0.35).toFixed(3) + ')';
+      ctx.fillRect(0, 0, W, H);
+      flash -= dt * 0.0035;
+    }
+    ctx.restore();
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!lastTime) lastTime = now;
+    var dt = Math.min(now - lastTime, 100);
+    lastTime = now;
+
+    // Nothing on the title screen moves, and the veil covers the well anyway:
+    // a cover page has no business running a 60 Hz loop for that.
+    if (state === 'ready') {
+      idleAcc += dt;
+      if (idleAcc < 80) return;
+      dt = idleAcc;
+      idleAcc = 0;
+    }
+
+    if (state === 'playing') {
+      if (clearing) {
+        clearing.t += dt;
+        if (clearing.t >= clearing.span) finishClear();
+      } else if (piece) {
+        if (moveDir !== 0) {
+          dasAcc += dt;
+          if (dasAcc >= DAS) {
+            arrAcc += dt;
+            var guard = 0;
+            while (arrAcc >= ARR && guard++ < 8) { arrAcc -= ARR; if (!move(moveDir)) break; }
+          }
+        }
+        var interval = softHeld ? Math.min(SOFT_MS, dropMs) : dropMs;
+        if (collides(piece, 0, 1)) {
+          lockTimer += dt;
+          dropAcc = 0;
+          if (lockTimer >= LOCK_DELAY) lock();
+        } else {
+          lockTimer = 0;
+          dropAcc += dt;
+          while (dropAcc >= interval && piece && !collides(piece, 0, 1)) {
+            dropAcc -= interval;
+            piece.y++;
+            lastMoveWasRotate = false;
+            if (softHeld) addScore(1);
+          }
+        }
+      }
+      boardBox.classList.toggle('danger', stackHeight() >= ROWS - 5);
+    }
+
+    render(now, dt);
+  }
+
+  function fitAll() {
+    fitBoard();
+    paintNext();
+    paintHold();
+  }
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(fitAll).observe(canvas);
+  } else {
+    window.addEventListener('resize', fitAll);
+  }
+  // Fill the queue before the first game so the Next panel is showing the
+  // pieces you are actually about to get, not an empty box.
+  while (queue.length < 4) queue.push(bagNext());
+  fitAll();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

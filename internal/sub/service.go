@@ -853,6 +853,10 @@ func (s *SubService) loadInboundsBySubId(subId string) ([]*model.Inbound, error)
 	if err := query.Find(&inbounds).Error; err != nil {
 		return nil, err
 	}
+	// 3AX-UI: links carry the port clients dial, not a loopback nginx relocated it to.
+	for _, inbound := range inbounds {
+		inbound.Port = inbound.LinkPort()
+	}
 	if cached {
 		for _, inbound := range inbounds {
 			settings, err := s.subscriptionSettings(inbound)
@@ -957,7 +961,7 @@ func (s *SubService) projectThroughFallbackMaster(inbound *model.Inbound) bool {
 	}
 	inbound.StreamSettings = mergeStreamFromMaster(inbound.StreamSettings, master.StreamSettings)
 	inbound.Listen = master.Listen
-	inbound.Port = master.Port
+	inbound.Port = master.LinkPort() // 3AX-UI: a master behind nginx is dialled on its public port.
 	return true
 }
 
@@ -3611,13 +3615,14 @@ func (s *SubService) socketFront(key socketFrontKey) *model.Inbound {
 			NodeID         *int
 			Listen         string
 			Port           int
+			PublicPort     int
 			StreamSettings string
 			Settings       string
 		}
 		// Parsed here, not with SQL JSON functions, so the lookup works on PostgreSQL too and one
 		// inbound with unreadable settings cannot hide every front.
 		if err := database.GetDB().Model(model.Inbound{}).
-			Select("node_id, listen, port, stream_settings, settings").
+			Select("node_id, listen, port, public_port, stream_settings, settings").
 			Where("settings LIKE ?", "%fallbacks%").
 			Order("id ASC").Scan(&fronts).Error; err != nil {
 			return nil
@@ -3634,7 +3639,7 @@ func (s *SubService) socketFront(key socketFrontKey) *model.Inbound {
 				if _, taken := s.socketFronts[k]; taken || !strings.HasPrefix(dest, "@") {
 					continue
 				}
-				s.socketFronts[k] = &model.Inbound{Listen: front.Listen, Port: front.Port, StreamSettings: front.StreamSettings}
+				s.socketFronts[k] = &model.Inbound{Listen: front.Listen, Port: front.Port, PublicPort: front.PublicPort, StreamSettings: front.StreamSettings}
 			}
 		}
 	}

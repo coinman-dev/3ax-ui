@@ -3224,6 +3224,11 @@ export const SCHEMAS: Record<string, unknown> = {
         "example": "vless",
         "type": "string"
       },
+      "publicPort": {
+        "description": "PublicPort is where clients connect when the nginx front-end (3AX-UI) has\nmoved the inbound to a loopback port; zero means Port. Panel-managed only.",
+        "example": 0,
+        "type": "integer"
+      },
       "remark": {
         "description": "Human-readable remark",
         "example": "VLESS-443",
@@ -3293,6 +3298,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "listen",
       "port",
       "protocol",
+      "publicPort",
       "remark",
       "settings",
       "shareAddr",
