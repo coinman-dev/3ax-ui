@@ -2217,9 +2217,9 @@
         "externalInterfaceHint": "NAT(PostUp/PostDown)に使用するホストのNIC。空欄で自動検出。",
         "ipv6Enabled": "IPv6を有効化",
         "ipv6Subnet": "IPv6サブネット",
-        "ipv6SubnetHint": "例: fd86:ea04:1115::/64。IPv6有効時は必須。",
+        "ipv6SubnetHint": "例: fd86:ea04:1115::/64。IPv6 を有効にする場合は必須です。カーネルモードではこのサーバーにルーティングされたパブリックプレフィックスを指定してください。各クライアントは NAT なしの本物のパブリック IPv6 アドレスを得ます。",
         "ipv6ExternalInterface": "IPv6外部NIC",
-        "ipv6ExternalInterfaceHint": "NDPプロキシエントリに使用するホストのNIC。空欄で外部NICを使用。",
+        "ipv6ExternalInterfaceHint": "IPv6 プレフィックスを持つホストの NIC。組み込みスタックは各クライアントのアドレスをここに割り当て、カーネルモードはそのアドレスの近隣探索に応答します。空欄の場合は外部インターフェースを使用します。",
         "obfuscation": "難読化パラメータ",
         "regenerateObfuscation": "再生成",
         "jc": "Jc（ジャンクパケット数）",
@@ -2269,7 +2269,9 @@
           "routeThroughXray": "routeThroughXray にはカーネルモードの実装がなく、トンネルの出口がなくなります"
         },
         "kernelMode": "カーネルモード",
-        "kernelModeHint": "このインバウンドを内蔵のユーザースペーススタックではなく AmneziaWG カーネルモジュールで実行します。特に遅延の大きい回線では通常高速ですが、Xray のルーティング、スニッフィング、IPv6、ポート転送はそのピアに適用されません。ホストに AmneziaWG カーネルモジュールと amneziawg-tools が必要です。"
+        "kernelModeHint": "このインバウンドを組み込みのユーザー空間スタックではなく AmneziaWG カーネルモジュールで実行します。高遅延の回線では特に高速になることが多いです。パブリック IPv6、ポート転送、Xray 経由のルーティングもここで使えます。ホストに AmneziaWG カーネルモジュール、amneziawg-tools、nftables が必要です。",
+        "kernelRouteThroughXray": "Xray 経由でルーティング",
+        "kernelRouteThroughXrayHint": "クライアントのトラフィックを直接送出せず Xray (TPROXY) に渡し、このインバウンドのタグに対するルーティングルールを適用します。オフの場合は外部インターフェースの NAT 経由で出ていきます。"
       },
       "tuic": {
         "congestionControl": "輻輳制御",

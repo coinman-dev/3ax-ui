@@ -60,28 +60,10 @@ func TestHostReadinessIsCached(t *testing.T) {
 }
 
 // TestPreflightAddsInstanceBlockersToHostOnes: the two kinds are collected in
-// one pass so the admin sees everything to fix at once.
+// one pass so the admin sees everything to fix at once. 3AX-UI runs IPv6 and
+// port forwarding in kernel mode, so the listen address is the instance one left.
 func TestPreflightAddsInstanceBlockers(t *testing.T) {
 	resetReadinessCache()
-
-	v6 := testInstance()
-	v6.IPv6Enabled = true
-	err := Preflight(v6, false)
-	if err == nil || !strings.Contains(err.Error(), "IPv6") {
-		t.Errorf("Preflight must refuse IPv6 inbounds, got %v", err)
-	}
-
-	pf := testInstance()
-	pf.Peers[0].ForwardedPorts = "80, 443"
-	if err := Preflight(pf, false); err == nil || !strings.Contains(err.Error(), "port forwarding") {
-		t.Errorf("Preflight must refuse port forwarding, got %v", err)
-	}
-
-	v6addr := testInstance()
-	v6addr.Peers[0].AllowedIPs = append(v6addr.Peers[0].AllowedIPs, "fd00::2/128")
-	if err := Preflight(v6addr, false); err == nil || !strings.Contains(err.Error(), "IPv6") {
-		t.Errorf("Preflight must refuse peers with IPv6 AllowedIPs, got %v", err)
-	}
 
 	pinned := testInstance()
 	pinned.Listen = "203.0.113.10"
@@ -102,16 +84,17 @@ func TestPreflightDoesNotInventInstanceBlockers(t *testing.T) {
 	}
 }
 
-// TestPreflightRefusesRouteThroughXray: Render drops the whole NAT block for it
-// and nothing replaces it, so the tunnel would come up with no egress path.
-func TestPreflightRefusesRouteThroughXray(t *testing.T) {
+// TestPreflightAcceptsKernelExtras: IPv6, port forwarding and routeThroughXray
+// have a kernel datapath in 3AX-UI, so none of them may block kernel mode.
+func TestPreflightAcceptsKernelExtras(t *testing.T) {
 	resetReadinessCache()
 
-	err := Preflight(testInstance(), true)
-	if err == nil || !strings.Contains(err.Error(), "routeThroughXray") {
-		t.Errorf("Preflight must refuse routeThroughXray in kernel mode, got %v", err)
-	}
-	if err := Preflight(testInstance(), false); err != nil && strings.Contains(err.Error(), "routeThroughXray") {
-		t.Errorf("routeThroughXray must not be reported when it is off, got %v", err)
+	inst := testInstance()
+	inst.IPv6Enabled = true
+	inst.Address = append(inst.Address, "2001:db8::1/112")
+	inst.Peers[0].AllowedIPs = append(inst.Peers[0].AllowedIPs, "2001:db8::2/128")
+	inst.Peers[0].ForwardedPorts = "443"
+	if err := ValidateInstanceFeatures(inst, true); err != nil {
+		t.Errorf("kernel extras refused: %v", err)
 	}
 }

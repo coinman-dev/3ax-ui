@@ -167,7 +167,6 @@ func TestBuildSpecRejectsUnsafeInputs(t *testing.T) {
 	cases := map[string]Desired{
 		"egress with quote":   {Instance: testInstance(), EgressInterface: `eth0" accept; #`},
 		"pinned listen":       {Instance: func() amneziawg.Instance { i := testInstance(); i.Listen = "203.0.113.10"; return i }()},
-		"ipv6 address":        {Instance: func() amneziawg.Instance { i := testInstance(); i.Address = []string{"fd00::1/64"}; return i }(), EgressInterface: "eth0"},
 		"no address":          {Instance: func() amneziawg.Instance { i := testInstance(); i.Address = nil; return i }(), EgressInterface: "eth0"},
 		"no private key":      {Instance: func() amneziawg.Instance { i := testInstance(); i.PrivateKey = ""; return i }(), EgressInterface: "eth0"},
 		"name over 15 bytes":  {Instance: func() amneziawg.Instance { i := testInstance(); i.Id = 123456789; return i }(), EgressInterface: "eth0"},

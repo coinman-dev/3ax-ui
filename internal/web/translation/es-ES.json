@@ -2217,9 +2217,9 @@
         "externalInterfaceHint": "Interfaz de red del host para NAT (PostUp/PostDown). Déjalo vacío para autodetectar.",
         "ipv6Enabled": "Habilitar IPv6",
         "ipv6Subnet": "Subred IPv6",
-        "ipv6SubnetHint": "p. ej. fd86:ea04:1115::/64. Obligatorio cuando IPv6 está habilitado.",
+        "ipv6SubnetHint": "p. ej. fd86:ea04:1115::/64. Obligatorio si IPv6 está activado. En modo kernel usa un prefijo público enrutado a este servidor: cada cliente obtiene una dirección IPv6 pública real, sin NAT.",
         "ipv6ExternalInterface": "Interfaz externa IPv6",
-        "ipv6ExternalInterfaceHint": "Interfaz de red del host para las entradas de proxy NDP. Déjalo vacío para reutilizar la interfaz externa.",
+        "ipv6ExternalInterfaceHint": "Interfaz del host que tiene el prefijo IPv6: la pila integrada asigna en ella la dirección de cada cliente y el modo kernel responde por ellas en el descubrimiento de vecinos. Déjalo vacío para usar la interfaz externa.",
         "obfuscation": "Parámetros de ofuscación",
         "regenerateObfuscation": "Regenerar",
         "jc": "Jc (cantidad de paquetes basura)",
@@ -2269,7 +2269,9 @@
           "routeThroughXray": "routeThroughXray no tiene implementación en modo kernel; dejaría el túnel sin ruta de salida"
         },
         "kernelMode": "Modo kernel",
-        "kernelModeHint": "Ejecuta este inbound en el módulo del kernel de AmneziaWG en lugar de la pila integrada en espacio de usuario. Suele ser más rápido, sobre todo en enlaces de alta latencia, pero el enrutamiento de Xray, el sniffing, IPv6 y el reenvío de puertos no se aplican a sus peers. Requiere el módulo del kernel de AmneziaWG y amneziawg-tools en el host."
+        "kernelModeHint": "Ejecuta este inbound en el módulo del kernel de AmneziaWG en lugar de la pila integrada en espacio de usuario. Suele ser más rápido, sobre todo en enlaces de alta latencia. IPv6 público, reenvío de puertos y enrutamiento a través de Xray también funcionan aquí. Requiere el módulo del kernel de AmneziaWG, amneziawg-tools y nftables en el servidor.",
+        "kernelRouteThroughXray": "Enrutar a través de Xray",
+        "kernelRouteThroughXrayHint": "Entrega el tráfico de los clientes a Xray (TPROXY) en lugar de enviarlo directamente, para que se apliquen las reglas de enrutamiento de la etiqueta de este inbound. Desactivado: el tráfico sale por NAT en la interfaz externa."
       },
       "tuic": {
         "congestionControl": "Control de congestión",

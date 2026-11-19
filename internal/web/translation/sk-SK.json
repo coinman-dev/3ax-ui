@@ -2338,9 +2338,9 @@
         "externalInterfaceHint": "Sieťové rozhranie hostiteľa pre NAT (PostUp/PostDown). Prázdne pole umožní automatické zistenie.",
         "ipv6Enabled": "Zapnúť IPv6",
         "ipv6Subnet": "Podsieť IPv6",
-        "ipv6SubnetHint": "Napr. fd86:ea04:1115::/64. Povinné pri zapnutej IPv6.",
+        "ipv6SubnetHint": "napr. fd86:ea04:1115::/64. Povinné pri zapnutom IPv6. V režime jadra použite verejný prefix smerovaný na tento server: každý klient dostane skutočnú verejnú IPv6 adresu bez NAT.",
         "ipv6ExternalInterface": "Vonkajšie rozhranie IPv6",
-        "ipv6ExternalInterfaceHint": "Sieťové rozhranie hostiteľa, na ktoré sa pridávajú aliasy IPv6 adries peerov. Prázdne pole použije vonkajšie rozhranie.",
+        "ipv6ExternalInterfaceHint": "Sieťové rozhranie hostiteľa s IPv6 prefixom: vstavaný zásobník naň priraďuje adresu každého klienta, režim jadra za ne odpovedá v NDP. Nechajte prázdne pre použitie externého rozhrania.",
         "obfuscation": "Parametre maskovania",
         "regenerateObfuscation": "Vygenerovať znova",
         "jc": "Jc (počet šumových paketov)",
@@ -2390,7 +2390,9 @@
           "routeThroughXray": "routeThroughXray nemá implementáciu v režime jadra; tunel by zostal bez výstupnej cesty"
         },
         "kernelMode": "Režim jadra",
-        "kernelModeHint": "Spustí tento inbound na module jadra AmneziaWG namiesto vstavaného zásobníka v používateľskom priestore. Zvyčajne je rýchlejší, najmä na linkách s vysokou latenciou, ale smerovanie Xray, sniffing, IPv6 a presmerovanie portov sa na jeho peery neuplatňujú. Vyžaduje modul jadra AmneziaWG a amneziawg-tools na serveri."
+        "kernelModeHint": "Spúšťať tento inbound na module jadra AmneziaWG namiesto vstavaného zásobníka v používateľskom priestore. Zvyčajne rýchlejšie, najmä na linkách s vysokou latenciou. Verejné IPv6, presmerovanie portov a smerovanie cez Xray tu fungujú tiež. Vyžaduje modul jadra AmneziaWG, amneziawg-tools a nftables na serveri.",
+        "kernelRouteThroughXray": "Smerovať cez Xray",
+        "kernelRouteThroughXrayHint": "Odovzdávať prevádzku klientov do Xray (TPROXY) namiesto priameho odoslania, aby sa uplatnili pravidlá smerovania pre značku tohto inboundu. Vypnuté: prevádzka odchádza cez NAT na externom rozhraní."
       },
       "tuic": {
         "congestionControl": "Riadenie zahltenia",

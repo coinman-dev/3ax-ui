@@ -58,12 +58,15 @@ type spec struct {
 	// nat is the nft transaction that replaces this inbound's NAT table.
 	nat     string
 	forward forwardRules
+	extras  axExtras
 }
 
 // forwardRules lets tunnel traffic through a FORWARD chain whose policy is
-// DROP (Docker and ufw both set one); zero value means no NAT egress.
+// DROP (Docker and ufw both set one); zero value means no NAT egress. viaXray
+// leaves outbound traffic to TPROXY; dnat admits forwarded ports (3AX-UI).
 type forwardRules struct {
 	tunnel, egress string
+	viaXray, dnat  bool
 }
 
 func buildSpec(d Desired) (spec, error) {
@@ -88,17 +91,21 @@ func buildSpec(d Desired) (spec, error) {
 	}
 	s := spec{name: name, conf: conf, addresses: addresses, mtu: effectiveMTU(inst)}
 	s.structFP = structuralFingerprint(conf, addresses, s.mtu)
-	s.nat = natTransaction(inst.Id, "")
+	egress := d.EgressInterface
+	if egress == "" {
+		egress = DetectDefaultInterface()
+	}
+	if err := amneziawg.ValidateInterfaceName(egress); err != nil {
+		return spec{}, fmt.Errorf("amneziawgkern: %w", err)
+	}
+	s.extras = buildExtras(d, addresses, egress)
+	chains := dnatChain(s.extras.forwards, egress)
 	if !d.RouteThroughXray {
-		egress := d.EgressInterface
-		if egress == "" {
-			egress = DetectDefaultInterface()
-		}
-		if err := amneziawg.ValidateInterfaceName(egress); err != nil {
-			return spec{}, fmt.Errorf("amneziawgkern: %w", err)
-		}
-		s.nat = natTransaction(inst.Id, natChain(addresses, egress))
-		s.forward = forwardRules{tunnel: name, egress: egress}
+		chains = natChain(onlyIPv4(addresses), egress) + chains
+	}
+	s.nat = natTransaction(inst.Id, chains)
+	if !d.RouteThroughXray || len(s.extras.forwards) > 0 {
+		s.forward = forwardRules{tunnel: name, egress: egress, viaXray: d.RouteThroughXray, dnat: len(s.extras.forwards) > 0}
 	}
 	return s, nil
 }
@@ -245,9 +252,6 @@ func interfaceAddresses(inst amneziawg.Instance) ([]string, error) {
 		p, err := netip.ParsePrefix(a)
 		if err != nil {
 			return nil, fmt.Errorf("amneziawgkern: parse interface address %q: %w", a, err)
-		}
-		if !p.Addr().Is4() {
-			return nil, fmt.Errorf("amneziawgkern: inbound %d: kernel mode is IPv4-only, got %q", inst.Id, a)
 		}
 		out = append(out, p.String())
 	}

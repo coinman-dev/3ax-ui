@@ -440,7 +440,7 @@ func (s *InboundService) checkForwardedPortsConflict(ctx portConflictContext, fo
 		var socksPort int
 		switch ib.Protocol {
 		case model.AmneziaWG:
-			if amneziawgKernelMode(ib) {
+			if amneziawgRelayUnused(ib) {
 				continue
 			}
 			socksPort = amneziawgnet.SOCKSPortForInbound(ib.Id)

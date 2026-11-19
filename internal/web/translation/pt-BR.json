@@ -2217,9 +2217,9 @@
         "externalInterfaceHint": "Interface de rede do host para NAT (PostUp/PostDown). Deixe vazio para detecção automática.",
         "ipv6Enabled": "Ativar IPv6",
         "ipv6Subnet": "Sub-rede IPv6",
-        "ipv6SubnetHint": "ex. fd86:ea04:1115::/64. Obrigatório quando o IPv6 está ativado.",
+        "ipv6SubnetHint": "ex.: fd86:ea04:1115::/64. Obrigatório quando o IPv6 está ativado. No modo kernel use um prefixo público roteado para este servidor: cada cliente recebe um endereço IPv6 público real, sem NAT.",
         "ipv6ExternalInterface": "Interface externa IPv6",
-        "ipv6ExternalInterfaceHint": "Interface de rede do host para as entradas de proxy NDP. Deixe vazio para reutilizar a interface externa.",
+        "ipv6ExternalInterfaceHint": "Interface do host que contém o prefixo IPv6: a pilha integrada atribui nela o endereço de cada cliente e o modo kernel responde por eles na descoberta de vizinhos. Deixe vazio para usar a interface externa.",
         "obfuscation": "Parâmetros de ofuscação",
         "regenerateObfuscation": "Regenerar",
         "jc": "Jc (quantidade de pacotes de lixo)",
@@ -2269,7 +2269,9 @@
           "routeThroughXray": "routeThroughXray não tem implementação no modo kernel; deixaria o túnel sem rota de saída"
         },
         "kernelMode": "Modo kernel",
-        "kernelModeHint": "Executa este inbound no módulo de kernel do AmneziaWG em vez da pilha embutida em espaço de usuário. Geralmente mais rápido, principalmente em links de alta latência, mas o roteamento do Xray, o sniffing, IPv6 e o encaminhamento de portas não se aplicam aos seus peers. Requer o módulo de kernel do AmneziaWG e o amneziawg-tools no host."
+        "kernelModeHint": "Executa este inbound no módulo de kernel do AmneziaWG em vez da pilha integrada em espaço de usuário. Geralmente mais rápido, especialmente em links de alta latência. IPv6 público, encaminhamento de portas e roteamento pelo Xray também funcionam aqui. Requer o módulo de kernel do AmneziaWG, amneziawg-tools e nftables no servidor.",
+        "kernelRouteThroughXray": "Rotear pelo Xray",
+        "kernelRouteThroughXrayHint": "Entrega o tráfego dos clientes ao Xray (TPROXY) em vez de enviá-lo diretamente, para que as regras de roteamento da tag deste inbound sejam aplicadas. Desligado: o tráfego sai por NAT na interface externa."
       },
       "tuic": {
         "congestionControl": "Controle de congestionamento",

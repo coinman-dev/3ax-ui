@@ -26,12 +26,15 @@ type Desired struct {
 	// EgressInterface is the host NIC masquerade attaches to; blank means
 	// detect it (DetectDefaultInterface).
 	EgressInterface string
-	// RouteThroughXray reflects a persisted setting rejected by kernel preflight.
+	// RouteThroughXray hands the tunnel's traffic to Xray's TPROXY inbound on
+	// TproxyPort instead of masquerading it out (3AX-UI).
 	RouteThroughXray bool
+	TproxyPort       int
 }
 
 // managed is one live interface and the spec it was last brought to.
 type managed struct {
+	lastHeal               time.Time
 	spec                   spec
 	trafficGeneration      uint64
 	trafficBaselinePending bool
@@ -111,11 +114,17 @@ func (m *Manager) ensureLocked(d Desired) error {
 	}
 
 	if linkUp && isManaged && cur.spec.structFP == s.structFP {
-		changed := cur.spec.conf != s.conf || cur.spec.nat != s.nat || cur.spec.forward != s.forward
+		changed := cur.spec.conf != s.conf || cur.spec.nat != s.nat || cur.spec.forward != s.forward || cur.spec.extras.fp != s.extras.fp
 		if err := m.reconfigure(cur.spec, s); err != nil {
 			return err
 		}
+		if err := m.applyExtras(id, s.name, cur.spec.extras, s.extras, false); err != nil {
+			return err
+		}
 		cur.spec = s
+		if !changed {
+			m.healExtras(id, cur)
+		}
 		if changed {
 			logger.Debug("amneziawgkern: synced ", s.name)
 		}
@@ -159,6 +168,9 @@ func (m *Manager) ensureLocked(d Desired) error {
 	if err := m.applyEgress(s, prevForward, true); err != nil {
 		return err
 	}
+	if err := m.applyExtras(id, s.name, axExtras{}, s.extras, true); err != nil {
+		return err
+	}
 	m.ifaces[id] = m.newManaged(s, false)
 	logger.Info("amneziawgkern: started kernel interface ", s.name, " for inbound ", id)
 	return nil
@@ -192,7 +204,11 @@ func (m *Manager) adopt(s spec) error {
 	if out, err := m.host.run("", "awg", "syncconf", s.name, ConfPathIn(m.confDir, s.name)); err != nil {
 		return fmt.Errorf("amneziawgkern: awg syncconf %s: %w (%s)", s.name, err, out)
 	}
-	return m.applyEgress(s, forwardRules{tunnel: s.name}, true)
+	if err := m.applyEgress(s, forwardRules{tunnel: s.name}, true); err != nil {
+		return err
+	}
+	id, _ := parseOwnedInterfaceName(s.name)
+	return m.applyExtras(id, s.name, axExtras{}, s.extras, true)
 }
 
 func (m *Manager) createLink(s spec) error {
@@ -206,7 +222,11 @@ func (m *Manager) createLink(s spec) error {
 		{"awg", "setconf", s.name, ConfPathIn(m.confDir, s.name)},
 	}
 	for _, a := range s.addresses {
-		steps = append(steps, []string{"ip", "-4", "address", "add", a, "dev", s.name})
+		family := "-4"
+		if !netip.MustParsePrefix(a).Addr().Is4() {
+			family = "-6"
+		}
+		steps = append(steps, []string{"ip", family, "address", "add", a, "dev", s.name})
 	}
 	steps = append(steps, []string{"ip", "link", "set", "dev", s.name, "mtu", fmt.Sprint(s.mtu), "up"})
 	for _, step := range steps {
@@ -307,10 +327,18 @@ func (f forwardRules) rules() [][]string {
 		return nil
 	}
 	comment := []string{"-m", "comment", "--comment", forwardComment(f.tunnel), "-j", "ACCEPT"}
-	return [][]string{
-		append([]string{"-i", f.tunnel, "-o", f.egress}, comment...),
-		append([]string{"-i", f.egress, "-o", f.tunnel, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED"}, comment...),
+	var rules [][]string
+	if !f.viaXray {
+		rules = append(rules, append([]string{"-i", f.tunnel, "-o", f.egress}, comment...))
 	}
+	rules = append(rules, append([]string{"-i", f.egress, "-o", f.tunnel, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED"}, comment...))
+	if f.dnat {
+		rules = append(rules, append([]string{"-i", f.egress, "-o", f.tunnel, "-m", "conntrack", "--ctstate", "DNAT"}, comment...))
+	}
+	if f.viaXray {
+		rules = append(rules, append([]string{"-i", f.tunnel, "-o", f.egress, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED"}, comment...))
+	}
+	return rules
 }
 
 // verifyLiveInterface refuses a live link whose key is not the owned config's.
@@ -491,7 +519,12 @@ func (m *Manager) teardown(id int) error {
 			return fmt.Errorf("amneziawgkern: removing private config %s: %w", name, err)
 		}
 	}
+	var extras axExtras
+	if cur, ok := m.ifaces[id]; ok {
+		extras = cur.spec.extras
+	}
 	delete(m.ifaces, id)
+	m.teardownExtras(id, name, extras)
 	GetCollector().Forget(name)
 	return nil
 }

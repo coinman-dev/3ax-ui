@@ -2217,9 +2217,9 @@
         "externalInterfaceHint": "用于 NAT（PostUp/PostDown）的主机网卡。留空则自动检测。",
         "ipv6Enabled": "启用 IPv6",
         "ipv6Subnet": "IPv6 子网",
-        "ipv6SubnetHint": "例如 fd86:ea04:1115::/64。启用 IPv6 时必填。",
+        "ipv6SubnetHint": "例如 fd86:ea04:1115::/64。启用 IPv6 时必填。内核模式下请使用路由到本服务器的公网前缀：每个客户端都会获得真实的公网 IPv6 地址，无需 NAT。",
         "ipv6ExternalInterface": "IPv6 外部网卡",
-        "ipv6ExternalInterfaceHint": "用于 NDP 代理条目的主机网卡。留空则使用外部网卡。",
+        "ipv6ExternalInterfaceHint": "持有 IPv6 前缀的主机网卡：内置协议栈会把每个客户端的地址挂到该网卡上，内核模式则为这些地址响应邻居发现。留空则使用外部接口。",
         "obfuscation": "混淆参数",
         "regenerateObfuscation": "重新生成",
         "jc": "Jc（垃圾包数量）",
@@ -2269,7 +2269,9 @@
           "routeThroughXray": "routeThroughXray 没有内核模式实现，会使隧道没有出站路径"
         },
         "kernelMode": "内核模式",
-        "kernelModeHint": "使用 AmneziaWG 内核模块而非内置用户态协议栈运行此入站。通常更快，尤其在高延迟链路上，但 Xray 路由、嗅探、IPv6 和端口转发不适用于其对等端。需要主机上安装 AmneziaWG 内核模块和 amneziawg-tools。"
+        "kernelModeHint": "使用 AmneziaWG 内核模块而非内置用户态协议栈运行此入站。通常更快，尤其是在高延迟链路上。公网 IPv6、端口转发和经 Xray 路由在此模式下同样可用。需要主机上安装 AmneziaWG 内核模块、amneziawg-tools 和 nftables。",
+        "kernelRouteThroughXray": "经 Xray 路由",
+        "kernelRouteThroughXrayHint": "将客户端流量交给 Xray (TPROXY) 而不是直接发出，从而应用针对此入站标签的路由规则。关闭时流量经外部接口的 NAT 出站。"
       },
       "tuic": {
         "congestionControl": "拥塞控制算法",

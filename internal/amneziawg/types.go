@@ -107,14 +107,9 @@ type Instance struct {
 	IPv6Enabled           bool
 	IPv6ExternalInterface string
 
-	// RouteThroughXray gated the kernel-module architecture's opt-in
-	// TPROXY-into-Xray bridge. The embedded path (internal/amneziawgnet)
-	// has no equivalent opt-in at all -- every peer's traffic already goes
-	// through Xray's own SOCKS5 inbound unconditionally, since there's no
-	// other way for decapsulated gVisor traffic to reach the real internet
-	// -- so this field is now vestigial: read from existing stored settings
-	// for backward compatibility, but not acted on by anything. Slated for
-	// removal alongside the frontend toggle in a follow-up.
+	// RouteThroughXray hands a kernel-mode inbound's traffic to Xray over
+	// TPROXY (3AX-UI, internal/amneziawgkern/ax_extras.go). The embedded path
+	// ignores it: its traffic always goes through Xray's SOCKS5 relay.
 	RouteThroughXray bool
 
 	// KernelMode selects internal/amneziawgkern over internal/amneziawgnet as
@@ -144,10 +139,8 @@ type ServerSettings struct {
 	// they gate (internal/amneziawgnet's IPv6-address-alias mechanism).
 	// IPv6Subnet was never actually vestigial either: InstanceFromInbound
 	// already consumes it (via serverAddressV6) to build the server's own
-	// tunnel address, same as always. Only RouteThroughXray, below, remains
-	// genuinely vestigial as of the hard cutover to the embedded path
-	// (internal/amneziawgnet) -- read from existing stored settings for
-	// backward compatibility, but not acted on by anything.
+	// tunnel address. RouteThroughXray, below, drives kernel mode's TPROXY
+	// hand-off to Xray (3AX-UI); the embedded path ignores it.
 	ExternalInterface string `json:"externalInterface,omitempty"`
 
 	IPv6Enabled           bool   `json:"ipv6Enabled,omitempty"`

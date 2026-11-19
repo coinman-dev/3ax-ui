@@ -123,17 +123,10 @@ func ValidateInstanceFeatures(inst amneziawg.Instance, routeThroughXray bool) er
 	return fmt.Errorf("kernel mode unavailable: %s", strings.Join(describe(blockers), "; "))
 }
 
-func instanceFeatureBlockers(inst amneziawg.Instance, routeThroughXray bool) []Blocker {
+// IPv6, port forwarding and routeThroughXray run in kernel mode since 3AX-UI
+// (ax_extras.go); their blocker codes stay for nodes on an older build.
+func instanceFeatureBlockers(inst amneziawg.Instance, _ bool) []Blocker {
 	var blockers []Blocker
-	if instanceWantsIPv6(inst) {
-		blockers = append(blockers, Blocker{Code: BlockerIPv6})
-	}
-	if instanceWantsPortForwarding(inst) {
-		blockers = append(blockers, Blocker{Code: BlockerPortForward})
-	}
-	if routeThroughXray {
-		blockers = append(blockers, Blocker{Code: BlockerRouteXray})
-	}
 	if listenNeedsPinnedBind(inst.Listen) {
 		blockers = append(blockers, Blocker{Code: BlockerListenAddress, Detail: inst.Listen})
 	}
@@ -180,32 +173,4 @@ func moduleAvailable() bool {
 	}
 	_, err := run("", "modprobe", "--dry-run", "--quiet", "amneziawg")
 	return err == nil
-}
-
-func instanceWantsIPv6(inst amneziawg.Instance) bool {
-	if inst.IPv6Enabled {
-		return true
-	}
-	for _, a := range inst.Address {
-		if strings.Contains(a, ":") {
-			return true
-		}
-	}
-	for _, p := range inst.Peers {
-		for _, a := range p.AllowedIPs {
-			if strings.Contains(a, ":") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func instanceWantsPortForwarding(inst amneziawg.Instance) bool {
-	for _, p := range inst.Peers {
-		if strings.TrimSpace(p.ForwardedPorts) != "" {
-			return true
-		}
-	}
-	return false
 }

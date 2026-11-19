@@ -2217,9 +2217,9 @@
         "externalInterfaceHint": "NIC host untuk NAT (PostUp/PostDown). Biarkan kosong untuk deteksi otomatis.",
         "ipv6Enabled": "Aktifkan IPv6",
         "ipv6Subnet": "Subnet IPv6",
-        "ipv6SubnetHint": "mis. fd86:ea04:1115::/64. Wajib diisi saat IPv6 diaktifkan.",
+        "ipv6SubnetHint": "mis. fd86:ea04:1115::/64. Wajib saat IPv6 diaktifkan. Dalam mode kernel gunakan prefiks publik yang dirutekan ke server ini: setiap klien mendapat alamat IPv6 publik asli, tanpa NAT.",
         "ipv6ExternalInterface": "NIC Eksternal IPv6",
-        "ipv6ExternalInterfaceHint": "NIC host untuk entri proxy NDP. Biarkan kosong untuk menggunakan NIC Eksternal.",
+        "ipv6ExternalInterfaceHint": "NIC host yang memegang prefiks IPv6: stack bawaan memasang alamat setiap klien di sana, mode kernel menjawab neighbor discovery untuknya. Kosongkan untuk memakai Antarmuka Eksternal.",
         "obfuscation": "Parameter obfuskasi",
         "regenerateObfuscation": "Buat ulang",
         "jc": "Jc (jumlah paket sampah)",
@@ -2269,7 +2269,9 @@
           "routeThroughXray": "routeThroughXray tidak punya implementasi mode kernel; terowongan akan tanpa jalur keluar"
         },
         "kernelMode": "Mode kernel",
-        "kernelModeHint": "Jalankan inbound ini pada modul kernel AmneziaWG alih-alih stack userspace bawaan. Biasanya lebih cepat, terutama pada tautan berlatensi tinggi, tetapi routing Xray, sniffing, IPv6, dan penerusan port tidak berlaku untuk peer-nya. Memerlukan modul kernel AmneziaWG dan amneziawg-tools di host."
+        "kernelModeHint": "Jalankan inbound ini di modul kernel AmneziaWG alih-alih stack userspace bawaan. Biasanya lebih cepat, terutama pada tautan berlatensi tinggi. IPv6 publik, penerusan port, dan perutean melalui Xray juga berfungsi di sini. Memerlukan modul kernel AmneziaWG, amneziawg-tools, dan nftables di server.",
+        "kernelRouteThroughXray": "Rutekan melalui Xray",
+        "kernelRouteThroughXrayHint": "Serahkan lalu lintas klien ke Xray (TPROXY) alih-alih langsung keluar, sehingga aturan perutean untuk tag inbound ini berlaku. Mati: lalu lintas keluar lewat NAT di antarmuka eksternal."
       },
       "tuic": {
         "congestionControl": "Kontrol Kemacetan",

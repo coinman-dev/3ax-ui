@@ -80,6 +80,7 @@ func splitAmneziaWGDatapaths(desired []amneziawg.Instance) ([]amneziawgnet.Desir
 				Instance:         inst,
 				EgressInterface:  inst.ExternalInterface,
 				RouteThroughXray: inst.RouteThroughXray,
+				TproxyPort:       amneziawgnet.SOCKSPortForInbound(inst.Id),
 			})
 			continue
 		}

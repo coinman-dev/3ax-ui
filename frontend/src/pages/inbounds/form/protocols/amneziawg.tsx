@@ -235,6 +235,16 @@ export default function AmneziawgFields({
       >
         <Switch disabled={toggleDisabled} />
       </FormField>
+      {kernelModeOn && (
+        <FormField
+          name={['settings', 'server', 'routeThroughXray']}
+          label={t('pages.xray.amneziawg.kernelRouteThroughXray')}
+          extra={t('pages.xray.amneziawg.kernelRouteThroughXrayHint')}
+          valueProp="checked"
+        >
+          <Switch />
+        </FormField>
+      )}
       {!hostReady && (
         <Alert
           type={kernelModeOn ? 'warning' : 'info'}

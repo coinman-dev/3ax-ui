@@ -464,6 +464,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	// whatever rules the admin adds through the stock Routing page, exactly
 	// like routing any other protocol.
 	injectAmneziawgnetSocks(xrayConfig, inbounds)
+	injectAmneziawgKernelTproxy(xrayConfig, inbounds)
 	tuicInstances := configuredTuicInstances(inbounds)
 	if err := injectTuicRelay(xrayConfig, tuicInstances); err != nil {
 		return nil, err

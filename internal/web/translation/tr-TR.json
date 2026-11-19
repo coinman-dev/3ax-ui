@@ -2217,9 +2217,9 @@
         "externalInterfaceHint": "NAT (PostUp/PostDown) için sunucu ağ arayüzü. Otomatik algılama için boş bırakın.",
         "ipv6Enabled": "IPv6'yı Etkinleştir",
         "ipv6Subnet": "IPv6 Alt Ağı",
-        "ipv6SubnetHint": "örn. fd86:ea04:1115::/64. IPv6 etkinken zorunludur.",
+        "ipv6SubnetHint": "ör. fd86:ea04:1115::/64. IPv6 etkinken zorunludur. Çekirdek modunda bu sunucuya yönlendirilen genel bir önek kullanın: her istemci NAT olmadan gerçek bir genel IPv6 adresi alır.",
         "ipv6ExternalInterface": "IPv6 Harici Arayüzü",
-        "ipv6ExternalInterfaceHint": "NDP proxy girişleri için sunucu ağ arayüzü. Harici Arayüzü kullanmak için boş bırakın.",
+        "ipv6ExternalInterfaceHint": "IPv6 önekini taşıyan ana makine arayüzü: yerleşik yığın her istemcinin adresini buna ekler, çekirdek modu bu adresler için komşu keşfine yanıt verir. Harici Arayüzü kullanmak için boş bırakın.",
         "obfuscation": "Gizleme parametreleri",
         "regenerateObfuscation": "Yeniden oluştur",
         "jc": "Jc (gereksiz paket sayısı)",
@@ -2269,7 +2269,9 @@
           "routeThroughXray": "routeThroughXray'in çekirdek modunda bir uygulaması yok; tüneli çıkış yolu olmadan bırakır"
         },
         "kernelMode": "Çekirdek modu",
-        "kernelModeHint": "Bu inbound'u yerleşik kullanıcı alanı yığını yerine AmneziaWG çekirdek modülünde çalıştırır. Özellikle yüksek gecikmeli bağlantılarda genellikle daha hızlıdır, ancak Xray yönlendirmesi, sniffing, IPv6 ve port yönlendirme eşlerine uygulanmaz. Sunucuda AmneziaWG çekirdek modülü ve amneziawg-tools gerekir."
+        "kernelModeHint": "Bu inbound'u yerleşik kullanıcı alanı yığını yerine AmneziaWG çekirdek modülünde çalıştırır. Genellikle daha hızlıdır, özellikle yüksek gecikmeli bağlantılarda. Genel IPv6, port yönlendirme ve Xray üzerinden yönlendirme burada da çalışır. Sunucuda AmneziaWG çekirdek modülü, amneziawg-tools ve nftables gerekir.",
+        "kernelRouteThroughXray": "Xray üzerinden yönlendir",
+        "kernelRouteThroughXrayHint": "İstemci trafiğini doğrudan göndermek yerine Xray'e (TPROXY) verir; böylece bu inbound'un etiketine ait yönlendirme kuralları uygulanır. Kapalı: trafik harici arayüzde NAT ile çıkar."
       },
       "tuic": {
         "congestionControl": "Tıkanıklık Kontrolü",

@@ -1492,7 +1492,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 			return err
 		}
 		// Embedded AmneziaWG owns a relay port derived from its local row id.
-		if inbound.NodeID == nil && inbound.Protocol == model.AmneziaWG && !amneziawgKernelMode(inbound) {
+		if inbound.NodeID == nil && inbound.Protocol == model.AmneziaWG && !amneziawgRelayUnused(inbound) {
 			if self := amneziawgnetSocksSelfConflict(inbound, inbound.Id); self != "" {
 				return common.NewError(self)
 			}

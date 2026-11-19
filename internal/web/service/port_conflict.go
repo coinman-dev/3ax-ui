@@ -327,7 +327,7 @@ func checkPortConflictTx(db *gorm.DB, inbound *model.Inbound, ignoreId int) (*po
 
 	// The reverse direction, only meaningful once the id is known -- AddInbound
 	// runs it after Save. Only a local row owns a relay slot (#6537 review).
-	if inbound.NodeID == nil && inbound.Protocol == model.AmneziaWG && ignoreId > 0 && !amneziawgKernelMode(inbound) {
+	if inbound.NodeID == nil && inbound.Protocol == model.AmneziaWG && ignoreId > 0 && !amneziawgRelayUnused(inbound) {
 		if self := amneziawgnetSocksSelfConflict(inbound, ignoreId); self != "" {
 			return nil, common.NewError(self)
 		}
@@ -425,9 +425,6 @@ func amneziawgForwardedPortOwner(db *gorm.DB, inbound *model.Inbound, ignoreId i
 		if !sameNode(row.NodeID, inbound.NodeID) {
 			continue
 		}
-		if amneziawgKernelMode(row) {
-			continue
-		}
 		instance, ok := amneziawg.InstanceFromInbound(row)
 		if !ok {
 			continue
@@ -464,7 +461,7 @@ func checkAmneziawgnetSocksConflict(db *gorm.DB, inbound *model.Inbound, ignoreI
 	}
 	// The row reserves its slot before its first peer is added.
 	for _, c := range candidates {
-		if amneziawgKernelMode(c) {
+		if amneziawgRelayUnused(c) {
 			continue
 		}
 		if amneziawgnet.SOCKSPortForInbound(c.Id) != inbound.Port {
@@ -493,7 +490,7 @@ func checkAmneziawgnetSocksRelayCollision(db *gorm.DB, id int) (*portConflictDet
 		return nil, err
 	}
 	for _, c := range candidates {
-		if amneziawgKernelMode(c) {
+		if amneziawgRelayUnused(c) {
 			continue
 		}
 		if amneziawgnet.SOCKSPortForInbound(c.Id) != relayPort {
@@ -515,7 +512,7 @@ func checkAmneziawgnetSocksRelayCollision(db *gorm.DB, id int) (*portConflictDet
 // amneziawgnetSocksSelfConflict: a row's own WireGuard port vs the relay port its
 // own id derives -- all three checks below exclude that id, so nothing else does.
 func amneziawgnetSocksSelfConflict(inbound *model.Inbound, id int) string {
-	if id <= 0 || inbound.NodeID != nil || amneziawgKernelMode(inbound) || !listenOverlaps(loopbackBind, inboundBindAddr(inbound)) {
+	if id <= 0 || inbound.NodeID != nil || amneziawgRelayUnused(inbound) || !listenOverlaps(loopbackBind, inboundBindAddr(inbound)) {
 		return ""
 	}
 	relayPort := amneziawgnet.SOCKSPortForInbound(id)
