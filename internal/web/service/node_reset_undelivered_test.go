@@ -311,12 +311,19 @@ func TestNodeResetsSettleEachClientOnItsOwn(t *testing.T) {
 	}
 }
 
-// stallingResetRuntime never answers a reset until its context ends.
-type stallingResetRuntime struct{ fakeNodeRuntime }
+// stallingResetRuntime never answers a reset until its context ends or the test releases it.
+type stallingResetRuntime struct {
+	fakeNodeRuntime
+	release chan struct{}
+}
 
-func (*stallingResetRuntime) ResetClientTraffic(ctx context.Context, _ *model.Inbound, _ string) error {
-	<-ctx.Done()
-	return ctx.Err()
+func (r *stallingResetRuntime) ResetClientTraffic(ctx context.Context, _ *model.Inbound, _ string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-r.release:
+		return errors.New("released by the test")
+	}
 }
 
 // A node relays its master's reset to its own sub-nodes inline; one silent sub-node must
@@ -328,7 +335,17 @@ func TestNodeResetDeliveryDoesNotHoldTheRequestBehindASilentNode(t *testing.T) {
 	if err := database.GetDB().Create(node).Error; err != nil {
 		t.Fatalf("create node: %v", err)
 	}
-	mgr.SetRuntimeOverride(node.Id, &stallingResetRuntime{})
+	stalled := &stallingResetRuntime{release: make(chan struct{})}
+	mgr.SetRuntimeOverride(node.Id, stalled)
+	// The stalled delivery holds the per-node lock past the test; the next test's node 1 waits on it.
+	t.Cleanup(func() {
+		close(stalled.release)
+		if lock, ok := nodeResetDeliveryLocks.Load(node.Id); ok {
+			lock.(*sync.Mutex).Lock()
+			nodeResetDeliveryLocks.Delete(node.Id)
+			lock.(*sync.Mutex).Unlock()
+		}
+	})
 	ib := nodeInbound(t, node.Id, 41912, []model.Client{{Email: "held", ID: "11111111-1111-1111-1111-1111111111ab", Enable: true}})
 	if err := (&InboundService{}).AddClientStat(database.GetDB(), ib.Id, &model.Client{Email: "held", Enable: true}); err != nil {
 		t.Fatalf("AddClientStat: %v", err)
