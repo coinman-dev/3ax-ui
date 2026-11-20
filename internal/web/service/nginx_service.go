@@ -456,7 +456,7 @@ func (s *NginxService) defaultDomain() string {
 	for _, name := range certificateDomains(certFile) {
 		// A wildcard is a certificate for a family of names, not a name to
 		// put in a config.
-		if !strings.HasPrefix(name, "*") {
+		if !strings.HasPrefix(name, "*") && net.ParseIP(name) == nil {
 			return name
 		}
 	}

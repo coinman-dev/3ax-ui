@@ -77,3 +77,16 @@ func TestSetNginxModeFromCLI(t *testing.T) {
 		}
 	}
 }
+
+// A panel certificate issued for the server's IP is no site name: browsers send no SNI for an
+// IP, and with no certificate under that name every reconcile aborted (seen after a 1.x upgrade).
+func TestDefaultDomainSkipsAnIPCertificate(t *testing.T) {
+	s := newNginxTestServer(t)
+	certFile, _ := writeTestCert(t, t.TempDir(), "203.0.113.7")
+	if err := (&SettingService{}).setString("webCertFile", certFile); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetSettings().Domain; got != "" {
+		t.Fatalf("domain = %q, want none for an IP certificate", got)
+	}
+}
