@@ -18,11 +18,17 @@ func WriteStub(html string) error {
 	if err := os.MkdirAll(WebRoot, 0o755); err != nil {
 		return fmt.Errorf("create web root: %w", err)
 	}
-	if current, err := os.ReadFile(StubPath()); err == nil && string(current) == html {
-		return nil
+	if current, err := os.ReadFile(StubPath()); err != nil || string(current) != html {
+		if err := os.WriteFile(StubPath(), []byte(html), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", StubPath(), err)
+		}
 	}
-	if err := os.WriteFile(StubPath(), []byte(html), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", StubPath(), err)
+	// The unit's UMask=0077 strips the modes above, and nginx's workers are not root.
+	if err := os.Chmod(WebRoot, 0o755); err != nil {
+		return fmt.Errorf("open up %s: %w", WebRoot, err)
+	}
+	if err := os.Chmod(StubPath(), 0o644); err != nil {
+		return fmt.Errorf("open up %s: %w", StubPath(), err)
 	}
 	return nil
 }
