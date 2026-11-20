@@ -52,13 +52,14 @@ func (s *InboundService) MigrationRequirements() (err error) {
 		}
 	}()
 
-	if tx.Migrator().HasColumn(&model.Inbound{}, "all_time") {
-		if err = tx.Migrator().DropColumn(&model.Inbound{}, "all_time"); err != nil {
+	for _, m := range []any{&model.Inbound{}, &xray.ClientTraffic{}} {
+		if !tx.Migrator().HasColumn(m, "all_time") {
+			continue
+		}
+		if err = tx.Migrator().DropColumn(m, "all_time"); err != nil {
 			return
 		}
-	}
-	if tx.Migrator().HasColumn(&xray.ClientTraffic{}, "all_time") {
-		if err = tx.Migrator().DropColumn(&xray.ClientTraffic{}, "all_time"); err != nil {
+		if err = restoreModelIndexes(tx, m); err != nil {
 			return
 		}
 	}
@@ -335,4 +336,22 @@ func (s *InboundService) MigrationRestoreVisionFlow() {
 		}
 		logger.Info("MigrationRestoreVisionFlow: restored XTLS Vision flow on inbound", ib.Id)
 	}
+}
+
+// restoreModelIndexes puts back the indexes SQLite's DropColumn loses when GORM rebuilds the
+// table; left to the next start, two processes starting together both tried to create them.
+func restoreModelIndexes(tx *gorm.DB, m any) error {
+	stmt := &gorm.Statement{DB: tx}
+	if err := stmt.Parse(m); err != nil {
+		return err
+	}
+	for _, idx := range stmt.Schema.ParseIndexes() {
+		if tx.Migrator().HasIndex(m, idx.Name) {
+			continue
+		}
+		if err := tx.Migrator().CreateIndex(m, idx.Name); err != nil {
+			return err
+		}
+	}
+	return nil
 }

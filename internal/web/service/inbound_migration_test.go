@@ -356,3 +356,39 @@ func TestMigrationRequirements_NormalizesShareAddressFields(t *testing.T) {
 		t.Fatalf("invalid address share fields = (%q, %q), want (node, empty)", gotInvalidAddress.ShareAddrStrategy, gotInvalidAddress.ShareAddr)
 	}
 }
+
+// Dropping the legacy all_time column rebuilds the SQLite table and loses its indexes; the
+// next start then recreates them, and an update's concurrent `x-ui migrate` collided with it.
+func TestMigrationRequirementsKeepsIndexesWhenDroppingAllTime(t *testing.T) {
+	dbDir := t.TempDir()
+	t.Setenv("XUI_DB_FOLDER", dbDir)
+	dbtest.InitDB(t, filepath.Join(dbDir, "x-ui.db"))
+	db := database.GetDB()
+	if database.IsPostgres() {
+		t.Skip("the table rebuild is SQLite's")
+	}
+	for _, table := range []string{"inbounds", "client_traffics"} {
+		if err := db.Exec("ALTER TABLE " + table + " ADD COLUMN `all_time` integer DEFAULT 0").Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	indexes := func() []string {
+		var names []string
+		db.Raw(`SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL
+			AND tbl_name IN ('inbounds','client_traffics') ORDER BY name`).Scan(&names)
+		return names
+	}
+	before := indexes()
+	if len(before) == 0 {
+		t.Fatal("the template has no indexes on these tables to lose")
+	}
+	if err := (&InboundService{}).MigrationRequirements(); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasColumn(&model.Inbound{}, "all_time") {
+		t.Fatal("all_time was not dropped")
+	}
+	if after := indexes(); strings.Join(after, ",") != strings.Join(before, ",") {
+		t.Fatalf("indexes after dropping all_time = %v, want %v", after, before)
+	}
+}
