@@ -316,8 +316,8 @@ func (m *Manager) teardownExtras(id int, name string, x axExtras) {
 	}
 }
 
-// healExtras re-applies a TPROXY inbound's table when something outside the
-// panel (a firewall reload, nft flush) removed it.
+// healExtras re-applies a TPROXY inbound's table and mark routing when something
+// outside the panel (a firewall reload, nft flush, networkd restart) removed them.
 func (m *Manager) healExtras(id int, cur *managed) {
 	if cur.spec.extras.tproxyPort == 0 {
 		return
@@ -332,6 +332,8 @@ func (m *Manager) healExtras(id int, cur *managed) {
 	}
 	cur.lastHeal = time.Now()
 	if _, err := m.host.run("", "nft", "list", "table", "inet", tproxyTableName(id)); err == nil {
+		// systemd-networkd drops foreign rules and routes when it restarts.
+		m.ensureTproxyRouting(len(cur.spec.extras.tunnelV6) > 0)
 		return
 	}
 	logger.Warning("amneziawgkern: TPROXY table for ", cur.spec.name, " is gone, restoring it")

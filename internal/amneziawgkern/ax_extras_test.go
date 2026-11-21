@@ -313,6 +313,26 @@ func TestKernelTproxyHealsWithoutForkingEveryTick(t *testing.T) {
 	}
 }
 
+// systemd-networkd drops foreign ip rules and routes when it restarts (an unattended
+// systemd upgrade did it on a test VM); with the nft table intact, TPROXY went nowhere.
+func TestKernelTproxyHealsTheMarkRouting(t *testing.T) {
+	h := newAxHost()
+	m := newManager(h, t.TempDir())
+	d := axDesired(1, tproxied)
+	if err := m.Ensure(d); err != nil {
+		t.Fatal(err)
+	}
+	h.rules = map[string]int{}
+	h.routes = map[string]bool{}
+	m.ifaces[1].lastHeal = time.Now().Add(-healEvery - time.Second)
+	if err := m.Ensure(d); err != nil {
+		t.Fatal(err)
+	}
+	if h.rules["-4 fwmark "+tproxyMark+" lookup "+tproxyTable] != 1 || !h.routes["-4 table "+tproxyTable] {
+		t.Errorf("mark routing not restored: rules=%v routes=%v", h.rules, h.routes)
+	}
+}
+
 func TestKernelExtrasStayOffForAPlainInbound(t *testing.T) {
 	h := newAxHost()
 	m := newManager(h, t.TempDir())
