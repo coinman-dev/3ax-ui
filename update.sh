@@ -124,6 +124,15 @@ install_nginx() {
     echo -e "${green}nginx: $(nginx -v 2>&1 | sed 's|.*nginx/||')${plain}"
 }
 
+# 3AX-UI: the unit's ProtectKernelModules=yes stops the panel's own modprobe, so a
+# host with the AmneziaWG module gets it loaded at boot by systemd-modules-load.
+ensure_awg_module_autoload() {
+    modinfo amneziawg > /dev/null 2>&1 || return 0
+    [[ -d /etc/modules-load.d ]] || return 0
+    echo amneziawg > /etc/modules-load.d/amneziawg.conf
+    modprobe amneziawg > /dev/null 2>&1 || true
+}
+
 # Check command exist function
 _command_exists() {
     type "$1" &> /dev/null
@@ -948,4 +957,5 @@ echo -e "${green}Running...${plain}"
 require_writable_update_paths
 install_base
 install_nginx
+ensure_awg_module_autoload
 update_x-ui $1

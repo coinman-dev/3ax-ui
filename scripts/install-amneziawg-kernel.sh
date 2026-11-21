@@ -61,8 +61,10 @@ dkms status -m amneziawg -v 1.0.0 | grep -q . || dkms add -m amneziawg -v 1.0.0
 dkms build -m amneziawg -v 1.0.0
 dkms install -m amneziawg -v 1.0.0 --force
 
-log "Loading the module"
+log "Loading the module, now and at every boot"
 modprobe amneziawg
+# The panel's unit runs with ProtectKernelModules=yes and cannot load it itself.
+echo amneziawg > /etc/modules-load.d/amneziawg.conf
 lsmod | grep -q '^amneziawg' || die "module did not load"
 
 log "Building amneziawg-tools"
