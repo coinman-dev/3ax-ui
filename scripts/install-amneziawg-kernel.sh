@@ -27,11 +27,14 @@ TOOLS_TAG="v3.1.20260812"
 TOOLS_COMMIT="ee0f0a9aa34ff0a0da4b3433b9512781cfe02843"
 
 log "Kernel: $KERNEL"
-[ -d "/lib/modules/$KERNEL/build" ] || die "kernel headers missing; install linux-headers-$KERNEL"
 
 log "Installing build dependencies"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
+if [ ! -d "/lib/modules/$KERNEL/build" ]; then
+	apt-get install -y -qq "linux-headers-$KERNEL" || true
+	[ -d "/lib/modules/$KERNEL/build" ] || die "kernel headers missing and linux-headers-$KERNEL is not in the repositories; install them by hand"
+fi
 apt-get install -y -qq dkms build-essential git libmnl-dev pkg-config nftables
 
 # A clang-built kernel makes DKMS invoke the module build with LLVM=1, which
