@@ -213,6 +213,7 @@ func collectKernelTrafficWith(inboundService *service.InboundService, kernel []a
 
 	now := time.Now()
 	var traffics []*xray.ClientTraffic
+	inboundTotals := newAxKernelInboundTotals(kernel)
 	for _, id := range manager.ManagedIDs() {
 		state, ok := manager.TrafficStateFor(id)
 		if !ok {
@@ -252,6 +253,7 @@ func collectKernelTrafficWith(inboundService *service.InboundService, kernel []a
 					Up:        delta.Up,
 					Down:      delta.Down,
 				})
+				inboundTotals.add(id, delta.Up, delta.Down)
 			}
 		}
 		if desired {
@@ -267,7 +269,7 @@ func collectKernelTrafficWith(inboundService *service.InboundService, kernel []a
 	}
 	// A client that just crossed its limit is disabled here; the next reconcile
 	// tick drops its peer from the interface, which is what cuts it off.
-	if _, _, err := inboundService.AddTraffic(nil, traffics); err != nil {
+	if _, _, err := inboundService.AddTraffic(inboundTotals.traffics(), traffics); err != nil {
 		logger.Warning("amneziawg job: recording kernel-mode traffic:", err)
 	}
 }
