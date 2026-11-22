@@ -1,8 +1,10 @@
 package service
 
 import (
+	"encoding/json"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -690,5 +692,28 @@ func TestListPagedSortsByOnline(t *testing.T) {
 		if got := pagedEmails(rows); !slices.Equal(got, tc.want) {
 			t.Fatalf("online %s = %v, want %v", tc.order, got, tc.want)
 		}
+	}
+}
+
+// The one-page inbounds view shows each AmneziaWG client's forwarded ports from the paged
+// rows, as 1.x's Mapping column did; the slim row used to drop them.
+func TestPagedRowsCarryForwardedPorts(t *testing.T) {
+	setupPagingServices(t)
+	db := database.GetDB()
+	rec := model.ClientRecord{Email: "lenya-pc", Enable: true, ForwardedPorts: "37015, 8000-8100"}
+	if err := db.Create(&rec).Error; err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	q := newClientQuery(db, time.Now().UnixMilli(), 0, 0)
+	rows, err := q.pageRows(ClientPageParams{}, nil, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"forwardedPorts":"37015, 8000-8100"`) {
+		t.Fatalf("paged rows = %s, want the client's forwarded ports", raw)
 	}
 }

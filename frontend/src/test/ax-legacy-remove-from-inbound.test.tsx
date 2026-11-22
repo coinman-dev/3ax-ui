@@ -51,7 +51,13 @@ it('removes a shared client from this inbound only', async () => {
   detach.mockResolvedValue(new Msg(true, '', null));
   vi.spyOn(HttpUtil, 'post').mockResolvedValue(new Msg(true, '', { datepicker: 'gregorian' }));
   renderWithProviders(
-    <AxInboundClientsTable inboundId={3} onlineEmails={[]} isMobile={false} onOpen={() => {}} />,
+    <AxInboundClientsTable
+      inboundId={3}
+      showForwardedPorts={false}
+      onlineEmails={[]}
+      isMobile={false}
+      onOpen={() => {}}
+    />,
   );
   const sharedRow = (await screen.findByText('shared@x')).closest('tr') as HTMLElement;
   const onlyRow = screen.getByText('only-here@x').closest('tr') as HTMLElement;

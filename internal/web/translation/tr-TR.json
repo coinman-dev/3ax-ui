@@ -826,6 +826,7 @@
       "sniffingDestOverride": "Hedef geçersiz kılma",
       "advancedTitle": "Gelişmiş Ayarlar",
       "axAwgIpv6Clients": "IPv6 için şu istemcileri kullanın:",
+      "axForwardedPortsShort": "Eşleme",
       "axRemoveFromInbound": "Bu gelen bağlantıdan çıkar",
       "axRemoveFromInboundContent": "{email} artık bu gelen bağlantı üzerinden bağlanmayacak. İstemci, trafiği ve diğer gelen bağlantıları kalır.",
       "axRemove": "Çıkar"

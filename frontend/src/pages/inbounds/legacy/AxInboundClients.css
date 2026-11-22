@@ -50,3 +50,15 @@
 .ax-card-clients .ax-inbound-clients {
   margin: 4px 0 0;
 }
+
+/* 1.x's Mapping cell: the forwarded ports wrap instead of widening the column */
+.ax-client-ports {
+  margin: 0;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.ax-client-ports-none {
+  margin: 0;
+  opacity: 0.5;
+}

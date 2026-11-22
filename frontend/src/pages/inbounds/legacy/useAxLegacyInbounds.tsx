@@ -72,6 +72,7 @@ export function useAxLegacyInbounds({
     (record: DBInboundRecord) => (
       <AxInboundClientsTable
         inboundId={record.id}
+        showForwardedPorts={!!record.isAmneziawg}
         onlineEmails={clientCount[record.id]?.online ?? NO_EMAILS}
         isMobile={isMobile}
         onOpen={openModal}

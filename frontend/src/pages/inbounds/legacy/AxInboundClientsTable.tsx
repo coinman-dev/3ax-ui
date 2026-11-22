@@ -34,6 +34,8 @@ const sharedWithOthers = (record: ClientRecord) => (record.inboundIds?.length ??
 
 interface AxInboundClientsTableProps {
   inboundId: number;
+  // Only AmneziaWG clients have forwarded ports, so only its inbounds get 1.x's Mapping column.
+  showForwardedPorts: boolean;
   onlineEmails: string[];
   isMobile: boolean;
   onOpen: (request: AxClientModalRequest) => void;
@@ -43,6 +45,7 @@ interface AxInboundClientsTableProps {
 // filtered to this inbound, so a client attached to two inbounds shows under both.
 export default function AxInboundClientsTable({
   inboundId,
+  showForwardedPorts,
   onlineEmails,
   isMobile,
   onOpen,
@@ -241,6 +244,16 @@ export default function AxInboundClientsTable({
         <ClientCardComment comment={record.comment} className="ax-client-comment" />
       </div>
     );
+    const portsTag = (record: ClientRecord) => {
+      const ports = record.forwardedPorts?.trim();
+      return ports ? (
+        <Tag color="cyan" className="ax-client-ports">
+          {ports}
+        </Tag>
+      ) : (
+        <Tag className="ax-client-ports-none">—</Tag>
+      );
+    };
     const trafficCell = (record: ClientRecord, compact: boolean) => (
       <ClientTrafficCell
         compact={compact}
@@ -263,6 +276,7 @@ export default function AxInboundClientsTable({
               <div className="ax-client-mobile-tags">
                 {statusTag(record)}
                 {expiryTag(record)}
+                {showForwardedPorts && record.forwardedPorts?.trim() && portsTag(record)}
               </div>
               {trafficCell(record, true)}
             </div>
@@ -384,10 +398,21 @@ export default function AxInboundClientsTable({
         width: 220,
         render: (_v, record) => emailCell(record),
       },
+      ...(showForwardedPorts
+        ? [
+            {
+              title: t('pages.inbounds.axForwardedPortsShort'),
+              key: 'forwardedPorts',
+              width: 120,
+              align: 'center' as const,
+              render: (_v: unknown, record: ClientRecord) => portsTag(record),
+            },
+          ]
+        : []),
       {
         title: t('pages.clients.traffic'),
         key: 'traffic',
-        width: 280,
+        width: 200,
         render: (_v, record) => trafficCell(record, false),
       },
       {
@@ -409,6 +434,7 @@ export default function AxInboundClientsTable({
   }, [
     t,
     isMobile,
+    showForwardedPorts,
     datepicker,
     expireDiff,
     trafficDiff,

@@ -826,6 +826,7 @@
       "sniffingDestOverride": "Перевизначення призначення",
       "advancedTitle": "Додаткові налаштування",
       "axAwgIpv6Clients": "Для IPv6 використовуйте ці клієнти:",
+      "axForwardedPortsShort": "Мапінг",
       "axRemoveFromInbound": "Прибрати з цього вхідного",
       "axRemoveFromInboundContent": "{email} більше не підключатиметься через це вхідне. Сам клієнт, його трафік та інші вхідні залишаться.",
       "axRemove": "Прибрати"

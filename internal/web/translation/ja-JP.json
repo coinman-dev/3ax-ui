@@ -826,6 +826,7 @@
       "sniffingDestOverride": "宛先のオーバーライド",
       "advancedTitle": "詳細設定",
       "axAwgIpv6Clients": "IPv6 を使うには次のクライアントを使用してください：",
+      "axForwardedPortsShort": "マッピング",
       "axRemoveFromInbound": "このインバウンドから外す",
       "axRemoveFromInboundContent": "{email} はこのインバウンド経由で接続できなくなります。クライアント本体、そのトラフィック、他のインバウンドはそのまま残ります。",
       "axRemove": "外す"

@@ -2272,6 +2272,11 @@ export const SCHEMAS: Record<string, unknown> = {
         "format": "int64",
         "type": "integer"
       },
+      "forwardedPorts": {
+        "description": "3AX-UI: the one-page inbounds view lists each AmneziaWG client's forwards.",
+        "example": "80,443,8000-8100",
+        "type": "string"
+      },
       "group": {
         "example": "staff",
         "type": "string"

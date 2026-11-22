@@ -826,6 +826,7 @@
       "sniffingDestOverride": "目標覆寫",
       "advancedTitle": "進階設定",
       "axAwgIpv6Clients": "如需 IPv6，請使用以下用戶端：",
+      "axForwardedPortsShort": "對應",
       "axRemoveFromInbound": "從此入站移除",
       "axRemoveFromInboundContent": "{email} 將不再透過此入站連線。客戶端本身、其流量與其他入站保持不變。",
       "axRemove": "移除"

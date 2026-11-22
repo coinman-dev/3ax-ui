@@ -570,6 +570,7 @@ export const ClientSlimSchema = z.object({
   email: z.string(),
   enable: z.boolean(),
   expiryTime: z.number().int(),
+  forwardedPorts: z.string().optional(),
   group: z.string().optional(),
   inboundIds: z.array(z.number().int()),
   limitHwid: z.number().int(),

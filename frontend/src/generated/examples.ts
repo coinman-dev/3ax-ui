@@ -477,6 +477,7 @@ export const EXAMPLES: Record<string, unknown> = {
         "email": "alice@example.com",
         "enable": true,
         "expiryTime": 1735689600000,
+        "forwardedPorts": "80,443,8000-8100",
         "group": "staff",
         "inboundIds": [
           3,
@@ -581,6 +582,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "email": "alice@example.com",
     "enable": true,
     "expiryTime": 1735689600000,
+    "forwardedPorts": "80,443,8000-8100",
     "group": "staff",
     "inboundIds": [
       3,

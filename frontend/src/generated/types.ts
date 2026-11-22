@@ -539,6 +539,7 @@ export interface ClientSlim {
   email: string;
   enable: boolean;
   expiryTime: number;
+  forwardedPorts?: string;
   group?: string;
   inboundIds: number[];
   limitHwid: number;
