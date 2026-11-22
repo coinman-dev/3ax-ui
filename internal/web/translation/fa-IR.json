@@ -825,6 +825,7 @@
       },
       "sniffingDestOverride": "بازنویسی مقصد",
       "advancedTitle": "تنظیمات پیشرفته",
+      "axAwgIpv6Clients": "برای IPv6 از این کلاینت‌ها استفاده کنید:",
       "axRemoveFromInbound": "حذف از این ورودی",
       "axRemoveFromInboundContent": "{email} دیگر از طریق این ورودی وصل نمی‌شود. خود کلاینت، ترافیک آن و ورودی‌های دیگرش باقی می‌مانند.",
       "axRemove": "حذف"

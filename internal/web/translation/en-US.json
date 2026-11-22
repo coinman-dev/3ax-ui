@@ -825,6 +825,7 @@
         "peerNumberConfig": "Peer {n} config"
       },
       "sniffingDestOverride": "Destination override",
+      "axAwgIpv6Clients": "For IPv6, use these clients:",
       "axRemoveFromInbound": "Remove from this inbound",
       "axRemoveFromInboundContent": "{email} will no longer connect through this inbound. The client, its traffic and its other inbounds stay.",
       "axRemove": "Remove"

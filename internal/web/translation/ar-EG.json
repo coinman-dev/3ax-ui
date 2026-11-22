@@ -825,6 +825,7 @@
       },
       "sniffingDestOverride": "تجاوز الوجهة",
       "advancedTitle": "الإعدادات المتقدمة",
+      "axAwgIpv6Clients": "لاستخدام IPv6 استخدم برامج العميل التالية:",
       "axRemoveFromInbound": "إزالة من هذا الوارد",
       "axRemoveFromInboundContent": "لن يتصل {email} عبر هذا الوارد بعد الآن. يبقى العميل وحركة مروره والواردات الأخرى كما هي.",
       "axRemove": "إزالة"

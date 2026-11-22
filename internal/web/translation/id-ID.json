@@ -825,6 +825,7 @@
       },
       "sniffingDestOverride": "Penggantian tujuan",
       "advancedTitle": "Pengaturan Lanjutan",
+      "axAwgIpv6Clients": "Untuk IPv6, gunakan klien berikut:",
       "axRemoveFromInbound": "Hapus dari inbound ini",
       "axRemoveFromInboundContent": "{email} tidak akan lagi terhubung melalui inbound ini. Klien, trafiknya, dan inbound lainnya tetap ada.",
       "axRemove": "Hapus"

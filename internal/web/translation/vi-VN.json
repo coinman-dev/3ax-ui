@@ -825,6 +825,7 @@
       },
       "sniffingDestOverride": "Ghi đè đích",
       "advancedTitle": "Cài đặt nâng cao",
+      "axAwgIpv6Clients": "Để dùng IPv6, hãy dùng các ứng dụng sau:",
       "axRemoveFromInbound": "Gỡ khỏi inbound này",
       "axRemoveFromInboundContent": "{email} sẽ không kết nối qua inbound này nữa. Máy khách, lưu lượng và các inbound khác của nó vẫn được giữ.",
       "axRemove": "Gỡ"

@@ -11,6 +11,14 @@
   gap: 4px;
 }
 
+/* 3AX-UI: hint under an IPv6 AmneziaWG inbound's protocol tags */
+.ax-awg-ipv6-clients {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  opacity: 0.75;
+}
+
 .client-count-tag {
   font-variant-numeric: tabular-nums;
 }

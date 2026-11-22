@@ -9,6 +9,7 @@ import { useDatepicker } from '@/hooks/useDatepicker';
 import type { NodeRecord } from '@/api/queries/useNodesQuery';
 import { coerceInboundJsonField } from '@/models/dbinbound';
 
+import { AxAwgIpv6Clients } from './AxAwgIpv6Clients';
 import { RowActionsCell } from './RowActions';
 import {
   SPEED_COLUMN_WIDTH,
@@ -285,7 +286,12 @@ export function useInboundColumns({
                 </Tag>,
               );
           }
-          return <div className="protocol-tags">{tags}</div>;
+          return (
+            <>
+              <div className="protocol-tags">{tags}</div>
+              {record.isAmneziawg && <AxAwgIpv6Clients settings={record.settings} />}
+            </>
+          );
         },
       },
       {

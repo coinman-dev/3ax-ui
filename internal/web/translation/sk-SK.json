@@ -825,6 +825,7 @@
         "peerNumberConfig": "Konfigurácia peeru {n}"
       },
       "sniffingDestOverride": "Prepísať cieľ",
+      "axAwgIpv6Clients": "Pre IPv6 použite tieto klienty:",
       "axRemoveFromInbound": "Odobrať z tohto prichádzajúceho",
       "axRemoveFromInboundContent": "{email} sa už nebude pripájať cez toto prichádzajúce spojenie. Klient, jeho prenos a ostatné prichádzajúce spojenia zostávajú.",
       "axRemove": "Odobrať"

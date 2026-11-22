@@ -825,6 +825,7 @@
       },
       "sniffingDestOverride": "Substituição de destino",
       "advancedTitle": "Configurações avançadas",
+      "axAwgIpv6Clients": "Para IPv6, use estes clientes:",
       "axRemoveFromInbound": "Remover desta entrada",
       "axRemoveFromInboundContent": "{email} não se conectará mais por esta entrada. O cliente, seu tráfego e suas outras entradas permanecem.",
       "axRemove": "Remover"
