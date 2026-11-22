@@ -44,6 +44,7 @@ type AllSetting struct {
 	SubTrafficDepletedTemplate string `json:"subTrafficDepletedTemplate" form:"subTrafficDepletedTemplate"`
 	Datepicker                 string `json:"datepicker" form:"datepicker"`
 	QrCodeSize                 int    `json:"qrCodeSize" form:"qrCodeSize" validate:"omitempty,gte=300,lte=600" example:"450"`
+	LegacyInboundsView         bool   `json:"legacyInboundsView" form:"legacyInboundsView" example:"false"` // 3AX-UI: inbounds and clients on one page
 
 	TgBotEnable     bool   `json:"tgBotEnable" form:"tgBotEnable"`
 	TgBotToken      string `json:"tgBotToken" form:"tgBotToken"`

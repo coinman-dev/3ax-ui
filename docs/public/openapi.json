@@ -152,6 +152,11 @@
           "ldapVlessField": {
             "type": "string"
           },
+          "legacyInboundsView": {
+            "description": "3AX-UI: inbounds and clients on one page",
+            "example": false,
+            "type": "boolean"
+          },
           "nodeDownThreshold": {
             "maximum": 100,
             "minimum": 1,
@@ -654,6 +659,7 @@
           "ldapUserAttr",
           "ldapUserFilter",
           "ldapVlessField",
+          "legacyInboundsView",
           "nodeDownThreshold",
           "outboundDownThreshold",
           "pageSize",
@@ -949,6 +955,11 @@
           },
           "ldapVlessField": {
             "type": "string"
+          },
+          "legacyInboundsView": {
+            "description": "3AX-UI: inbounds and clients on one page",
+            "example": false,
+            "type": "boolean"
           },
           "nodeDownThreshold": {
             "maximum": 100,
@@ -1460,6 +1471,7 @@
           "ldapUserAttr",
           "ldapUserFilter",
           "ldapVlessField",
+          "legacyInboundsView",
           "nodeDownThreshold",
           "outboundDownThreshold",
           "pageSize",

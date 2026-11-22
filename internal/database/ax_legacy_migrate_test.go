@@ -325,3 +325,50 @@ func TestFreshDatabaseSkipsTheAx181Migration(t *testing.T) {
 		t.Errorf("fresh install made a 1.x backup: %v", backups)
 	}
 }
+
+// An upgraded panel keeps 1.x's single "inbounds with their clients" page; a fresh
+// install starts on the split Inbounds / Clients pages.
+func TestUpgradeKeepsTheCombinedInboundsView(t *testing.T) {
+	view := func() string {
+		t.Helper()
+		var s model.Setting
+		if err := GetDB().Where("key = ?", AxLegacyInboundsViewKey).First(&s).Error; err != nil {
+			return ""
+		}
+		return s.Value
+	}
+	t.Run("1.x database", func(t *testing.T) {
+		migratedAx181(t)
+		if got := view(); got != "true" {
+			t.Fatalf("legacyInboundsView = %q, want true", got)
+		}
+	})
+	t.Run("older panel without tunnels", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "x-ui.db")
+		if err := InitDB(path); err != nil {
+			t.Fatal(err)
+		}
+		GetDB().Where("seeder_name = ?", axLegacySeeder).Delete(&model.HistoryOfSeeders{})
+		_ = CloseDB()
+		if err := InitDB(path); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = CloseDB() })
+		if got := view(); got != "true" {
+			t.Fatalf("legacyInboundsView = %q, want true", got)
+		}
+	})
+	t.Run("fresh install, then restarted", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "x-ui.db")
+		for start := 1; start <= 2; start++ {
+			if err := InitDB(path); err != nil {
+				t.Fatal(err)
+			}
+			got := view()
+			_ = CloseDB()
+			if got != "" {
+				t.Fatalf("start %d: legacyInboundsView = %q, want no row (off)", start, got)
+			}
+		}
+	})
+}

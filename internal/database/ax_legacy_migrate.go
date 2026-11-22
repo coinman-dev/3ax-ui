@@ -25,6 +25,9 @@ const axLegacySeeder = "3AXLegacy1x"
 // awg-quick / wg-quick; internal/axlegacy takes them down once, then drops it.
 const AxLegacyHostCleanupKey = "axLegacyHostCleanup"
 
+// AxLegacyInboundsViewKey turns on 1.x's single page of inbounds with their clients.
+const AxLegacyInboundsViewKey = "legacyInboundsView"
+
 // AxLegacyInterface is one 1.x tunnel interface: kind "awg" or "wg".
 type AxLegacyInterface struct {
 	Kind string `json:"kind"`
@@ -123,6 +126,11 @@ func migrateAx1xDatabase() error {
 	}
 	if done > 0 {
 		return nil
+	}
+	// Any panel older than this step is an upgrade: it keeps the page layout it had.
+	if err := db.Where(model.Setting{Key: AxLegacyInboundsViewKey}).
+		Assign(model.Setting{Value: "true"}).FirstOrCreate(&model.Setting{}).Error; err != nil {
+		return err
 	}
 	if !isAx1xDatabase() {
 		return db.Create(&model.HistoryOfSeeders{SeederName: axLegacySeeder}).Error

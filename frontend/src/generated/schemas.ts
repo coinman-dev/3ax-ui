@@ -126,6 +126,11 @@ export const SCHEMAS: Record<string, unknown> = {
       "ldapVlessField": {
         "type": "string"
       },
+      "legacyInboundsView": {
+        "description": "3AX-UI: inbounds and clients on one page",
+        "example": false,
+        "type": "boolean"
+      },
       "nodeDownThreshold": {
         "maximum": 100,
         "minimum": 1,
@@ -628,6 +633,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "ldapUserAttr",
       "ldapUserFilter",
       "ldapVlessField",
+      "legacyInboundsView",
       "nodeDownThreshold",
       "outboundDownThreshold",
       "pageSize",
@@ -923,6 +929,11 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "ldapVlessField": {
         "type": "string"
+      },
+      "legacyInboundsView": {
+        "description": "3AX-UI: inbounds and clients on one page",
+        "example": false,
+        "type": "boolean"
       },
       "nodeDownThreshold": {
         "maximum": 100,
@@ -1434,6 +1445,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "ldapUserAttr",
       "ldapUserFilter",
       "ldapVlessField",
+      "legacyInboundsView",
       "nodeDownThreshold",
       "outboundDownThreshold",
       "pageSize",
