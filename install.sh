@@ -1868,29 +1868,34 @@ resolve_latest_tag() {
     curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/coinman-dev/3ax-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
-# Releases publish <asset>.sha256 next to each archive. A mismatch or a failed
-# sidecar download aborts the install; only a 404 (releases predating the
-# sidecar) is tolerated with a warning.
+# Releases publish one SHA256SUMS for all archives; up to v2.0.0-beta.3 each archive
+# had a <asset>.sha256 instead. A mismatch, a missing line or a failed download
+# aborts the install; only a release with neither file is let through with a warning.
 verify_release_checksum() {
-    local url="$1" file="$2" sums="$2.sha256" code expected actual
+    local url="$1" file="$2" sums="$2.sums" asset="${1##*/}" code expected actual
     rm -f "${sums}"
-    code=$(curl -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${sums}" -w '%{http_code}' "${url}.sha256")
-    if [[ "${code}" == "404" ]]; then
-        rm -f "${sums}"
-        echo -e "${yellow}No checksum published for this release, skipping verification${plain}"
-        return 0
+    code=$(curl -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${sums}" -w '%{http_code}' "${url%/*}/SHA256SUMS" 2> /dev/null)
+    if [[ "${code}" == "200" ]]; then
+        expected=$(awk -v f="${asset}" '$2 == f {print $1; exit}' "${sums}")
+    elif [[ "${code}" == "404" ]]; then
+        code=$(curl -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${sums}" -w '%{http_code}' "${url}.sha256" 2> /dev/null)
+        if [[ "${code}" == "404" ]]; then
+            rm -f "${sums}"
+            echo -e "${yellow}No checksum published for this release, skipping verification${plain}"
+            return 0
+        fi
+        expected=$(awk 'NR == 1 {print $1}' "${sums}" 2> /dev/null)
     fi
+    rm -f "${sums}"
     if [[ "${code}" != "200" ]]; then
-        rm -f "${sums}" "${file}"
-        echo -e "${red}Failed to download the checksum for $(basename "${file}") (HTTP ${code})${plain}"
+        rm -f "${file}"
+        echo -e "${red}Failed to download the checksum for ${asset} (HTTP ${code})${plain}"
         exit 1
     fi
-    expected=$(awk 'NR == 1 {print $1}' "${sums}")
     actual=$(sha256sum "${file}" | awk '{print $1}')
-    rm -f "${sums}"
     if [[ ! "${expected}" =~ ^[0-9a-f]{64}$ || "${expected}" != "${actual}" ]]; then
         rm -f "${file}"
-        echo -e "${red}Checksum mismatch for $(basename "${file}"): expected ${expected:-<none>}, got ${actual}${plain}"
+        echo -e "${red}Checksum mismatch for ${asset}: expected ${expected:-<none>}, got ${actual}${plain}"
         exit 1
     fi
     echo -e "${green}Checksum verified: ${actual}${plain}"
