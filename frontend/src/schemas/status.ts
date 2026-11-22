@@ -60,6 +60,11 @@ export const StatusSchema = z.object({
     .object({ configured: z.number(), running: z.number(), version: z.string() })
     .partial()
     .optional(),
+  // 3AX-UI: enabled AmneziaWG inbounds, how many are up, the engine version in use.
+  awg: z
+    .object({ configured: z.number(), running: z.number(), version: z.string() })
+    .partial()
+    .optional(),
 });
 
 export type StatusInput = z.infer<typeof StatusSchema>;

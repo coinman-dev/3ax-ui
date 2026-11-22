@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "يحتفظ بعناوين الاستماع والمنافذ والمسار الأساسي والشهادات وهوية العقدة الخاصة بهذه اللوحة بدلًا من أخذها من الملف المرفوع.",
       "logLines": "عدد الأسطر",
       "timeRange": "النطاق الزمني",
-      "mtprotoRunning": "وكلاء MTProto العاملة: {running} من {total}"
+      "mtprotoRunning": "وكلاء MTProto العاملة: {running} من {total}",
+      "awgRunning": "يعمل {running} من {total} من واردات AmneziaWG"
     },
     "inbounds": {
       "totalDownUp": "إجمالي المرسل/المستقبل",

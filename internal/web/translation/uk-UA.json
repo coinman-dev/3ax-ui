@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "Залишає адреси та порти цієї панелі, базовий шлях, сертифікати та посвідчення для вузлів замість тих, що у завантаженому файлі.",
       "logLines": "Кількість рядків",
       "timeRange": "Часовий діапазон",
-      "mtprotoRunning": "Працює MTProto-проксі: {running} з {total}"
+      "mtprotoRunning": "Працює MTProto-проксі: {running} з {total}",
+      "awgRunning": "Працює вхідних AmneziaWG: {running} з {total}"
     },
     "inbounds": {
       "totalDownUp": "Всього надісланих/отриманих",

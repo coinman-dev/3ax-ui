@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "Conserva las direcciones de escucha, los puertos, la ruta base, los certificados y la identidad de nodo de este panel en lugar de tomarlos del archivo subido.",
       "logLines": "Número de líneas",
       "timeRange": "Rango de tiempo",
-      "mtprotoRunning": "Proxies MTProto en marcha: {running} de {total}"
+      "mtprotoRunning": "Proxies MTProto en marcha: {running} de {total}",
+      "awgRunning": "{running} de {total} entradas AmneziaWG en marcha"
     },
     "inbounds": {
       "totalDownUp": "Subidas/Descargas Totales",

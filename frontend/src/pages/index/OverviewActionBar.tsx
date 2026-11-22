@@ -192,6 +192,19 @@ export default function OverviewActionBar({
         statePill
       )}
 
+      {status.awg.configured > 0 ? (
+        <Tooltip
+          title={t('pages.index.awgRunning', {
+            running: status.awg.running,
+            total: status.awg.configured,
+          })}
+        >
+          <Tag color={status.awg.running >= status.awg.configured ? 'success' : 'warning'}>
+            {`AWG${status.awg.version ? ` v${status.awg.version}` : ''}`}
+          </Tag>
+        </Tooltip>
+      ) : null}
+
       {status.mtproto.configured > 0 ? (
         <Tooltip
           title={t('pages.index.mtprotoRunning', {

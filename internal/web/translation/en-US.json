@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "Keeps this panel's listen addresses, ports, base path, certificates and node identity instead of taking them from the uploaded file.",
       "logLines": "Number of lines",
       "timeRange": "Time range",
-      "mtprotoRunning": "{running} of {total} MTProto proxies running"
+      "mtprotoRunning": "{running} of {total} MTProto proxies running",
+      "awgRunning": "{running} of {total} AmneziaWG inbounds running"
     },
     "inbounds": {
       "totalDownUp": "Total Sent/Received",

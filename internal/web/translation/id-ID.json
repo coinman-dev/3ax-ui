@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "Mempertahankan alamat dengar, port, path dasar, sertifikat, dan identitas node panel ini alih-alih mengambilnya dari berkas yang diunggah.",
       "logLines": "Jumlah baris",
       "timeRange": "Rentang waktu",
-      "mtprotoRunning": "Proxy MTProto berjalan: {running} dari {total}"
+      "mtprotoRunning": "Proxy MTProto berjalan: {running} dari {total}",
+      "awgRunning": "{running} dari {total} inbound AmneziaWG berjalan"
     },
     "inbounds": {
       "totalDownUp": "Total Terkirim/Diterima",

@@ -73,6 +73,13 @@ export interface MtprotoInfo {
   version: string;
 }
 
+// 3AX-UI: the AmneziaWG tag; upstream's AmneziaWGInfo only gates the log view.
+export interface AwgInfo {
+  configured: number;
+  running: number;
+  version: string;
+}
+
 interface StatusInput extends Pick<ParsedStatusInput, 'resourceScope' | 'unavailableMetrics'> {
   cpu?: number;
   cpuCores?: number;
@@ -93,6 +100,7 @@ interface StatusInput extends Pick<ParsedStatusInput, 'resourceScope' | 'unavail
   xray?: Partial<XrayInfo>;
   amneziawg?: Partial<AmneziaWGInfo>;
   mtproto?: Partial<MtprotoInfo>;
+  awg?: Partial<AwgInfo>;
 }
 
 export class Status {
@@ -122,6 +130,7 @@ export class Status {
   xray: XrayInfo = { state: 'stop', errorMsg: '', version: '', color: '' };
   amneziawg: AmneziaWGInfo = { configured: false, running: false };
   mtproto: MtprotoInfo = { configured: 0, running: 0, version: '' };
+  awg: AwgInfo = { configured: 0, running: 0, version: '' };
 
   constructor(data?: StatusInput | null) {
     if (data == null) return;
@@ -148,5 +157,6 @@ export class Status {
     this.xray.color = XRAY_STATE_COLORS[this.xray.state] ?? 'gray';
     this.amneziawg = { ...this.amneziawg, ...(data.amneziawg || {}) };
     this.mtproto = { ...this.mtproto, ...(data.mtproto || {}) };
+    this.awg = { ...this.awg, ...(data.awg || {}) };
   }
 }

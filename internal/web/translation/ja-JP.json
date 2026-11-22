@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "アップロードしたファイルの値ではなく、このパネルのリッスンアドレス、ポート、ベースパス、証明書、ノード ID を保持します。",
       "logLines": "行数",
       "timeRange": "期間",
-      "mtprotoRunning": "稼働中の MTProto プロキシ: {running} / {total}"
+      "mtprotoRunning": "稼働中の MTProto プロキシ: {running} / {total}",
+      "awgRunning": "AmneziaWG インバウンド {total} 件中 {running} 件が稼働中"
     },
     "inbounds": {
       "totalDownUp": "総アップロード / ダウンロード",

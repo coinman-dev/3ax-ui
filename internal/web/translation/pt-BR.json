@@ -302,7 +302,8 @@
       "importKeepHostSettingsDesc": "Mantém os endereços de escuta, as portas, o caminho base, os certificados e a identidade de nó deste painel em vez de obtê-los do arquivo enviado.",
       "logLines": "Número de linhas",
       "timeRange": "Intervalo de tempo",
-      "mtprotoRunning": "Proxies MTProto em execução: {running} de {total}"
+      "mtprotoRunning": "Proxies MTProto em execução: {running} de {total}",
+      "awgRunning": "{running} de {total} entradas AmneziaWG em execução"
     },
     "inbounds": {
       "totalDownUp": "Total Enviado/Recebido",
