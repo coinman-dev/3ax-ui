@@ -133,6 +133,24 @@ ensure_awg_module_autoload() {
     modprobe amneziawg > /dev/null 2>&1 || true
 }
 
+# 3AX-UI 1.x left nginx's stock site on port 80 while certificates were issued in
+# acme.sh standalone mode, which then cannot bind port 80 and never renews.
+ax1x_acme_webroot() {
+    local acme_home="$1" site="$2" root conf
+    [[ "${current_xui_version:-}" =~ ^v?1\. ]] || return 0
+    command -v nginx > /dev/null 2>&1 && [[ -f "$site" ]] || return 0
+    grep -qE '^[[:space:]]*listen[[:space:]]+80([[:space:]]|;)' "$site" || return 0
+    root=$(awk '$1 == "root" { sub(/;$/, "", $2); print $2; exit }' "$site")
+    [[ -n "$root" && -d "$root" ]] || return 0
+    for conf in "$acme_home"/*/*.conf; do
+        [[ -f "$conf" ]] || continue
+        grep -q "^Le_Webroot='no'$" "$conf" || continue
+        grep -q "^Le_HTTPPort='80'$" "$conf" || continue
+        sed -i "s|^Le_Webroot='no'$|Le_Webroot='${root}'|" "$conf"
+        echo -e "${green}acme.sh: $(basename "$(dirname "$conf")") now renews through nginx (webroot ${root}).${plain}"
+    done
+}
+
 # Check command exist function
 _command_exists() {
     type "$1" &> /dev/null
@@ -838,6 +856,7 @@ update_x-ui() {
     echo -e "${green}Changing owner...${plain}"
     chown -R root:root ${xui_folder} > /dev/null 2>&1
     prepare_ax1x_kernel_awg
+    ax1x_acme_webroot /root/.acme.sh /etc/nginx/sites-enabled/default
 
     if [ -f "${xui_folder}/bin/config.json" ]; then
         echo -e "${green}Changing on config file permissions...${plain}"
