@@ -668,3 +668,27 @@ func TestCaseVariants(t *testing.T) {
 		t.Fatalf("ASCII variants = %v", got)
 	}
 }
+
+// 3AX-UI: the Online column sorts on the same rule as the online filter: enabled and
+// in the live online set; echo is disabled, so its live session does not count.
+func TestListPagedSortsByOnline(t *testing.T) {
+	setupPagingServices(t)
+	seedPagingClients(t)
+	q := newClientQuery(database.GetDB(), time.Now().UnixMilli(), 0, 0)
+	onlines := []string{"hotel@x", "charlie@x", "echo@x"}
+	for _, tc := range []struct {
+		order string
+		want  []string
+	}{
+		{"descend", []string{"charlie@x", "hotel@x", "alpha@x"}},
+		{"ascend", []string{"alpha@x", "bravo@x", "delta@x"}},
+	} {
+		rows, err := q.pageRows(ClientPageParams{Sort: "online", Order: tc.order}, onlines, 0, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := pagedEmails(rows); !slices.Equal(got, tc.want) {
+			t.Fatalf("online %s = %v, want %v", tc.order, got, tc.want)
+		}
+	}
+}

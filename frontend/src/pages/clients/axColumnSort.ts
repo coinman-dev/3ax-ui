@@ -12,6 +12,7 @@ const SERVER_SORT_KEYS = new Set([
   'updatedAt',
   'lastOnline',
   'enable',
+  'online',
   'email',
   'inboundIds',
   'traffic',

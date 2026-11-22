@@ -1100,6 +1100,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.enabled'),
         key: 'enable',
+        ...headerSort('enable'),
         width: 80,
         render: (_v, record) => (
           <Switch
@@ -1114,6 +1115,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.online'),
         key: 'online',
+        ...headerSort('online'),
         width: 90,
         render: (_v, record) => {
           const bucket = clientBucket(record);

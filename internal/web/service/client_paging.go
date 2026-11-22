@@ -12,6 +12,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ClientSlim is the row-shape used by the clients page. It drops fields the
@@ -332,7 +333,7 @@ func (q clientQuery) bucketCond(buckets, onlines []string) (string, []any) {
 	return "(" + strings.Join(conds, " OR ") + ")", args
 }
 
-func (q clientQuery) applyOrder(tx *gorm.DB, sortKey, order string) *gorm.DB {
+func (q clientQuery) applyOrder(tx *gorm.DB, sortKey, order string, onlines []string) *gorm.DB {
 	dir := " ASC"
 	if order == "descend" {
 		dir = " DESC"
@@ -349,6 +350,12 @@ func (q clientQuery) applyOrder(tx *gorm.DB, sortKey, order string) *gorm.DB {
 		expr = "LOWER(c.email)"
 	case "inboundIds":
 		expr = "(SELECT COUNT(*) FROM client_inbounds ci WHERE ci.client_id = c.id)"
+	case "online": // 3AX-UI: the online filter's rule, enabled and in the live set
+		cond, inArgs := emailInCond("c.email", onlines)
+		return tx.Clauses(clause.OrderBy{Expression: clause.Expr{
+			SQL:  "CASE WHEN " + sqlClientEnabled + " AND " + cond + " THEN 1 ELSE 0 END" + dir + ", c.id" + tieDir,
+			Vars: inArgs,
+		}})
 	case "traffic":
 		expr = q.usedExpr
 	case "remaining":
@@ -447,7 +454,7 @@ func (s *ClientService) ListPaged(inboundSvc *InboundService, settingSvc *Settin
 func (q clientQuery) pageRows(params ClientPageParams, onlines []string, offset, limit int) ([]ClientSlim, error) {
 	tx, _ := q.applyParams(q.from(), params, onlines)
 	var ids []int
-	if err := q.applyOrder(tx, params.Sort, params.Order).
+	if err := q.applyOrder(tx, params.Sort, params.Order, onlines).
 		Offset(offset).Limit(limit).
 		Pluck("c.id", &ids).Error; err != nil {
 		return nil, err

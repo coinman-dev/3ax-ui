@@ -22,6 +22,18 @@ describe('client column sorting', () => {
     });
   });
 
+  it('restores the online and enabled columns', () => {
+    expect(parseClientSort('online:descend', fallback)).toEqual({
+      column: 'online',
+      order: 'descend',
+    });
+    expect(parseClientSort('enable:ascend', fallback)).toEqual({
+      column: 'enable',
+      order: 'ascend',
+    });
+    expect(serverSortKey('online')).toBe('online');
+  });
+
   it('falls back on anything it cannot sort by', () => {
     expect(parseClientSort('password:ascend', fallback)).toEqual(fallback);
     expect(parseClientSort('email:sideways', fallback)).toEqual(fallback);
