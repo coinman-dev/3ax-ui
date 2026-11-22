@@ -1157,15 +1157,32 @@ func amneziaWGHeaderOrDefault(value, fallback string) string {
 	return value
 }
 
+// amneziaWGAddressLines mirrors the frontend's: the AmneziaVPN importer keeps only the last
+// Address line and its Linux/macOS daemon reads it as one IPv4 subnet, so IPv4 goes last.
+func amneziaWGAddressLines(allowedIPs []string) []string {
+	var v6, v4 []string
+	for _, ip := range allowedIPs {
+		ip = strings.TrimSpace(ip)
+		switch {
+		case ip == "":
+		case strings.Contains(ip, ":"):
+			v6 = append(v6, "Address = "+ip)
+		default:
+			v4 = append(v4, "Address = "+ip)
+		}
+	}
+	if len(v6)+len(v4) == 0 {
+		return []string{"Address = "}
+	}
+	return append(v6, v4...)
+}
+
 // amneziaWGConfigText builds the same plain AmneziaWG client .conf text the
 // frontend's genAmneziaWGConfig produces (same field order, same optional-field
 // conditionals) -- this is the payload wrapped into vpn:// links below.
 func amneziaWGConfigText(server *amneziawg.ServerSettings, client *model.Client, host string, port int, remark string) string {
-	lines := []string{
-		"[Interface]",
-		"PrivateKey = " + client.PrivateKey,
-		"Address = " + strings.Join(client.AllowedIPs, ", "),
-	}
+	lines := []string{"[Interface]", "PrivateKey = " + client.PrivateKey}
+	lines = append(lines, amneziaWGAddressLines(client.AllowedIPs)...)
 
 	var dns []string
 	if server.PrimaryDNS != "" {

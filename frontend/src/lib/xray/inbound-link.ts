@@ -1083,6 +1083,16 @@ function amneziaWGHLine(key: string, value: string | undefined, fallback: string
   return `${key} = ${value && value.trim() !== '' ? value : fallback}`;
 }
 
+// The AmneziaVPN importer keeps only the last Address line and its Linux/macOS daemon
+// reads it as one IPv4 subnet, so every address gets its own line with IPv4 last.
+export function amneziaWGAddressLines(addresses: readonly string[]): string[] {
+  const list = addresses.map((a) => a.trim()).filter((a) => a !== '');
+  if (list.length === 0) return ['Address = '];
+  const v6 = list.filter((a) => a.includes(':'));
+  const v4 = list.filter((a) => !a.includes(':'));
+  return [...v6, ...v4].map((a) => `Address = ${a}`);
+}
+
 // Base64url (RFC 4648 §5), no padding — matches the real AmneziaVPN app's
 // own Qt::Base64UrlEncoding | Qt::OmitTrailingEquals framing for vpn:// links.
 function toBase64Url(text: string): string {
@@ -1120,7 +1130,7 @@ export function genAmneziaWGConfig(input: GenAmneziaWGLinkInput): string {
   const lines = [
     '[Interface]',
     `PrivateKey = ${client.privateKey ?? ''}`,
-    `Address = ${(client.allowedIPs ?? []).join(', ')}`,
+    ...amneziaWGAddressLines(client.allowedIPs ?? []),
   ];
   const dns = [server.primaryDns, server.secondaryDns].filter((v) => !!v && v.trim() !== '');
   if (dns.length > 0) lines.push(`DNS = ${dns.join(', ')}`);

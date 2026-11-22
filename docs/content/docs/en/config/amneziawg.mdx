@@ -212,6 +212,20 @@ Endpoint = your-server:443
 PersistentKeepalive = 25
 ```
 
+A client with both an IPv4 and an IPv6 address gets one `Address` line per
+address, IPv6 first and IPv4 last:
+
+```ini
+Address = 2001:db8::2/128
+Address = 10.8.1.2/32
+```
+
+The AmneziaVPN app keeps only the last `Address` line on import, and its Linux
+and macOS versions read it as a single IPv4 address. A comma-separated list
+there connects but passes no traffic. With IPv4 last, the app connects on every
+platform but uses IPv4 only. `awg-quick` and other wg-quick style clients read
+every line and keep both addresses.
+
 ## Multi-node (sub-nodes)
 
 An AmneziaWG inbound can be created on, or cloned to, a sub-node. The node's

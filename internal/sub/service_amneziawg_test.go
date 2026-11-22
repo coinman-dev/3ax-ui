@@ -637,3 +637,32 @@ func TestMatchingClients_TunnelMetadataStaysNormalized(t *testing.T) {
 		})
 	}
 }
+
+// The AmneziaVPN importer keeps only the last Address line, and its Linux/macOS daemon parses
+// that as one IPv4 subnet: a comma list or a trailing IPv6 line connects with no traffic.
+func TestAmneziaWGConfigTextAddressLines(t *testing.T) {
+	server := &amneziawg.ServerSettings{PublicKey: "serverPub", MTU: 1420}
+	want := []string{"Address = 2001:db8::2/128", "Address = 10.66.66.2/32"}
+
+	for _, tc := range []struct {
+		name       string
+		allowedIPs []string
+	}{
+		{"IPv4 stored first", []string{"10.66.66.2/32", "2001:db8::2/128"}},
+		{"IPv6 stored first", []string{"2001:db8::2/128", "10.66.66.2/32"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &model.Client{PrivateKey: "clientPriv", AllowedIPs: tc.allowedIPs}
+			conf := amneziaWGConfigText(server, client, "203.0.113.7", 51820, "remark")
+			var got []string
+			for line := range strings.SplitSeq(conf, "\n") {
+				if strings.HasPrefix(line, "Address") {
+					got = append(got, line)
+				}
+			}
+			if !slices.Equal(got, want) {
+				t.Fatalf("Address lines = %q, want %q\n%s", got, want, conf)
+			}
+		})
+	}
+}
