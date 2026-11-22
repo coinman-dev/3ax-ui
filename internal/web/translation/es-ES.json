@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Mapeo",
       "axRemoveFromInbound": "Quitar de esta entrada",
       "axRemoveFromInboundContent": "{email} ya no se conectará a través de esta entrada. El cliente, su tráfico y sus otras entradas se conservan.",
-      "axRemove": "Quitar"
+      "axRemove": "Quitar",
+      "axAwgTrailerRisk": "~{percent}% de pérdida de paquetes"
     },
     "clients": {
       "tabBasics": "Básico",
@@ -2303,7 +2304,10 @@
         "kernelMode": "Modo kernel",
         "kernelModeHint": "Ejecuta este inbound en el módulo del kernel de AmneziaWG en lugar de la pila integrada en espacio de usuario. Suele ser más rápido, sobre todo en enlaces de alta latencia. IPv6 público, reenvío de puertos y enrutamiento a través de Xray también funcionan aquí. Requiere el módulo del kernel de AmneziaWG, amneziawg-tools y nftables en el servidor.",
         "kernelRouteThroughXray": "Enrutar a través de Xray",
-        "kernelRouteThroughXrayHint": "Entrega el tráfico de los clientes a Xray (TPROXY) en lugar de enviarlo directamente, para que se apliquen las reglas de enrutamiento de la etiqueta de este inbound. Desactivado: el tráfico sale por NAT en la interfaz externa."
+        "kernelRouteThroughXrayHint": "Entrega el tráfico de los clientes a Xray (TPROXY) en lugar de enviarlo directamente, para que se apliquen las reglas de enrutamiento de la etiqueta de este inbound. Desactivado: el tráfico sale por NAT en la interfaz externa.",
+        "axTrailerRiskTitle": "RandomTrailers descarta cerca del {percent}% de los paquetes de datos grandes",
+        "axTrailerRiskDesc": "Con RandomTrailers activado, el receptor comprueba cada tipo de handshake antes que los datos y lo lee en el desplazamiento S de ese handshake. Si S1–S3 difieren de S4, lee bytes aleatorios y un rango H amplio coincide con paquetes de datos normales, que se descartan. Un valor único en H1–H4 elimina la pérdida. Tras el cambio, todos los clientes de este inbound necesitan de nuevo su configuración.",
+        "axTrailerRiskFix": "Usar un valor único en H1–H4"
       },
       "tuic": {
         "congestionControl": "Control de congestión",

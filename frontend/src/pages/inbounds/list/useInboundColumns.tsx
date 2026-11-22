@@ -10,6 +10,7 @@ import type { NodeRecord } from '@/api/queries/useNodesQuery';
 import { coerceInboundJsonField } from '@/models/dbinbound';
 
 import { AxAwgIpv6Clients } from './AxAwgIpv6Clients';
+import { AxAwgTrailerRiskTag } from './AxAwgTrailerRiskTag';
 import { RowActionsCell } from './RowActions';
 import {
   SPEED_COLUMN_WIDTH,
@@ -288,7 +289,10 @@ export function useInboundColumns({
           }
           return (
             <>
-              <div className="protocol-tags">{tags}</div>
+              <div className="protocol-tags">
+                {tags}
+                {record.isAmneziawg && <AxAwgTrailerRiskTag settings={record.settings} />}
+              </div>
               {record.isAmneziawg && <AxAwgIpv6Clients settings={record.settings} />}
             </>
           );

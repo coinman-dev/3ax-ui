@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Mapeamento",
       "axRemoveFromInbound": "Remover desta entrada",
       "axRemoveFromInboundContent": "{email} não se conectará mais por esta entrada. O cliente, seu tráfego e suas outras entradas permanecem.",
-      "axRemove": "Remover"
+      "axRemove": "Remover",
+      "axAwgTrailerRisk": "~{percent}% de perda de pacotes"
     },
     "clients": {
       "tabBasics": "Básico",
@@ -2303,7 +2304,10 @@
         "kernelMode": "Modo kernel",
         "kernelModeHint": "Executa este inbound no módulo de kernel do AmneziaWG em vez da pilha integrada em espaço de usuário. Geralmente mais rápido, especialmente em links de alta latência. IPv6 público, encaminhamento de portas e roteamento pelo Xray também funcionam aqui. Requer o módulo de kernel do AmneziaWG, amneziawg-tools e nftables no servidor.",
         "kernelRouteThroughXray": "Rotear pelo Xray",
-        "kernelRouteThroughXrayHint": "Entrega o tráfego dos clientes ao Xray (TPROXY) em vez de enviá-lo diretamente, para que as regras de roteamento da tag deste inbound sejam aplicadas. Desligado: o tráfego sai por NAT na interface externa."
+        "kernelRouteThroughXrayHint": "Entrega o tráfego dos clientes ao Xray (TPROXY) em vez de enviá-lo diretamente, para que as regras de roteamento da tag deste inbound sejam aplicadas. Desligado: o tráfego sai por NAT na interface externa.",
+        "axTrailerRiskTitle": "RandomTrailers descarta cerca de {percent}% dos pacotes de dados grandes",
+        "axTrailerRiskDesc": "Com RandomTrailers ativado, o receptor verifica cada tipo de handshake antes dos dados e o lê no deslocamento S desse handshake. Se S1–S3 diferem de S4, ele lê bytes aleatórios, e uma faixa H ampla coincide com pacotes de dados comuns, que são descartados. Valor único em H1–H4 elimina a perda. Após a mudança, todos os clientes deste inbound precisam receber a configuração de novo.",
+        "axTrailerRiskFix": "Usar valor único em H1–H4"
       },
       "tuic": {
         "congestionControl": "Controle de congestionamento",

@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Ánh xạ",
       "axRemoveFromInbound": "Gỡ khỏi inbound này",
       "axRemoveFromInboundContent": "{email} sẽ không kết nối qua inbound này nữa. Máy khách, lưu lượng và các inbound khác của nó vẫn được giữ.",
-      "axRemove": "Gỡ"
+      "axRemove": "Gỡ",
+      "axAwgTrailerRisk": "~{percent}% mất gói"
     },
     "clients": {
       "tabBasics": "Cơ bản",
@@ -2303,7 +2304,10 @@
         "kernelMode": "Chế độ kernel",
         "kernelModeHint": "Chạy inbound này trên mô-đun kernel AmneziaWG thay vì ngăn xếp userspace tích hợp. Thường nhanh hơn, nhất là trên đường truyền độ trễ cao. IPv6 công khai, chuyển tiếp cổng và định tuyến qua Xray cũng hoạt động ở đây. Cần mô-đun kernel AmneziaWG, amneziawg-tools và nftables trên máy chủ.",
         "kernelRouteThroughXray": "Định tuyến qua Xray",
-        "kernelRouteThroughXrayHint": "Chuyển lưu lượng của client cho Xray (TPROXY) thay vì gửi thẳng ra ngoài, để áp dụng các quy tắc định tuyến theo tag của inbound này. Tắt: lưu lượng đi ra qua NAT trên giao diện ngoài."
+        "kernelRouteThroughXrayHint": "Chuyển lưu lượng của client cho Xray (TPROXY) thay vì gửi thẳng ra ngoài, để áp dụng các quy tắc định tuyến theo tag của inbound này. Tắt: lưu lượng đi ra qua NAT trên giao diện ngoài.",
+        "axTrailerRiskTitle": "RandomTrailers làm mất khoảng {percent}% gói dữ liệu lớn",
+        "axTrailerRiskDesc": "Khi bật RandomTrailers, bên nhận kiểm tra từng loại handshake trước dữ liệu và đọc nó tại độ lệch S của handshake đó. Nếu S1–S3 khác S4, nó đọc các byte ngẫu nhiên và một dải H rộng sẽ trùng với gói dữ liệu thông thường, khiến chúng bị loại bỏ. Dùng một giá trị cho H1–H4 sẽ loại bỏ tình trạng mất gói. Sau khi thay đổi, mọi client của inbound này cần nhận lại cấu hình.",
+        "axTrailerRiskFix": "Dùng một giá trị cho H1–H4"
       },
       "tuic": {
         "congestionControl": "Kiểm soát tắc nghẽn",

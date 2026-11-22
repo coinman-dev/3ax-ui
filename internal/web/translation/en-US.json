@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Mapping",
       "axRemoveFromInbound": "Remove from this inbound",
       "axRemoveFromInboundContent": "{email} will no longer connect through this inbound. The client, its traffic and its other inbounds stay.",
-      "axRemove": "Remove"
+      "axRemove": "Remove",
+      "axAwgTrailerRisk": "~{percent}% packet loss"
     },
     "clients": {
       "tabBasics": "Basics",
@@ -2543,7 +2544,10 @@
         "kernelMode": "Kernel mode",
         "kernelModeHint": "Run this inbound on the AmneziaWG kernel module instead of the built-in userspace stack. Usually faster, especially over high-latency links. Public IPv6, port forwarding and routing through Xray work here too. Requires the AmneziaWG kernel module, amneziawg-tools and nftables on the host.",
         "kernelRouteThroughXray": "Route through Xray",
-        "kernelRouteThroughXrayHint": "Hand peers' traffic to Xray (TPROXY) instead of sending it straight out, so Routing rules on this inbound's tag apply. Off: traffic leaves through NAT on the external interface."
+        "kernelRouteThroughXrayHint": "Hand peers' traffic to Xray (TPROXY) instead of sending it straight out, so Routing rules on this inbound's tag apply. Off: traffic leaves through NAT on the external interface.",
+        "axTrailerRiskTitle": "RandomTrailers drops about {percent}% of large data packets",
+        "axTrailerRiskDesc": "With RandomTrailers on, the receiver checks each handshake type before data and reads it at that handshake's S offset. Where S1–S3 differ from S4 it reads random bytes, and a wide H range then matches ordinary data packets, which are dropped. Single-value H1–H4 remove the loss. Every client of this inbound needs its config again after the change.",
+        "axTrailerRiskFix": "Use single-value H1–H4"
       },
       "tuic": {
         "congestionControl": "Congestion Control",

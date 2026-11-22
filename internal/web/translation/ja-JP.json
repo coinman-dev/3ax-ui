@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "マッピング",
       "axRemoveFromInbound": "このインバウンドから外す",
       "axRemoveFromInboundContent": "{email} はこのインバウンド経由で接続できなくなります。クライアント本体、そのトラフィック、他のインバウンドはそのまま残ります。",
-      "axRemove": "外す"
+      "axRemove": "外す",
+      "axAwgTrailerRisk": "約 {percent}% のパケット損失"
     },
     "clients": {
       "tabBasics": "基本",
@@ -2303,7 +2304,10 @@
         "kernelMode": "カーネルモード",
         "kernelModeHint": "このインバウンドを組み込みのユーザー空間スタックではなく AmneziaWG カーネルモジュールで実行します。高遅延の回線では特に高速になることが多いです。パブリック IPv6、ポート転送、Xray 経由のルーティングもここで使えます。ホストに AmneziaWG カーネルモジュール、amneziawg-tools、nftables が必要です。",
         "kernelRouteThroughXray": "Xray 経由でルーティング",
-        "kernelRouteThroughXrayHint": "クライアントのトラフィックを直接送出せず Xray (TPROXY) に渡し、このインバウンドのタグに対するルーティングルールを適用します。オフの場合は外部インターフェースの NAT 経由で出ていきます。"
+        "kernelRouteThroughXrayHint": "クライアントのトラフィックを直接送出せず Xray (TPROXY) に渡し、このインバウンドのタグに対するルーティングルールを適用します。オフの場合は外部インターフェースの NAT 経由で出ていきます。",
+        "axTrailerRiskTitle": "RandomTrailers により大きなデータパケットの約 {percent}% が破棄されています",
+        "axTrailerRiskDesc": "RandomTrailers が有効だと、受信側はデータより先に各ハンドシェイク種別を確認し、そのハンドシェイクの S オフセットで読み取ります。S1–S3 が S4 と異なる場合はランダムなバイトを読むため、幅の広い H 範囲が通常のデータパケットと一致し、それらが破棄されます。H1–H4 を単一の値にすると損失はなくなります。変更後、この inbound のすべてのクライアントに設定を再配布する必要があります。",
+        "axTrailerRiskFix": "H1–H4 を単一の値にする"
       },
       "tuic": {
         "congestionControl": "輻輳制御",

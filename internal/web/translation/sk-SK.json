@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Mapovanie",
       "axRemoveFromInbound": "Odobrať z tohto prichádzajúceho",
       "axRemoveFromInboundContent": "{email} sa už nebude pripájať cez toto prichádzajúce spojenie. Klient, jeho prenos a ostatné prichádzajúce spojenia zostávajú.",
-      "axRemove": "Odobrať"
+      "axRemove": "Odobrať",
+      "axAwgTrailerRisk": "~{percent} % strata paketov"
     },
     "clients": {
       "tabBasics": "Základné údaje",
@@ -2543,7 +2544,10 @@
         "kernelMode": "Režim jadra",
         "kernelModeHint": "Spúšťať tento inbound na module jadra AmneziaWG namiesto vstavaného zásobníka v používateľskom priestore. Zvyčajne rýchlejšie, najmä na linkách s vysokou latenciou. Verejné IPv6, presmerovanie portov a smerovanie cez Xray tu fungujú tiež. Vyžaduje modul jadra AmneziaWG, amneziawg-tools a nftables na serveri.",
         "kernelRouteThroughXray": "Smerovať cez Xray",
-        "kernelRouteThroughXrayHint": "Odovzdávať prevádzku klientov do Xray (TPROXY) namiesto priameho odoslania, aby sa uplatnili pravidlá smerovania pre značku tohto inboundu. Vypnuté: prevádzka odchádza cez NAT na externom rozhraní."
+        "kernelRouteThroughXrayHint": "Odovzdávať prevádzku klientov do Xray (TPROXY) namiesto priameho odoslania, aby sa uplatnili pravidlá smerovania pre značku tohto inboundu. Vypnuté: prevádzka odchádza cez NAT na externom rozhraní.",
+        "axTrailerRiskTitle": "RandomTrailers zahadzuje približne {percent} % veľkých dátových paketov",
+        "axTrailerRiskDesc": "Pri zapnutých RandomTrailers prijímač kontroluje typy handshake pred dátami a číta každý na posune S daného handshake. Ak sa S1–S3 líšia od S4, číta náhodné bajty a široký rozsah H sa zhoduje s bežnými dátovými paketmi, ktoré sa zahodia. Jedna hodnota v H1–H4 stratu odstráni. Po zmene potrebujú všetci klienti tohto inboundu konfiguráciu znova.",
+        "axTrailerRiskFix": "Jedna hodnota v H1–H4"
       },
       "tuic": {
         "congestionControl": "Riadenie zahltenia",

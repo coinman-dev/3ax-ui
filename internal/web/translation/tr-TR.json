@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Eşleme",
       "axRemoveFromInbound": "Bu gelen bağlantıdan çıkar",
       "axRemoveFromInboundContent": "{email} artık bu gelen bağlantı üzerinden bağlanmayacak. İstemci, trafiği ve diğer gelen bağlantıları kalır.",
-      "axRemove": "Çıkar"
+      "axRemove": "Çıkar",
+      "axAwgTrailerRisk": "~%{percent} paket kaybı"
     },
     "clients": {
       "tabBasics": "Temel",
@@ -2303,7 +2304,10 @@
         "kernelMode": "Çekirdek modu",
         "kernelModeHint": "Bu inbound'u yerleşik kullanıcı alanı yığını yerine AmneziaWG çekirdek modülünde çalıştırır. Genellikle daha hızlıdır, özellikle yüksek gecikmeli bağlantılarda. Genel IPv6, port yönlendirme ve Xray üzerinden yönlendirme burada da çalışır. Sunucuda AmneziaWG çekirdek modülü, amneziawg-tools ve nftables gerekir.",
         "kernelRouteThroughXray": "Xray üzerinden yönlendir",
-        "kernelRouteThroughXrayHint": "İstemci trafiğini doğrudan göndermek yerine Xray'e (TPROXY) verir; böylece bu inbound'un etiketine ait yönlendirme kuralları uygulanır. Kapalı: trafik harici arayüzde NAT ile çıkar."
+        "kernelRouteThroughXrayHint": "İstemci trafiğini doğrudan göndermek yerine Xray'e (TPROXY) verir; böylece bu inbound'un etiketine ait yönlendirme kuralları uygulanır. Kapalı: trafik harici arayüzde NAT ile çıkar.",
+        "axTrailerRiskTitle": "RandomTrailers büyük veri paketlerinin yaklaşık %{percent} kadarını düşürüyor",
+        "axTrailerRiskDesc": "RandomTrailers açıkken alıcı her handshake türünü veriden önce denetler ve o handshake'in S ofsetinden okur. S1–S3, S4'ten farklıysa rastgele baytlar okur ve geniş bir H aralığı sıradan veri paketleriyle eşleşir; bu paketler düşürülür. H1–H4 için tek değer kaybı giderir. Değişiklikten sonra bu inbound'un tüm istemcilerine yapılandırma yeniden verilmelidir.",
+        "axTrailerRiskFix": "H1–H4 için tek değer kullan"
       },
       "tuic": {
         "congestionControl": "Tıkanıklık Kontrolü",

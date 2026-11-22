@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "التعيين",
       "axRemoveFromInbound": "إزالة من هذا الوارد",
       "axRemoveFromInboundContent": "لن يتصل {email} عبر هذا الوارد بعد الآن. يبقى العميل وحركة مروره والواردات الأخرى كما هي.",
-      "axRemove": "إزالة"
+      "axRemove": "إزالة",
+      "axAwgTrailerRisk": "فقد حزم ~{percent}%"
     },
     "clients": {
       "tabBasics": "أساسي",
@@ -2303,7 +2304,10 @@
         "kernelMode": "وضع النواة",
         "kernelModeHint": "تشغيل هذا الوارد على وحدة نواة AmneziaWG بدلاً من المكدس المدمج في مساحة المستخدم. أسرع عادةً، خاصةً على الروابط عالية التأخير. يعمل هنا أيضاً IPv6 العام وإعادة توجيه المنافذ والتوجيه عبر Xray. يتطلب وحدة نواة AmneziaWG وamneziawg-tools وnftables على الخادم.",
         "kernelRouteThroughXray": "التوجيه عبر Xray",
-        "kernelRouteThroughXrayHint": "تسليم حركة العملاء إلى Xray (TPROXY) بدلاً من إرسالها مباشرةً، لتطبيق قواعد التوجيه الخاصة بوسم هذا الوارد. عند الإيقاف تخرج الحركة عبر NAT على الواجهة الخارجية."
+        "kernelRouteThroughXrayHint": "تسليم حركة العملاء إلى Xray (TPROXY) بدلاً من إرسالها مباشرةً، لتطبيق قواعد التوجيه الخاصة بوسم هذا الوارد. عند الإيقاف تخرج الحركة عبر NAT على الواجهة الخارجية.",
+        "axTrailerRiskTitle": "RandomTrailers يُسقط نحو {percent}% من حزم البيانات الكبيرة",
+        "axTrailerRiskDesc": "عند تفعيل RandomTrailers يفحص المستقبِل كل نوع handshake قبل البيانات ويقرؤه عند إزاحة S الخاصة بذلك الـ handshake. إذا اختلفت S1–S3 عن S4 فإنه يقرأ بايتات عشوائية، فيطابق نطاق H واسع حزم البيانات العادية فتُسقط. القيمة المفردة في H1–H4 تزيل هذا الفقد. بعد التغيير يحتاج جميع عملاء هذا الـ inbound إلى إعداداتهم من جديد.",
+        "axTrailerRiskFix": "قيمة مفردة في H1–H4"
       },
       "tuic": {
         "congestionControl": "التحكم في الازدحام",

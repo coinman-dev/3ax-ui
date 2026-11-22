@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "映射",
       "axRemoveFromInbound": "从此入站移除",
       "axRemoveFromInboundContent": "{email} 将不再通过此入站连接。客户端本身、其流量和其他入站保持不变。",
-      "axRemove": "移除"
+      "axRemove": "移除",
+      "axAwgTrailerRisk": "约 {percent}% 丢包"
     },
     "clients": {
       "tabBasics": "基本",
@@ -2303,7 +2304,10 @@
         "kernelMode": "内核模式",
         "kernelModeHint": "使用 AmneziaWG 内核模块而非内置用户态协议栈运行此入站。通常更快，尤其是在高延迟链路上。公网 IPv6、端口转发和经 Xray 路由在此模式下同样可用。需要主机上安装 AmneziaWG 内核模块、amneziawg-tools 和 nftables。",
         "kernelRouteThroughXray": "经 Xray 路由",
-        "kernelRouteThroughXrayHint": "将客户端流量交给 Xray (TPROXY) 而不是直接发出，从而应用针对此入站标签的路由规则。关闭时流量经外部接口的 NAT 出站。"
+        "kernelRouteThroughXrayHint": "将客户端流量交给 Xray (TPROXY) 而不是直接发出，从而应用针对此入站标签的路由规则。关闭时流量经外部接口的 NAT 出站。",
+        "axTrailerRiskTitle": "RandomTrailers 丢弃了约 {percent}% 的大数据包",
+        "axTrailerRiskDesc": "启用 RandomTrailers 时，接收端会先于数据检查每种握手类型，并在该握手的 S 偏移处读取类型。若 S1–S3 与 S4 不同，读到的是随机字节，较宽的 H 范围便会命中普通数据包，导致其被丢弃。将 H1–H4 设为单一值即可消除丢包。修改后，此入站的所有客户端都需要重新获取配置。",
+        "axTrailerRiskFix": "H1–H4 使用单一值"
       },
       "tuic": {
         "congestionControl": "拥塞控制算法",

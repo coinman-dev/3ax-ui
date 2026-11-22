@@ -6,6 +6,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 
 import { FormField } from '@/components/form/rhf';
 import { useAmneziawgKernelReadiness } from '@/api/queries/useAmneziawgKernelReadiness';
+import { AxAwgTrailerRiskAlert } from './AxAwgTrailerRiskAlert';
 
 interface AmneziawgFieldsProps {
   awgPubKey: string;
@@ -109,6 +110,7 @@ export default function AmneziawgFields({
           {t('pages.xray.amneziawg.regenerateObfuscation')}
         </Button>
       </Form.Item>
+      <AxAwgTrailerRiskAlert />
       <FormField name={['settings', 'server', 'jc']} label={t('pages.xray.amneziawg.jc')}>
         <InputNumber min={0} style={{ width: '100%' }} />
       </FormField>

@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "Pemetaan",
       "axRemoveFromInbound": "Hapus dari inbound ini",
       "axRemoveFromInboundContent": "{email} tidak akan lagi terhubung melalui inbound ini. Klien, trafiknya, dan inbound lainnya tetap ada.",
-      "axRemove": "Hapus"
+      "axRemove": "Hapus",
+      "axAwgTrailerRisk": "~{percent}% paket hilang"
     },
     "clients": {
       "tabBasics": "Dasar",
@@ -2303,7 +2304,10 @@
         "kernelMode": "Mode kernel",
         "kernelModeHint": "Jalankan inbound ini di modul kernel AmneziaWG alih-alih stack userspace bawaan. Biasanya lebih cepat, terutama pada tautan berlatensi tinggi. IPv6 publik, penerusan port, dan perutean melalui Xray juga berfungsi di sini. Memerlukan modul kernel AmneziaWG, amneziawg-tools, dan nftables di server.",
         "kernelRouteThroughXray": "Rutekan melalui Xray",
-        "kernelRouteThroughXrayHint": "Serahkan lalu lintas klien ke Xray (TPROXY) alih-alih langsung keluar, sehingga aturan perutean untuk tag inbound ini berlaku. Mati: lalu lintas keluar lewat NAT di antarmuka eksternal."
+        "kernelRouteThroughXrayHint": "Serahkan lalu lintas klien ke Xray (TPROXY) alih-alih langsung keluar, sehingga aturan perutean untuk tag inbound ini berlaku. Mati: lalu lintas keluar lewat NAT di antarmuka eksternal.",
+        "axTrailerRiskTitle": "RandomTrailers membuang sekitar {percent}% paket data besar",
+        "axTrailerRiskDesc": "Saat RandomTrailers aktif, penerima memeriksa setiap tipe handshake sebelum data dan membacanya pada offset S handshake tersebut. Jika S1–S3 berbeda dari S4, ia membaca byte acak, dan rentang H yang lebar cocok dengan paket data biasa, yang lalu dibuang. Nilai tunggal pada H1–H4 menghilangkan kehilangan ini. Setelah perubahan, semua klien inbound ini perlu menerima konfigurasinya lagi.",
+        "axTrailerRiskFix": "Gunakan nilai tunggal H1–H4"
       },
       "tuic": {
         "congestionControl": "Kontrol Kemacetan",

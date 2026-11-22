@@ -830,7 +830,8 @@
       "axForwardedPortsShort": "對應",
       "axRemoveFromInbound": "從此入站移除",
       "axRemoveFromInboundContent": "{email} 將不再透過此入站連線。客戶端本身、其流量與其他入站保持不變。",
-      "axRemove": "移除"
+      "axRemove": "移除",
+      "axAwgTrailerRisk": "約 {percent}% 封包遺失"
     },
     "clients": {
       "tabBasics": "基本",
@@ -2303,7 +2304,10 @@
         "kernelMode": "核心模式",
         "kernelModeHint": "使用 AmneziaWG 核心模組而非內建使用者空間協定堆疊執行此入站。通常更快，尤其是在高延遲鏈路上。公網 IPv6、連接埠轉發和經 Xray 路由在此模式下同樣可用。需要主機安裝 AmneziaWG 核心模組、amneziawg-tools 和 nftables。",
         "kernelRouteThroughXray": "經 Xray 路由",
-        "kernelRouteThroughXrayHint": "將用戶端流量交給 Xray (TPROXY) 而非直接送出，以套用針對此入站標籤的路由規則。關閉時流量經外部介面的 NAT 送出。"
+        "kernelRouteThroughXrayHint": "將用戶端流量交給 Xray (TPROXY) 而非直接送出，以套用針對此入站標籤的路由規則。關閉時流量經外部介面的 NAT 送出。",
+        "axTrailerRiskTitle": "RandomTrailers 丟棄了約 {percent}% 的大型資料封包",
+        "axTrailerRiskDesc": "啟用 RandomTrailers 時，接收端會先於資料檢查每種交握類型，並在該交握的 S 位移處讀取類型。若 S1–S3 與 S4 不同，讀到的是隨機位元組，較寬的 H 範圍便會命中一般資料封包，使其被丟棄。將 H1–H4 設為單一值即可消除封包遺失。修改後，此入站的所有用戶端都需要重新取得設定。",
+        "axTrailerRiskFix": "H1–H4 使用單一值"
       },
       "tuic": {
         "congestionControl": "壅塞控制演算法",
