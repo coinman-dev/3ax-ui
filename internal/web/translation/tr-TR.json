@@ -824,7 +824,10 @@
         "peerNumberConfig": "Peer {n} Yapılandırması"
       },
       "sniffingDestOverride": "Hedef geçersiz kılma",
-      "advancedTitle": "Gelişmiş Ayarlar"
+      "advancedTitle": "Gelişmiş Ayarlar",
+      "axRemoveFromInbound": "Bu gelen bağlantıdan çıkar",
+      "axRemoveFromInboundContent": "{email} artık bu gelen bağlantı üzerinden bağlanmayacak. İstemci, trafiği ve diğer gelen bağlantıları kalır.",
+      "axRemove": "Çıkar"
     },
     "clients": {
       "tabBasics": "Temel",

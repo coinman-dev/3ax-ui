@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Dropdown, Modal, Switch, Table, Tag, Tooltip } from 'antd';
+import { Button, Dropdown, Modal, Space, Switch, Table, Tag, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   DeleteOutlined,
+  DisconnectOutlined,
   EditOutlined,
   InfoCircleOutlined,
   MoreOutlined,
@@ -28,6 +29,8 @@ import {
   type AxClientModalRequest,
 } from './axInboundClients';
 import './AxInboundClients.css';
+
+const sharedWithOthers = (record: ClientRecord) => (record.inboundIds?.length ?? 0) > 1;
 
 interface AxInboundClientsTableProps {
   inboundId: number;
@@ -61,6 +64,7 @@ export default function AxInboundClientsTable({
     setEnable,
     resetTraffic,
     remove,
+    detach,
     applyClientStatsEvent,
   } = useClients();
   const [page, setPage] = useState(1);
@@ -151,6 +155,21 @@ export default function AxInboundClientsTable({
       });
     },
     [modal, t, remove],
+  );
+
+  // 1.x took a client off one inbound; with several inbounds that is not the same as deleting it.
+  const onRemoveFromInbound = useCallback(
+    (email: string) => {
+      modal.confirm({
+        title: t('pages.inbounds.axRemoveFromInbound'),
+        content: t('pages.inbounds.axRemoveFromInboundContent', { email }),
+        okText: t('pages.inbounds.axRemove'),
+        okType: 'danger',
+        cancelText: t('cancel'),
+        onOk: () => detach(email, [inboundId]),
+      });
+    },
+    [modal, t, detach, inboundId],
   );
 
   const onToggleEnable = useCallback(
@@ -285,6 +304,16 @@ export default function AxInboundClientsTable({
                       label: t('edit'),
                       onClick: () => onEdit(record.email),
                     },
+                    ...(sharedWithOthers(record)
+                      ? [
+                          {
+                            key: 'removeFromInbound',
+                            icon: <DisconnectOutlined aria-hidden />,
+                            label: t('pages.inbounds.axRemoveFromInbound'),
+                            onClick: () => onRemoveFromInbound(record.email),
+                          },
+                        ]
+                      : []),
                     {
                       key: 'delete',
                       danger: true,
@@ -312,16 +341,29 @@ export default function AxInboundClientsTable({
       {
         title: t('pages.clients.actions'),
         key: 'actions',
-        width: 190,
+        width: 220,
         render: (_v, record) => (
-          <ClientRowActions
-            email={record.email}
-            onShowQr={onShowQr}
-            onShowInfo={onShowInfo}
-            onResetTraffic={onResetTraffic}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
+          <Space size={4}>
+            <ClientRowActions
+              email={record.email}
+              onShowQr={onShowQr}
+              onShowInfo={onShowInfo}
+              onResetTraffic={onResetTraffic}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+            {sharedWithOthers(record) && (
+              <Tooltip title={t('pages.inbounds.axRemoveFromInbound')}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<DisconnectOutlined aria-hidden />}
+                  aria-label={t('pages.inbounds.axRemoveFromInbound')}
+                  onClick={() => onRemoveFromInbound(record.email)}
+                />
+              </Tooltip>
+            )}
+          </Space>
         ),
       },
       {
@@ -378,6 +420,7 @@ export default function AxInboundClientsTable({
     onResetTraffic,
     onEdit,
     onDelete,
+    onRemoveFromInbound,
   ]);
 
   return (

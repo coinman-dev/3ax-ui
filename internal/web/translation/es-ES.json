@@ -824,7 +824,10 @@
         "peerNumberConfig": "Config Peer {n}"
       },
       "sniffingDestOverride": "Anulación de destino",
-      "advancedTitle": "Configuración avanzada"
+      "advancedTitle": "Configuración avanzada",
+      "axRemoveFromInbound": "Quitar de esta entrada",
+      "axRemoveFromInboundContent": "{email} ya no se conectará a través de esta entrada. El cliente, su tráfico y sus otras entradas se conservan.",
+      "axRemove": "Quitar"
     },
     "clients": {
       "tabBasics": "Básico",

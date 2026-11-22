@@ -824,7 +824,10 @@
         "peerNumberConfig": "تكوين Peer {n}"
       },
       "sniffingDestOverride": "تجاوز الوجهة",
-      "advancedTitle": "الإعدادات المتقدمة"
+      "advancedTitle": "الإعدادات المتقدمة",
+      "axRemoveFromInbound": "إزالة من هذا الوارد",
+      "axRemoveFromInboundContent": "لن يتصل {email} عبر هذا الوارد بعد الآن. يبقى العميل وحركة مروره والواردات الأخرى كما هي.",
+      "axRemove": "إزالة"
     },
     "clients": {
       "tabBasics": "أساسي",

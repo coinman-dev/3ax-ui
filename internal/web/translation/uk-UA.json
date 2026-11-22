@@ -824,7 +824,10 @@
         "peerNumberConfig": "Конфіг Peer {n}"
       },
       "sniffingDestOverride": "Перевизначення призначення",
-      "advancedTitle": "Додаткові налаштування"
+      "advancedTitle": "Додаткові налаштування",
+      "axRemoveFromInbound": "Прибрати з цього вхідного",
+      "axRemoveFromInboundContent": "{email} більше не підключатиметься через це вхідне. Сам клієнт, його трафік та інші вхідні залишаться.",
+      "axRemove": "Прибрати"
     },
     "clients": {
       "tabBasics": "Основні",

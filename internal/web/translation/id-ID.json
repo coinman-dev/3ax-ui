@@ -824,7 +824,10 @@
         "peerNumberConfig": "Konfig Peer {n}"
       },
       "sniffingDestOverride": "Penggantian tujuan",
-      "advancedTitle": "Pengaturan Lanjutan"
+      "advancedTitle": "Pengaturan Lanjutan",
+      "axRemoveFromInbound": "Hapus dari inbound ini",
+      "axRemoveFromInboundContent": "{email} tidak akan lagi terhubung melalui inbound ini. Klien, trafiknya, dan inbound lainnya tetap ada.",
+      "axRemove": "Hapus"
     },
     "clients": {
       "tabBasics": "Dasar",

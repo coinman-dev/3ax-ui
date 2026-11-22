@@ -824,7 +824,10 @@
         "peerNumberConfig": "پیکربندی Peer {n}"
       },
       "sniffingDestOverride": "بازنویسی مقصد",
-      "advancedTitle": "تنظیمات پیشرفته"
+      "advancedTitle": "تنظیمات پیشرفته",
+      "axRemoveFromInbound": "حذف از این ورودی",
+      "axRemoveFromInboundContent": "{email} دیگر از طریق این ورودی وصل نمی‌شود. خود کلاینت، ترافیک آن و ورودی‌های دیگرش باقی می‌مانند.",
+      "axRemove": "حذف"
     },
     "clients": {
       "tabBasics": "پایه",

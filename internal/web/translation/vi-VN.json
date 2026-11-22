@@ -824,7 +824,10 @@
         "peerNumberConfig": "Cấu hình Peer {n}"
       },
       "sniffingDestOverride": "Ghi đè đích",
-      "advancedTitle": "Cài đặt nâng cao"
+      "advancedTitle": "Cài đặt nâng cao",
+      "axRemoveFromInbound": "Gỡ khỏi inbound này",
+      "axRemoveFromInboundContent": "{email} sẽ không kết nối qua inbound này nữa. Máy khách, lưu lượng và các inbound khác của nó vẫn được giữ.",
+      "axRemove": "Gỡ"
     },
     "clients": {
       "tabBasics": "Cơ bản",

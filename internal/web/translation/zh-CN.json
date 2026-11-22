@@ -824,7 +824,10 @@
         "peerNumberConfig": "Peer {n} 配置"
       },
       "sniffingDestOverride": "目标覆盖",
-      "advancedTitle": "高级设置"
+      "advancedTitle": "高级设置",
+      "axRemoveFromInbound": "从此入站移除",
+      "axRemoveFromInboundContent": "{email} 将不再通过此入站连接。客户端本身、其流量和其他入站保持不变。",
+      "axRemove": "移除"
     },
     "clients": {
       "tabBasics": "基本",

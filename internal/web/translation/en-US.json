@@ -824,7 +824,10 @@
         "peerNumber": "Peer {n}",
         "peerNumberConfig": "Peer {n} config"
       },
-      "sniffingDestOverride": "Destination override"
+      "sniffingDestOverride": "Destination override",
+      "axRemoveFromInbound": "Remove from this inbound",
+      "axRemoveFromInboundContent": "{email} will no longer connect through this inbound. The client, its traffic and its other inbounds stay.",
+      "axRemove": "Remove"
     },
     "clients": {
       "tabBasics": "Basics",

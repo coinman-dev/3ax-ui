@@ -824,7 +824,10 @@
         "peerNumberConfig": "Peer {n} 設定"
       },
       "sniffingDestOverride": "宛先のオーバーライド",
-      "advancedTitle": "詳細設定"
+      "advancedTitle": "詳細設定",
+      "axRemoveFromInbound": "このインバウンドから外す",
+      "axRemoveFromInboundContent": "{email} はこのインバウンド経由で接続できなくなります。クライアント本体、そのトラフィック、他のインバウンドはそのまま残ります。",
+      "axRemove": "外す"
     },
     "clients": {
       "tabBasics": "基本",
