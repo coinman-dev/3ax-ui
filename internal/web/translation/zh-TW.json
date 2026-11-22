@@ -128,7 +128,8 @@
     "openMenu": "開啟選單",
     "pinSidebar": "固定側邊欄",
     "unpinSidebar": "取消固定側邊欄",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "入站和客戶端"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "主機順序",
       "subHostSortModeDesc": "跨入站使用主機頁面中的排序。此設定決定伺服器輸出順序；用戶端應用程式仍可能自行排序。",
       "qrCodeSize": "QR 碼尺寸",
-      "qrCodeSizeDesc": "面板為連結和訂閱顯示的 QR 碼尺寸。"
+      "qrCodeSizeDesc": "面板為連結和訂閱顯示的 QR 碼尺寸。",
+      "legacyInboundsView": "入站和客戶端顯示在同一頁面（與 3AX-UI 1.x 相同）",
+      "legacyInboundsViewDesc": "每個入站列可展開為其客戶端表格，單獨的「客戶端」選單項目將被隱藏。客戶端頁面仍可透過其網址開啟。"
     },
     "xray": {
       "save": "儲存",

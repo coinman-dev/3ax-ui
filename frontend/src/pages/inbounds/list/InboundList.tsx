@@ -64,6 +64,9 @@ export default function InboundList({
   onGeneralAction,
   onRowAction,
   onBulkDelete,
+  expandable,
+  extraRowActions,
+  renderCardExtra,
 }: InboundListProps) {
   const { t } = useTranslation();
   const [statsRecord, setStatsRecord] = useState<DBInboundRecord | null>(null);
@@ -179,6 +182,7 @@ export default function InboundList({
     trafficDiff,
     onRowAction,
     onSwitchEnable,
+    extraRowActions,
   });
 
   const tableScrollX = useMemo(
@@ -346,6 +350,7 @@ export default function InboundList({
                               t,
                               isMobile: true,
                               hasClients: (clientCount[record.id]?.clients || 0) > 0,
+                              extraItems: extraRowActions?.(record),
                             }),
                             onClick: ({ key }) =>
                               onRowAction({ key: key as RowAction, dbInbound: record }),
@@ -361,6 +366,7 @@ export default function InboundList({
                         </Dropdown>
                       </div>
                     </div>
+                    {renderCardExtra?.(record)}
                   </div>
                 ))}
               </>
@@ -376,6 +382,7 @@ export default function InboundList({
               onChange: (keys: Key[]) => setSelectedRowKeys(keys as number[]),
             }}
             pagination={paginationFor(visibleInbounds)}
+            expandable={expandable}
             scroll={{ x: tableScrollX }}
             style={{ marginTop: 10 }}
             size="small"

@@ -431,6 +431,7 @@ export default function ClientFormModal({
         auth: RandomUtil.randomLowerAndNum(16),
         wgPrivateKey: wgKeypair.privateKey,
         wgPublicKey: wgKeypair.publicKey,
+        inboundIds: [...attachedIds], // 3AX-UI: the 1.x inbounds page preselects its inbound
       });
     }
 

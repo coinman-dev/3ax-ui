@@ -128,7 +128,8 @@
     "openMenu": "Buka menu",
     "pinSidebar": "Sematkan bilah sisi",
     "unpinSidebar": "Lepas sematan bilah sisi",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "Inbound dan klien"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "Urutan host",
       "subHostSortModeDesc": "Mengikuti urutan di halaman Host untuk semua inbound. Ini menentukan urutan keluaran server; aplikasi klien dapat menerapkan urutan sendiri.",
       "qrCodeSize": "Ukuran kode QR",
-      "qrCodeSizeDesc": "Ukuran kode QR yang ditampilkan panel untuk tautan dan langganan."
+      "qrCodeSizeDesc": "Ukuran kode QR yang ditampilkan panel untuk tautan dan langganan.",
+      "legacyInboundsView": "Inbound dan klien dalam satu halaman (seperti di 3AX-UI 1.x)",
+      "legacyInboundsViewDesc": "Setiap baris inbound dapat dibuka menjadi tabel kliennya, dan menu Klien terpisah disembunyikan. Halaman Klien tetap dapat dibuka lewat alamatnya."
     },
     "xray": {
       "save": "Simpan",

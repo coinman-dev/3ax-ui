@@ -46,6 +46,7 @@ import type { TextModalTab } from '@/components/feedback/TextModal';
 const PromptModal = lazy(() => import('@/components/feedback/PromptModal'));
 
 import { useInbounds } from './useInbounds';
+import { useAxLegacyInbounds } from './legacy/useAxLegacyInbounds';
 import { InboundList } from './list';
 import { LazyMount } from '@/components/utility';
 const InboundFormModal = lazy(() => import('./form/InboundFormModal'));
@@ -122,6 +123,11 @@ export default function InboundsPage() {
   } = useHostsQuery();
   // A background refetch that fails while rows are still cached is not fatal.
   const hostsError = hosts.length > 0 ? '' : hostsFetchError;
+  const { handleRowAction: axRowAction, ...axLegacy } = useAxLegacyInbounds({
+    clientCount,
+    hosts,
+    isMobile,
+  });
   const nodesById = useMemo(() => {
     const map = new Map<number, ReturnType<typeof useNodesQuery>['nodes'][number]>();
     for (const n of nodesList || []) map.set(n.id, n);
@@ -629,6 +635,7 @@ export default function InboundsPage() {
 
   const onRowAction = useCallback(
     async ({ key, dbInbound }: { key: RowAction; dbInbound: DBInbound }) => {
+      if (axRowAction(key, dbInbound.id)) return;
       // Actions that touch per-client secrets (uuid, password, flow, ...) need
       // the full payload that the slim list view does not ship. Hydrate first
       // and then operate on the rehydrated record.
@@ -698,6 +705,7 @@ export default function InboundsPage() {
       }
     },
     [
+      axRowAction,
       hydrateInbound,
       openEdit,
       checkFallback,
@@ -807,6 +815,9 @@ export default function InboundsPage() {
                         onRowAction({ key, dbInbound: dbInbound as unknown as DBInbound })
                       }
                       onBulkDelete={confirmBulkDelete}
+                      expandable={axLegacy.expandable}
+                      extraRowActions={axLegacy.extraRowActions}
+                      renderCardExtra={axLegacy.renderCardExtra}
                     />
                   </Col>
                 </Row>
@@ -815,6 +826,7 @@ export default function InboundsPage() {
           </Layout.Content>
         </Layout>
 
+        {axLegacy.modals}
         <LazyMount when={formOpen}>
           <InboundFormModal
             open={formOpen}

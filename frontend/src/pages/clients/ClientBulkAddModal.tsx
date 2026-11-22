@@ -72,6 +72,8 @@ interface ClientBulkAddModalProps {
   open: boolean;
   inbounds: InboundOption[];
   groups?: string[];
+  // 3AX-UI: the 1.x inbounds page opens the modal for one inbound.
+  presetInboundIds?: number[];
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
 }
@@ -80,6 +82,7 @@ export default function ClientBulkAddModal({
   open,
   inbounds,
   groups = [],
+  presetInboundIds,
   onOpenChange,
   onSaved,
 }: ClientBulkAddModalProps) {
@@ -107,7 +110,7 @@ export default function ClientBulkAddModal({
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      methods.reset(EMPTY);
+      methods.reset(presetInboundIds ? { ...EMPTY, inboundIds: [...presetInboundIds] } : EMPTY);
       setDelayedStart(false);
     }
   }

@@ -128,7 +128,8 @@
     "openMenu": "Abrir menú",
     "pinSidebar": "Fijar barra lateral",
     "unpinSidebar": "Desfijar barra lateral",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "Entradas y clientes"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "Orden de hosts",
       "subHostSortModeDesc": "Sigue el orden de la página de hosts entre distintas entradas. Determina el orden emitido por el servidor; las aplicaciones cliente pueden aplicar su propio orden.",
       "qrCodeSize": "Tamaño del código QR",
-      "qrCodeSizeDesc": "Tamaño de los códigos QR que el panel muestra para enlaces y suscripciones."
+      "qrCodeSizeDesc": "Tamaño de los códigos QR que el panel muestra para enlaces y suscripciones.",
+      "legacyInboundsView": "Entradas y clientes en una sola página (como en 3AX-UI 1.x)",
+      "legacyInboundsViewDesc": "Cada fila de entrada se despliega en una tabla con sus clientes y la entrada Clientes desaparece del menú. La página de clientes sigue disponible por su dirección."
     },
     "xray": {
       "save": "Guardar configuración",

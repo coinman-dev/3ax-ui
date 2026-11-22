@@ -128,7 +128,8 @@
     "openMenu": "打开菜单",
     "pinSidebar": "固定侧边栏",
     "unpinSidebar": "取消固定侧边栏",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "入站和客户端"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "主机顺序",
       "subHostSortModeDesc": "跨入站使用主机页面中的排序。此设置决定服务器输出顺序；客户端应用仍可能自行排序。",
       "qrCodeSize": "二维码尺寸",
-      "qrCodeSizeDesc": "面板为链接和订阅显示的二维码尺寸。"
+      "qrCodeSizeDesc": "面板为链接和订阅显示的二维码尺寸。",
+      "legacyInboundsView": "入站和客户端显示在同一页面（与 3AX-UI 1.x 相同）",
+      "legacyInboundsViewDesc": "每个入站行可展开为其客户端表格，单独的“客户端”菜单项将被隐藏。客户端页面仍可通过其地址访问。"
     },
     "xray": {
       "importRules": "导入规则",

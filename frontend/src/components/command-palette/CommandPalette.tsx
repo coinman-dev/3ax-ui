@@ -37,7 +37,7 @@ import { activateOnKey } from '@/utils/a11y';
 import { useInboundOptions } from '@/api/queries/useInboundOptions';
 import { useAllSettings } from '@/api/queries/useAllSettings';
 import { useTheme } from '@/hooks/useTheme';
-import { PANEL_ROUTES } from '@/routes/panelRoutes';
+import { useAxNavRoutes } from '@/routes/axLegacyNav';
 import type { ClientRecord, InboundOption } from '@/schemas/client';
 import { commandPaletteStore, useCommandPalette } from './useCommandPalette';
 import './CommandPalette.css';
@@ -94,6 +94,7 @@ export default function CommandPalette() {
   const { isOpen, close } = useCommandPalette();
   const { allSetting } = useAllSettings();
   const { data: inbounds = [] } = useInboundOptions();
+  const navRoutes = useAxNavRoutes();
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -367,7 +368,7 @@ export default function CommandPalette() {
       });
     });
 
-    const pages = PANEL_ROUTES.map((route) => ({
+    const pages = navRoutes.map((route) => ({
       path: route.path,
       title: t(route.titleKey),
       keywords: PALETTE_KEYWORDS[route.path] ?? [],
@@ -589,6 +590,7 @@ export default function CommandPalette() {
     query,
     clientSearch,
     inbounds,
+    navRoutes,
     isDark,
     isUltra,
     allSetting.subURI,

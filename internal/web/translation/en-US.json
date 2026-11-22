@@ -128,7 +128,8 @@
     "openMenu": "Open menu",
     "pinSidebar": "Pin sidebar",
     "unpinSidebar": "Unpin sidebar",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "Inbounds and clients"
   },
   "pages": {
     "login": {
@@ -2121,7 +2122,9 @@
       "subHostSortHosts": "Hosts order",
       "subHostSortModeDesc": "Hosts order follows the Hosts page across inbounds. This controls the order emitted by the server; client apps may apply their own sorting.",
       "qrCodeSize": "QR code size",
-      "qrCodeSizeDesc": "Size of the QR codes the panel shows for links and subscriptions."
+      "qrCodeSizeDesc": "Size of the QR codes the panel shows for links and subscriptions.",
+      "legacyInboundsView": "Inbounds and clients on one page (as in 3AX-UI 1.x)",
+      "legacyInboundsViewDesc": "Each inbound row expands into a table of its clients, and the separate Clients entry leaves the menu. The Clients page stays reachable by its address."
     },
     "xray": {
       "save": "Save",

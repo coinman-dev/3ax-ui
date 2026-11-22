@@ -128,7 +128,8 @@
     "openMenu": "Otvoriť menu",
     "pinSidebar": "Pripnúť bočné menu",
     "unpinSidebar": "Odopnúť bočné menu",
-    "subFormats": "Formáty odberu"
+    "subFormats": "Formáty odberu",
+    "inboundsAndClients": "Vstupy a klienti"
   },
   "pages": {
     "login": {
@@ -2121,7 +2122,9 @@
       "subHostSortHosts": "Poradie hostiteľov",
       "subHostSortModeDesc": "Poradie hostiteľov sa riadi stránkou Hostitelia naprieč inboundmi. Určuje poradie, ktoré odosiela server; klientske aplikácie môžu použiť vlastné triedenie.",
       "qrCodeSize": "Veľkosť QR kódu",
-      "qrCodeSizeDesc": "Veľkosť QR kódov, ktoré panel zobrazuje pre odkazy a predplatné."
+      "qrCodeSizeDesc": "Veľkosť QR kódov, ktoré panel zobrazuje pre odkazy a predplatné.",
+      "legacyInboundsView": "Vstupy a klienti na jednej stránke (ako v 3AX-UI 1.x)",
+      "legacyInboundsViewDesc": "Riadok každého vstupu sa rozbalí do tabuľky jeho klientov a samostatná položka Klienti zmizne z ponuky. Stránka klientov zostáva dostupná cez svoju adresu."
     },
     "xray": {
       "save": "Uložiť",

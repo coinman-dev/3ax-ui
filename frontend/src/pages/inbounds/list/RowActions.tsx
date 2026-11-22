@@ -23,6 +23,7 @@ interface RowActionsMenuProps {
   hasClients: boolean;
   onClick: (key: RowAction) => void;
   isMobile?: boolean;
+  extraItems?: MenuProps['items'];
 }
 
 export function buildRowActionsMenu({
@@ -31,17 +32,20 @@ export function buildRowActionsMenu({
   t,
   isMobile,
   hasClients,
+  extraItems,
 }: {
   record: DBInboundRecord;
   subEnable: boolean;
   t: (k: string) => string;
   isMobile?: boolean;
   hasClients?: boolean;
+  extraItems?: MenuProps['items'];
 }): MenuProps['items'] {
   const items: MenuProps['items'] = [];
   if (isMobile) {
     items.push({ key: 'edit', icon: <EditOutlined aria-hidden />, label: t('edit') });
   }
+  if (extraItems) items.push(...extraItems); // 3AX-UI
   if (isInboundMultiUser(record)) {
     items.push({
       key: 'export',
@@ -119,7 +123,13 @@ export function buildRowActionsMenu({
   return items;
 }
 
-export function RowActionsCell({ record, subEnable, hasClients, onClick }: RowActionsMenuProps) {
+export function RowActionsCell({
+  record,
+  subEnable,
+  hasClients,
+  onClick,
+  extraItems,
+}: RowActionsMenuProps) {
   const { t } = useTranslation();
   return (
     <div className="action-buttons">
@@ -134,7 +144,7 @@ export function RowActionsCell({ record, subEnable, hasClients, onClick }: RowAc
       <Dropdown
         trigger={['click']}
         menu={{
-          items: buildRowActionsMenu({ record, subEnable, t, hasClients }),
+          items: buildRowActionsMenu({ record, subEnable, t, hasClients, extraItems }),
           onClick: ({ key }) => onClick(key as RowAction),
         }}
       >

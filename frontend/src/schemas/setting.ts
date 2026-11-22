@@ -35,6 +35,7 @@ export const AllSettingSchema = z
     subTrafficDepletedTemplate: z.string().optional(),
     datepicker: z.enum(['gregorian', 'jalalian']).optional(),
     qrCodeSize: z.number().int().optional(),
+    legacyInboundsView: z.boolean().optional(),
     tgBotEnable: z.boolean().optional(),
     tgBotToken: z.string().optional(),
     tgBotProxy: z.string().optional(),

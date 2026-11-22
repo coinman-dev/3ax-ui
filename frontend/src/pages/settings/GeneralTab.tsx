@@ -508,6 +508,16 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                   options={[300, 450, 600].map((v) => ({ value: v, label: `${v} px` }))}
                 />
               </SettingListItem>
+              <SettingListItem
+                paddings="small"
+                title={t('pages.settings.legacyInboundsView')}
+                description={t('pages.settings.legacyInboundsViewDesc')}
+              >
+                <Switch
+                  checked={!!allSetting.legacyInboundsView}
+                  onChange={(v) => updateSetting({ legacyInboundsView: v })}
+                />
+              </SettingListItem>
             </>
           ),
         },

@@ -128,7 +128,8 @@
     "openMenu": "Mở menu",
     "pinSidebar": "Ghim thanh bên",
     "unpinSidebar": "Bỏ ghim thanh bên",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "Inbound và khách hàng"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "Thứ tự máy chủ",
       "subHostSortModeDesc": "Theo thứ tự trên trang Máy chủ giữa các kết nối vào. Thiết lập này quyết định thứ tự do máy chủ xuất ra; ứng dụng khách có thể tự sắp xếp lại.",
       "qrCodeSize": "Kích thước mã QR",
-      "qrCodeSizeDesc": "Kích thước mã QR mà bảng điều khiển hiển thị cho liên kết và gói đăng ký."
+      "qrCodeSizeDesc": "Kích thước mã QR mà bảng điều khiển hiển thị cho liên kết và gói đăng ký.",
+      "legacyInboundsView": "Inbound và khách hàng trên một trang (như trong 3AX-UI 1.x)",
+      "legacyInboundsViewDesc": "Mỗi hàng inbound mở rộng thành bảng khách hàng của nó, và mục Khách hàng riêng biệt bị ẩn khỏi menu. Trang khách hàng vẫn truy cập được qua địa chỉ của nó."
     },
     "xray": {
       "importRules": "Nhập quy tắc",

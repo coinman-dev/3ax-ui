@@ -1,6 +1,6 @@
 import { useMemo, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Popover, Switch, Tag, Tooltip, type TableColumnType } from 'antd';
+import { Popover, Switch, Tag, Tooltip, type MenuProps, type TableColumnType } from 'antd';
 import { TeamOutlined } from '@ant-design/icons';
 
 import { SizeFormatter, IntlUtil, ColorUtils } from '@/utils';
@@ -41,6 +41,7 @@ interface UseInboundColumnsParams {
   trafficDiff: number;
   onRowAction: (action: { key: RowAction; dbInbound: DBInboundRecord }) => void;
   onSwitchEnable: (dbInbound: DBInboundRecord, next: boolean) => void;
+  extraRowActions?: (record: DBInboundRecord) => MenuProps['items'];
 }
 
 export function useInboundColumns({
@@ -56,6 +57,7 @@ export function useInboundColumns({
   trafficDiff,
   onRowAction,
   onSwitchEnable,
+  extraRowActions,
 }: UseInboundColumnsParams): TableColumnType<DBInboundRecord>[] {
   const { t } = useTranslation();
   const { datepicker } = useDatepicker();
@@ -123,6 +125,7 @@ export function useInboundColumns({
             subEnable={subEnable}
             hasClients={(clientCount[record.id]?.clients || 0) > 0}
             onClick={(key) => onRowAction({ key, dbInbound: record })}
+            extraItems={extraRowActions?.(record)}
           />
         ),
       },
@@ -487,6 +490,7 @@ export function useInboundColumns({
     datepicker,
     onRowAction,
     onSwitchEnable,
+    extraRowActions,
     nginxPortColumn,
   ]);
 }

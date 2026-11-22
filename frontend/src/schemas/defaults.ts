@@ -16,6 +16,7 @@ export const DefaultsPayloadSchema = z
     pageSize: z.number().optional(),
     datepicker: z.enum(['gregorian', 'jalalian']).optional(),
     qrCodeSize: z.number().int().optional(),
+    legacyInboundsView: z.boolean().optional(),
     ipLimitEnable: z.boolean().optional(),
     accessLogEnable: z.boolean().optional(),
     webDomain: z.string().optional(),

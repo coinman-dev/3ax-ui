@@ -21,6 +21,7 @@ import { setMessageInstance } from '@/utils/messageBus';
 import { useTheme } from '@/hooks/useTheme';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useAllSettings } from '@/api/queries/useAllSettings';
+import { setLegacyInboundsView } from '@/hooks/useLegacyInboundsView';
 import { AllSettingSchema } from '@/schemas/setting';
 import AppSidebar from '@/layouts/AppSidebar';
 import GeneralTab from './GeneralTab';
@@ -133,7 +134,8 @@ export default function SettingsPage() {
       messageApi.error(`${fieldPath}: ${t(msgKey, { defaultValue: msgKey })}`);
       return;
     }
-    await saveAll();
+    const msg = await saveAll();
+    if (msg?.success) setLegacyInboundsView(!!allSetting.legacyInboundsView); // 3AX-UI
   }
 
   function restartPanel() {

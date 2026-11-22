@@ -34,7 +34,7 @@ import { formatPanelVersion } from '@/lib/panel-version';
 import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
 import { useAllSettings } from '@/api/queries/useAllSettings';
 import { useCommandPalette } from '@/components/command-palette/useCommandPalette';
-import { PANEL_ROUTES } from '@/routes/panelRoutes';
+import { useAxNavRoutes } from '@/routes/axLegacyNav';
 import './AppSidebar.css';
 
 const DONATE_URL = 'https://donate.sanaei.dev/';
@@ -188,16 +188,17 @@ export default function AppSidebar() {
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
   const panelVersion = window.X_UI_CUR_VER || '';
 
+  const navRoutes = useAxNavRoutes();
   const tabs = useMemo<{ key: string; icon: ComponentType; title: string }[]>(
     () => [
-      ...PANEL_ROUTES.map((route) => ({
+      ...navRoutes.map((route) => ({
         key: route.path,
         icon: route.icon,
         title: t(route.titleKey),
       })),
       { key: LOGOUT_KEY, icon: LogoutOutlined, title: t('logout') },
     ],
-    [t],
+    [t, navRoutes],
   );
 
   const navItems = useMemo(() => tabs.filter((tab) => tab.key !== LOGOUT_KEY), [tabs]);

@@ -128,7 +128,8 @@
     "openMenu": "Menüyü aç",
     "pinSidebar": "Kenar çubuğunu sabitle",
     "unpinSidebar": "Kenar çubuğu sabitlemesini kaldır",
-    "subFormats": "Abonelik Formatları"
+    "subFormats": "Abonelik Formatları",
+    "inboundsAndClients": "Gelen Bağlantılar ve kullanıcılar"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "Ana bilgisayar sırası",
       "subHostSortModeDesc": "Farklı gelen bağlantılarda Ana Bilgisayarlar sayfasının sırasını izler. Sunucunun çıktı sırasını belirler; istemci uygulamaları kendi sıralamalarını uygulayabilir.",
       "qrCodeSize": "QR kodu boyutu",
-      "qrCodeSizeDesc": "Panelin bağlantılar ve abonelikler için gösterdiği QR kodlarının boyutu."
+      "qrCodeSizeDesc": "Panelin bağlantılar ve abonelikler için gösterdiği QR kodlarının boyutu.",
+      "legacyInboundsView": "Gelen bağlantılar ve kullanıcılar tek sayfada (3AX-UI 1.x gibi)",
+      "legacyInboundsViewDesc": "Her gelen bağlantı satırı, kullanıcılarının tablosuna açılır ve ayrı Kullanıcılar menü öğesi gizlenir. Kullanıcılar sayfasına adresinden erişilmeye devam edilebilir."
     },
     "xray": {
       "save": "Kaydet",

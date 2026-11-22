@@ -1,0 +1,52 @@
+/* 3AX-UI: the 1.x nested clients table on the Inbounds page. */
+.ax-inbound-clients {
+  margin: 0 8px;
+}
+
+.ax-client-email-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ax-client-email {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.ax-client-comment {
+  font-size: 12px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.ax-client-mobile-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ax-client-mobile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ax-client-mobile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.ax-card-clients {
+  margin-top: 6px;
+}
+
+.ax-card-clients .ax-inbound-clients {
+  margin: 4px 0 0;
+}

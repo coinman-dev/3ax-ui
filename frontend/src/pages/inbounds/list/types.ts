@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import type { MenuProps, TableProps } from 'antd';
 import type { NodeRecord } from '@/api/queries/useNodesQuery';
 import type { HostRecord } from '@/schemas/api/host';
 
@@ -83,4 +85,8 @@ export interface InboundListProps {
   onGeneralAction: (key: GeneralAction) => void;
   onRowAction: (action: { key: RowAction; dbInbound: DBInboundRecord }) => void;
   onBulkDelete: (ids: number[]) => Promise<boolean>;
+  // 3AX-UI: the 1.x inbounds-and-clients layout, see pages/inbounds/legacy.
+  expandable?: TableProps<DBInboundRecord>['expandable'];
+  extraRowActions?: (record: DBInboundRecord) => MenuProps['items'];
+  renderCardExtra?: (record: DBInboundRecord) => ReactNode;
 }

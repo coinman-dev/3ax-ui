@@ -128,7 +128,8 @@
     "openMenu": "メニューを開く",
     "pinSidebar": "サイドバーを固定",
     "unpinSidebar": "サイドバーの固定を解除",
-    "subFormats": "Sub Formats"
+    "subFormats": "Sub Formats",
+    "inboundsAndClients": "インバウンドとクライアント"
   },
   "pages": {
     "login": {
@@ -1881,7 +1882,9 @@
       "subHostSortHosts": "ホスト順",
       "subHostSortModeDesc": "異なるインバウンド間でもホストページの順序に従います。サーバーが出力する順序を指定しますが、クライアントアプリが独自に並べ替える場合があります。",
       "qrCodeSize": "QR コードのサイズ",
-      "qrCodeSizeDesc": "パネルがリンクとサブスクリプションに表示する QR コードのサイズです。"
+      "qrCodeSizeDesc": "パネルがリンクとサブスクリプションに表示する QR コードのサイズです。",
+      "legacyInboundsView": "インバウンドとクライアントを 1 ページに表示（3AX-UI 1.x と同様）",
+      "legacyInboundsViewDesc": "各インバウンドの行を展開するとそのクライアントの表が表示され、独立した「クライアント」メニューは非表示になります。クライアントページはアドレスから引き続き開けます。"
     },
     "xray": {
       "importRules": "ルールをインポート",

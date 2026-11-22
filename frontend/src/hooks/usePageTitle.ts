@@ -2,16 +2,18 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
-import { PANEL_TITLE_KEYS } from '@/routes/panelRoutes';
+import { axTitleKey } from '@/routes/axLegacyNav';
+import { useLegacyInboundsView } from '@/hooks/useLegacyInboundsView';
 
 export function usePageTitle() {
   const { pathname } = useLocation();
   const { t } = useTranslation();
+  const legacyInboundsView = useLegacyInboundsView();
 
   useEffect(() => {
-    const key = PANEL_TITLE_KEYS[pathname];
+    const key = axTitleKey(pathname, legacyInboundsView);
     const title = key ? t(key) : '3AX-UI';
     const host = window.location.hostname;
     document.title = host ? `${host} - ${title}` : title;
-  }, [pathname, t]);
+  }, [pathname, t, legacyInboundsView]);
 }
