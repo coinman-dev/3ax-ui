@@ -79,7 +79,7 @@ make race                   # как в CI
 
 - push в `main` → только `golangci` и `shell-lint`;
 - ready PR / ручной запуск → полный `ci.yml`;
-- тег `v*.*.*` → `release.yml`: сначала полный `ci.yml` как гейт, потом 7 Linux-архитектур + Windows, публикация в Releases; `docker.yml` собирает образ `ghcr.io/coinman-dev/3x-ui`;
+- тег `v*.*.*` → `release.yml`: сначала полный `ci.yml` как гейт, потом 7 Linux-архитектур + Windows, публикация в Releases; Docker-образ не собирается (решение владельца 2026-11-22, `docker.yml` удалён — при слиянии с upstream не возвращать);
 - CodeQL — ready PR, вручную, раз в неделю.
 
 Проверка правок воркфлоу — `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck=`, без пробных тегов и запусков.

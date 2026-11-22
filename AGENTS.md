@@ -23,6 +23,6 @@ The owner requested minimal necessary cloud work on 2026-10-06 after an Actions-
 - CI (`ci.yml`): a push to `main` runs only `golangci` and `shell-lint`. A ready PR, a manual dispatch or the release gate (`workflow_call`) runs the full set: race tests (they replace upstream's separate plain `go test` job), PostgreSQL, node e2e, fuzz smoke, codegen, govulncheck, frontend with Storybook and audit.
 - CodeQL runs on ready PR, manual dispatch and its weekly scan.
 - Release (`release.yml`): `v*` tags or manual dispatch only; the full `ci.yml` runs first as the gate; all Linux architectures plus Windows; a tag with `-` is a prerelease; the tag must equal `v` + `internal/config/version`. No rolling `dev-latest` build.
-- Docker: tags only, image `ghcr.io/coinman-dev/3x-ui` (the pre-rebrand name, kept for existing compose files).
-- Removed from upstream's CI: Claude issue/PR workflows, mutation testing, the docs site build and deploy. `docs/` stays untouched except `docs/public/openapi.json`, which `make verify` requires to equal `frontend/public/openapi.json`.
+- Docker: no images are built (owner decision 2026-11-22). Upstream's `docker.yml` is removed; don't bring it back when merging upstream. `Dockerfile` and `DockerInit.sh` stay for manual builds. Images already in `ghcr.io/coinman-dev/3x-ui` are left as they are.
+- Removed from upstream's CI: Claude issue/PR workflows, mutation testing, the docs site build and deploy, the Docker image build. `docs/` stays untouched except `docs/public/openapi.json`, which `make verify` requires to equal `frontend/public/openapi.json`.
 - Cache cleanup is manual-only; no daily deletion of working build caches. Dependabot tracks GitHub Actions only, monthly; Go and npm updates arrive with upstream merges.
