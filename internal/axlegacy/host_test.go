@@ -2,6 +2,7 @@ package axlegacy
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -150,5 +151,53 @@ func TestRetireWithoutA1xDatabaseDoesNothing(t *testing.T) {
 	}
 	if ndppd, _ := os.ReadFile(ndppdConf); string(ndppd) != operatorNdppd {
 		t.Errorf("touched ndppd.conf:\n%s", ndppd)
+	}
+}
+
+// 1.x could apply a tunnel's PostUp twice; "down" deletes one copy of each rule, and the
+// survivors kept DNATing a forwarded port to whichever client later got that address.
+func TestRetireRemovesEveryCopyOfThe1xRules(t *testing.T) {
+	h := setupHost(t, []database.AxLegacyInterface{{Kind: "awg", Name: "awg0"}}, "")
+	rules := []string{
+		"iptables -t nat -D POSTROUTING -s 10.66.66.0/24 -o eth0 -j MASQUERADE",
+		"iptables -t nat -D PREROUTING -p tcp -i eth0 --dport 37015 -m comment --comment 3ax-fwd-87e0 -j DNAT --to-destination 10.66.66.3:37015",
+		"ip6tables -D FORWARD -i awg0 -j ACCEPT",
+	}
+	awgConf := filepath.Join(h.dir, "amneziawg", "awg0.conf")
+	conf := "[Interface]\nPostDown = " + strings.Join(append(slices.Clone(rules), "ip -6 neigh del proxy 2001:db8::2 dev eth1"), "; ") + "\n"
+	if err := os.WriteFile(awgConf, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	copies := map[string]int{}
+	for _, r := range rules {
+		copies[r] = 2
+	}
+	runHost = func(name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		h.commands = append(h.commands, cmd)
+		if name == "awg-quick" { // its PostDown deletes one copy of each
+			for _, r := range rules {
+				copies[r]--
+			}
+			return nil, nil
+		}
+		if _, isRule := copies[cmd]; isRule {
+			if copies[cmd] == 0 {
+				return []byte("Bad rule (does a matching rule exist in that chain?)"), errors.New("exit status 1")
+			}
+			copies[cmd]--
+		}
+		return nil, nil
+	}
+
+	RetireHost()
+
+	for _, r := range rules {
+		if copies[r] != 0 {
+			t.Errorf("%d copies left of: %s", copies[r], r)
+		}
+	}
+	if slices.Contains(h.commands, "ip -6 neigh del proxy 2001:db8::2 dev eth1") {
+		t.Errorf("re-ran a PostDown command that is not a firewall rule: %q", h.commands)
 	}
 }

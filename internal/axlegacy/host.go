@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
@@ -76,10 +77,53 @@ func retireInterface(iface database.AxLegacyInterface) {
 		logger.Warningf("3AX-UI 1.x cleanup: %s down %s: %v: %s", quick, iface.Name, err, strings.TrimSpace(string(out)))
 		_, _ = runHost("ip", "link", "del", iface.Name)
 	}
+	purgeRuleCopies(conf)
 	if err := os.Rename(conf, conf+".3ax-1x-bak"); err != nil {
 		logger.Warning("3AX-UI 1.x cleanup: could not move the old config aside:", err)
 	}
 	logger.Infof("3AX-UI 1.x cleanup: interface %s retired", iface.Name)
+}
+
+// maxRuleCopies bounds the repeat of one deletion, should the rule never report gone.
+const maxRuleCopies = 16
+
+// 1.x could apply a tunnel's PostUp twice and "down" deletes one copy of each rule,
+// so every iptables deletion in its PostDown repeats until the rule is gone.
+func purgeRuleCopies(conf string) {
+	raw, err := os.ReadFile(conf)
+	if err != nil {
+		return
+	}
+	for _, args := range postDownRuleDeletions(string(raw)) {
+		for range maxRuleCopies {
+			if _, err := runHost(args[0], args[1:]...); err != nil {
+				break
+			}
+		}
+	}
+}
+
+// plainArg is what 1.x wrote into its rules; anything else would need a shell to mean the same.
+var plainArg = regexp.MustCompile(`^[A-Za-z0-9_./:,+-]+$`)
+
+func postDownRuleDeletions(conf string) [][]string {
+	var out [][]string
+	for line := range strings.SplitSeq(conf, "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "PostDown" {
+			continue
+		}
+		for part := range strings.SplitSeq(value, ";") {
+			args := strings.Fields(part)
+			if len(args) < 2 || (args[0] != "iptables" && args[0] != "ip6tables") || !slices.Contains(args, "-D") {
+				continue
+			}
+			if !slices.ContainsFunc(args, func(a string) bool { return !plainArg.MatchString(a) }) {
+				out = append(out, args)
+			}
+		}
+	}
+	return out
 }
 
 func stripNdppd() {
