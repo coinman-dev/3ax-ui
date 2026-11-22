@@ -1586,15 +1586,23 @@ func (s *InboundService) GetOnlineClients() []string {
 // node-id keying so a client three hops down is attributed to its real node,
 // not the intermediate one it was synced through.
 func (s *InboundService) GetOnlineClientsByGuid() map[string][]string {
-	process := currentXrayProcess()
-	if process == nil {
-		return map[string][]string{}
+	kernelOnline, _ := amneziawgkern.GetCollector().Online(time.Now())
+	out := map[string][]string{}
+	var local []string
+	if process := currentXrayProcess(); process != nil {
+		out = process.GetMergedNodeTrees()
+		local = process.GetLocalOnlineClients()
 	}
-	out := process.GetMergedNodeTrees()
-	if local := process.GetLocalOnlineClients(); len(local) > 0 {
-		if guid := s.panelGuid(); guid != "" {
-			out[guid] = mergeEmails(out[guid], local)
-		}
+	return s.withLocalEntries(out, mergeEmails(local, kernelOnline))
+}
+
+// withLocalEntries files this panel's own entries under its GUID, next to the nodes' subtrees.
+func (s *InboundService) withLocalEntries(out map[string][]string, local []string) map[string][]string {
+	if len(local) == 0 {
+		return out
+	}
+	if guid := s.panelGuid(); guid != "" {
+		out[guid] = mergeEmails(out[guid], local)
 	}
 	return out
 }
@@ -1604,21 +1612,14 @@ func (s *InboundService) GetOnlineClientsByGuid() map[string][]string {
 // each inbound. A GUID missing from the map means "don't gate" for that node's
 // inbounds (old-build node or no active-inbound signal).
 func (s *InboundService) GetActiveInboundsByGuid() map[string][]string {
-	process := currentXrayProcess()
-	if process == nil {
-		return map[string][]string{}
+	_, kernelActive := amneziawgkern.GetCollector().Online(time.Now())
+	out := map[string][]string{}
+	var local []string
+	if process := currentXrayProcess(); process != nil {
+		out = process.GetMergedActiveInboundTrees()
+		local = process.GetLocalActiveInbounds()
 	}
-	out := process.GetMergedActiveInboundTrees()
-	active := process.GetLocalActiveInbounds()
-	if len(active) == 0 {
-		return out
-	}
-	guid := s.panelGuid()
-	if guid == "" {
-		return out
-	}
-	out[guid] = mergeEmails(out[guid], active)
-	return out
+	return s.withLocalEntries(out, mergeEmails(local, kernelActive))
 }
 
 func (s *InboundService) SetNodeOnlineTree(nodeID int, tree map[string][]string) {

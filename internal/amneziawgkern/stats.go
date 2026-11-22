@@ -97,14 +97,17 @@ type Collector struct {
 	// handshakes is each peer's latest handshake, the only online signal a
 	// kernel interface exposes.
 	handshakes map[string]int64
+	// inboundTags maps an interface to the inbound it serves.
+	inboundTags map[string]string
 }
 
 func NewCollector() *Collector {
 	return &Collector{
-		last:       map[string]counters{},
-		endpoints:  map[string][]endpointSighting{},
-		emails:     map[string]string{},
-		handshakes: map[string]int64{},
+		last:        map[string]counters{},
+		endpoints:   map[string][]endpointSighting{},
+		emails:      map[string]string{},
+		handshakes:  map[string]int64{},
+		inboundTags: map[string]string{},
 	}
 }
 
@@ -259,6 +262,7 @@ func (c *Collector) Forget(iface string) {
 			delete(c.handshakes, k)
 		}
 	}
+	delete(c.inboundTags, iface)
 }
 
 // endpointHost strips the port so a peer behind a NAT that renumbers its
@@ -387,15 +391,38 @@ func (c *Collector) ObserveHandshakes(iface string, stats []PeerStat) {
 	}
 }
 
+// SetInboundTag records which inbound an interface serves, so an online peer
+// can mark that inbound active the way Xray traffic marks its own.
+func (c *Collector) SetInboundTag(iface, tag string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.inboundTags == nil {
+		c.inboundTags = map[string]string{}
+	}
+	if tag == "" {
+		delete(c.inboundTags, iface)
+		return
+	}
+	c.inboundTags[iface] = tag
+}
+
 // OnlineEmails returns the clients whose peers handshook recently enough to be
 // considered connected.
 func (c *Collector) OnlineEmails(now time.Time) []string {
+	emails, _ := c.Online(now)
+	return emails
+}
+
+// Online returns the connected clients and the tags of the inbounds serving them.
+func (c *Collector) Online(now time.Time) (emails, inboundTags []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	cutoff := now.Add(-onlineHandshakeAge).Unix()
-	seen := make(map[string]struct{}, len(c.handshakes))
-	out := make([]string, 0, len(c.handshakes))
+	seenEmail := make(map[string]struct{}, len(c.handshakes))
+	seenTag := make(map[string]struct{}, len(c.inboundTags))
+	emails = make([]string, 0, len(c.handshakes))
 	for k, ts := range c.handshakes {
 		if ts < cutoff {
 			continue
@@ -404,11 +431,18 @@ func (c *Collector) OnlineEmails(now time.Time) []string {
 		if email == "" {
 			continue
 		}
-		if _, dup := seen[email]; dup {
-			continue
+		if _, dup := seenEmail[email]; !dup {
+			seenEmail[email] = struct{}{}
+			emails = append(emails, email)
 		}
-		seen[email] = struct{}{}
-		out = append(out, email)
+		// Interface names cannot contain "/", so the first one ends the name.
+		iface, _, _ := strings.Cut(k, "/")
+		if tag := c.inboundTags[iface]; tag != "" {
+			if _, dup := seenTag[tag]; !dup {
+				seenTag[tag] = struct{}{}
+				inboundTags = append(inboundTags, tag)
+			}
+		}
 	}
-	return out
+	return emails, inboundTags
 }

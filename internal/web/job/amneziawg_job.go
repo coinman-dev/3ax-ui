@@ -201,7 +201,9 @@ type kernelTrafficDumper func(string) ([]amneziawgkern.PeerStat, error)
 // ones, so a peer or inbound that is about to be dropped is still charged.
 func collectKernelTrafficWith(inboundService *service.InboundService, kernel []amneziawgkern.Desired, manager kernelTrafficManager, collector *amneziawgkern.Collector, dump kernelTrafficDumper) {
 	emailsByID := make(map[int]map[string]string, len(kernel))
+	tagsByID := make(map[int]string, len(kernel))
 	for _, d := range kernel {
+		tagsByID[d.Instance.Id] = d.Instance.Tag
 		emails := make(map[string]string, len(d.Instance.Peers))
 		for _, p := range d.Instance.Peers {
 			emails[p.PublicKey] = p.Email
@@ -254,6 +256,7 @@ func collectKernelTrafficWith(inboundService *service.InboundService, kernel []a
 		}
 		if desired {
 			collector.SetEmails(state.Name, emails)
+			collector.SetInboundTag(state.Name, tagsByID[id])
 		}
 		collector.ObserveEndpoints(state.Name, stats, now, endpointWindow)
 		collector.ObserveHandshakes(state.Name, stats)

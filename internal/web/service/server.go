@@ -828,11 +828,7 @@ func (s *ServerService) AppendStatusSample(t time.Time, status *Status) {
 	systemMetrics.append("pktDown", t, float64(status.NetIO.PktDown))
 	systemMetrics.append("tcpCount", t, float64(status.TcpCount))
 	systemMetrics.append("udpCount", t, float64(status.UdpCount))
-	online := 0
-	if process := currentXrayProcess(); process != nil && process.IsRunning() {
-		online = len(process.GetOnlineClients())
-	}
-	systemMetrics.append("online", t, float64(online))
+	systemMetrics.append("online", t, float64(len(s.inboundService.GetOnlineClients())))
 	if len(status.Loads) >= 3 {
 		systemMetrics.append("load1", t, status.Loads[0])
 		systemMetrics.append("load5", t, status.Loads[1])
