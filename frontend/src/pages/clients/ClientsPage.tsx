@@ -94,6 +94,7 @@ const TextModal = lazy(() => import('@/components/feedback/TextModal'));
 const PromptModal = lazy(() => import('@/components/feedback/PromptModal'));
 import { ClientInboundChips, ClientRowActions } from './RowCells';
 import { emptyFilters, activeFilterCount } from './filters';
+import { LOCAL_SORT_KEY, parseClientSort, serverSortKey } from './axColumnSort';
 import type { ClientFilters } from './filters';
 import './ClientsPage.css';
 
@@ -439,7 +440,7 @@ export default function ClientsPage() {
   const [filters, setFilters] = useState<ClientFilters>(initial.filters);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const initialSort = SORT_OPTIONS.find((o) => o.value === initial.sort) ?? DEFAULT_SORT;
+  const initialSort = parseClientSort(initial.sort, DEFAULT_SORT);
   const [sortColumn, setSortColumn] = useState<string | null>(initialSort.column);
   const [sortOrder, setSortOrder] = useState<'ascend' | 'descend' | null>(initialSort.order);
   const [currentPage, setCurrentPage] = useState(1);
@@ -527,8 +528,8 @@ export default function ClientsPage() {
       hasTgId: filters.hasTgId || undefined,
       hasComment: filters.hasComment || undefined,
       group: filters.groups.join(',') || undefined,
-      sort: sortColumn || undefined,
-      order: sortOrder || undefined,
+      sort: serverSortKey(sortColumn),
+      order: serverSortKey(sortColumn) ? sortOrder || undefined : undefined,
     });
   }, [
     setQuery,
@@ -1050,10 +1051,34 @@ export default function ClientsPage() {
     return classes.join(' ');
   }, [isDark, isUltra]);
 
-  const onTableChange: NonNullable<TableProps<ClientRecord>['onChange']> = (pag) => {
+  const onTableChange: NonNullable<TableProps<ClientRecord>['onChange']> = (pag, _f, sorter) => {
     if (pag?.current) setCurrentPage(pag.current);
     if (pag?.pageSize) setPageSizeChoice(pag.pageSize);
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    if (s?.order && s.columnKey) {
+      setSortColumn(String(s.columnKey));
+      setSortOrder(s.order);
+    } else if (s && !s.order) {
+      setSortColumn(DEFAULT_SORT.column);
+      setSortOrder(DEFAULT_SORT.order);
+    }
   };
+  const headerSort = useCallback(
+    (key: string) => {
+      const speedOf = (row: ClientRecord) => {
+        const speed = clientSpeed[row.email];
+        return speed ? speed.up + speed.down : 0;
+      };
+      return {
+        sorter:
+          key === LOCAL_SORT_KEY
+            ? (a: ClientRecord, b: ClientRecord) => speedOf(a) - speedOf(b)
+            : true,
+        sortOrder: sortColumn === key ? sortOrder : null,
+      };
+    },
+    [clientSpeed, sortColumn, sortOrder],
+  );
 
   const columns = useMemo<ColumnsType<ClientRecord>>(
     () => [
@@ -1120,6 +1145,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.client'),
         key: 'email',
+        ...headerSort('email'),
         width: 220,
         render: (_v, record) => (
           <div className="email-cell">
@@ -1164,6 +1190,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.attachedInbounds'),
         key: 'inboundIds',
+        ...headerSort('inboundIds'),
         width: 170,
         render: (_v, record) => {
           return (
@@ -1179,6 +1206,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.traffic'),
         key: 'traffic',
+        ...headerSort('traffic'),
         width: 300,
         render: (_v, record) => (
           <ClientTrafficCell
@@ -1193,6 +1221,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.speed'),
         key: 'speed',
+        ...headerSort('speed'),
         width: SPEED_COLUMN_WIDTH,
         align: 'center',
         render: (_v, record) => {
@@ -1210,12 +1239,14 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.remaining'),
         key: 'remaining',
+        ...headerSort('remaining'),
         width: 130,
         render: (_v, record) => <Tag color={remainingColor(record)}>{remainingLabel(record)}</Tag>,
       },
       {
         title: t('pages.clients.duration'),
         key: 'expiryTime',
+        ...headerSort('expiryTime'),
         width: 130,
         render: (_v, record) => (
           <Tooltip title={expiryLabel(record)}>
@@ -1238,6 +1269,7 @@ export default function ClientsPage() {
       datepicker,
       trafficDiff,
       clientSpeed,
+      headerSort,
     ],
   );
 
@@ -1559,7 +1591,14 @@ export default function ClientsPage() {
                           </Button>
                         </Badge>
                         <Select
-                          value={sortValueFor(sortColumn, sortOrder)}
+                          value={
+                            SORT_OPTIONS.some(
+                              (o) => o.value === sortValueFor(sortColumn, sortOrder),
+                            )
+                              ? sortValueFor(sortColumn, sortOrder)
+                              : undefined
+                          }
+                          placeholder={t('sort')}
                           aria-label={t('sort')}
                           size={isMobile ? 'small' : 'middle'}
                           suffix={<SortAscendingOutlined aria-hidden />}
