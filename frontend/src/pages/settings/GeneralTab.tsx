@@ -333,6 +333,17 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
 
               <SettingListItem
                 paddings="small"
+                title={t('pages.settings.legacyInboundsView')}
+                description={t('pages.settings.legacyInboundsViewDesc')}
+              >
+                <Switch
+                  checked={!!allSetting.legacyInboundsView}
+                  onChange={(v) => updateSetting({ legacyInboundsView: v })}
+                />
+              </SettingListItem>
+
+              <SettingListItem
+                paddings="small"
                 title={t('pages.settings.restartXrayOnClientDisable')}
                 description={t('pages.settings.restartXrayOnClientDisableDesc')}
               >
@@ -506,16 +517,6 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                   }}
                   style={{ width: '100%' }}
                   options={[300, 450, 600].map((v) => ({ value: v, label: `${v} px` }))}
-                />
-              </SettingListItem>
-              <SettingListItem
-                paddings="small"
-                title={t('pages.settings.legacyInboundsView')}
-                description={t('pages.settings.legacyInboundsViewDesc')}
-              >
-                <Switch
-                  checked={!!allSetting.legacyInboundsView}
-                  onChange={(v) => updateSetting({ legacyInboundsView: v })}
                 />
               </SettingListItem>
             </>
