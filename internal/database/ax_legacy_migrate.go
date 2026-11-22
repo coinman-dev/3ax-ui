@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"time"
 
@@ -67,6 +68,8 @@ type axTunnelServer struct {
 	Endpoint               string
 	RouteViaXray           bool
 	XrayInboundTag         string
+	// Dns is the one comma-separated column panels before 1.5 had instead of dns_ipv4/dns_ipv6.
+	Dns string
 }
 
 type axTunnelClient struct {
@@ -150,8 +153,10 @@ func migrateAx1xDatabase() error {
 }
 
 func isAx1xDatabase() bool {
-	if db.Migrator().HasTable("tunnel_servers") || db.Migrator().HasTable("mtproto_clients") {
-		return true
+	for _, table := range []string{"tunnel_servers", "awg_servers", "wg_servers", "mtproto_clients"} {
+		if db.Migrator().HasTable(table) {
+			return true
+		}
 	}
 	var n int64
 	db.Model(&model.Inbound{}).Where("protocol = ?", "nativewg").Count(&n)
@@ -170,6 +175,15 @@ func backupAx1xDatabase() error {
 		if f.Name == "main" && f.File != "" {
 			path := fmt.Sprintf("%s.3ax-1x-backup-%d", f.File, time.Now().Unix())
 			log.Printf("3AX-UI 1.x database found; copying it to %s before migrating", path)
+			// Created empty and private first: VACUUM INTO fills an empty file but
+			// would create a missing one world-readable, with every key in it.
+			placeholder, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			if err != nil {
+				return err
+			}
+			if err := placeholder.Close(); err != nil {
+				return err
+			}
 			return db.Exec("VACUUM INTO ?", path).Error
 		}
 	}
@@ -200,11 +214,9 @@ func (m *axMigration) run() error {
 	if err := m.tx.Order("id").First(&firstUser).Error; err == nil {
 		m.userID = firstUser.Id
 	}
-	if m.tx.Migrator().HasTable("tunnel_servers") {
-		for _, kind := range []string{"awg", "wg"} {
-			if err := m.migrateTunnel(kind, legacy); err != nil {
-				return err
-			}
+	for _, kind := range []string{"awg", "wg"} {
+		if err := m.migrateTunnel(kind, legacy); err != nil {
+			return err
 		}
 	}
 	// A tunnel inbound with no 1.x server behind it never had a config to run.
@@ -318,15 +330,54 @@ func (m *axMigration) claimEmail(base, source string) string {
 	return pick
 }
 
+// tunnelRows reads one kind's server and clients. 1.6.12 merged the per-kind
+// tables into tunnel_* and froze the old ones, so those count only without it.
+func (m *axMigration) tunnelRows(kind string) (*axTunnelServer, []axTunnelClient, error) {
+	servers, clients := m.tx.Table("tunnel_servers").Where("kind = ?", kind), "tunnel_clients"
+	if !m.tx.Migrator().HasTable("tunnel_servers") {
+		if !m.tx.Migrator().HasTable(kind + "_servers") {
+			return nil, nil, nil
+		}
+		servers, clients = m.tx.Table(kind+"_servers"), kind+"_clients"
+	}
+	var found []axTunnelServer
+	if err := servers.Order("id").Limit(1).Find(&found).Error; err != nil || len(found) == 0 {
+		return nil, nil, err
+	}
+	srv := found[0]
+	if srv.DnsIpv4 == "" && srv.DnsIpv6 == "" {
+		srv.DnsIpv4, srv.DnsIpv6 = splitDNSByFamily(srv.Dns)
+	}
+	var rows []axTunnelClient
+	if m.tx.Migrator().HasTable(clients) {
+		if err := m.tx.Table(clients).Where("server_id = ?", srv.Id).Order("id").Find(&rows).Error; err != nil {
+			return nil, nil, err
+		}
+	}
+	return &srv, rows, nil
+}
+
+func splitDNSByFamily(list string) (v4, v6 string) {
+	var four, six []string
+	for _, entry := range strings.Split(list, ",") {
+		addr, err := netip.ParseAddr(strings.TrimSpace(entry))
+		switch {
+		case err != nil:
+		case addr.Is4():
+			four = append(four, addr.String())
+		default:
+			six = append(six, addr.String())
+		}
+	}
+	return strings.Join(four, ","), strings.Join(six, ",")
+}
+
 func (m *axMigration) migrateTunnel(kind string, legacy []model.Inbound) error {
-	var servers []axTunnelServer
-	if err := m.tx.Table("tunnel_servers").Where("kind = ?", kind).Find(&servers).Error; err != nil {
+	found, tunnelClients, err := m.tunnelRows(kind)
+	if err != nil || found == nil {
 		return err
 	}
-	if len(servers) == 0 {
-		return nil
-	}
-	srv := servers[0]
+	srv := *found
 	iface := strings.TrimSpace(srv.InterfaceName)
 	if iface == "" {
 		iface = kind + "0"
@@ -334,10 +385,6 @@ func (m *axMigration) migrateTunnel(kind string, legacy []model.Inbound) error {
 	m.interfaces = append(m.interfaces, AxLegacyInterface{Kind: kind, Name: iface})
 	if kind == "wg" {
 		srv = plainWireGuard(srv)
-	}
-	var tunnelClients []axTunnelClient
-	if err := m.tx.Table("tunnel_clients").Where("server_id = ?", srv.Id).Order("id").Find(&tunnelClients).Error; err != nil {
-		return err
 	}
 
 	protocol := map[string]string{"awg": "amneziawg", "wg": "nativewg"}[kind]
@@ -354,10 +401,13 @@ func (m *axMigration) migrateTunnel(kind string, legacy []model.Inbound) error {
 
 	clients := make([]model.Client, 0, len(tunnelClients))
 	traffic := make([]xray.ClientTraffic, 0, len(tunnelClients))
+	// 1.x showed a tunnel inbound's traffic as its clients' sum; the row held a stale snapshot.
+	var up, down int64
 	for _, tc := range tunnelClients {
 		c := tunnelClientToClient(tc)
 		c.Email = m.claimEmail(tc.Email, kind)
 		clients = append(clients, c)
+		up, down = up+tc.Upload, down+tc.Download
 		traffic = append(traffic, xray.ClientTraffic{
 			Email: c.Email, Enable: tc.Enable, Up: tc.Upload, Down: tc.Download,
 			Total: tc.TotalGB, ExpiryTime: tc.ExpiryTime, Reset: tc.Reset, LastOnline: tc.LastOnline,
@@ -376,16 +426,22 @@ func (m *axMigration) migrateTunnel(kind string, legacy []model.Inbound) error {
 		if err := m.tx.Where("inbound_id = ?", row.Id).Delete(&xray.ClientTraffic{}).Error; err != nil {
 			return err
 		}
+		total := row.Total
+		if total > 0 && up+down >= total {
+			// 1.x never enforced this limit on a tunnel; enforcing it now would shut the inbound.
+			log.Printf("3AX-UI 1.x migration: %s inbound %d: traffic limit of %d bytes dropped, its clients already used %d", kind, row.Id, total, up+down)
+			total = 0
+		}
 		if err := m.tx.Model(&model.Inbound{}).Where("id = ?", row.Id).Updates(map[string]any{
 			"protocol": string(model.AmneziaWG), "port": srv.ListenPort, "settings": settings, "enable": srv.Enable,
-			"share_addr_strategy": shareStrategy, "share_addr": shareAddr,
+			"share_addr_strategy": shareStrategy, "share_addr": shareAddr, "up": up, "down": down, "total": total,
 		}).Error; err != nil {
 			return err
 		}
 	} else {
 		remark := map[string]string{"awg": "AmneziaWG", "wg": "WireGuard"}[kind]
 		created := model.Inbound{
-			UserId: m.userID, Remark: remark, Enable: srv.Enable, Port: srv.ListenPort,
+			UserId: m.userID, Remark: remark, Enable: srv.Enable, Port: srv.ListenPort, Up: up, Down: down,
 			Protocol: model.AmneziaWG, Settings: settings, Tag: m.freeTag(fmt.Sprintf("inbound-%d", srv.ListenPort)),
 			TrafficReset: "never", ShareAddrStrategy: shareStrategy, ShareAddr: shareAddr,
 		}

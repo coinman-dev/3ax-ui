@@ -65,6 +65,12 @@ INSERT INTO settings (key, value) VALUES ('xrayTemplateConfig', '{"routing":{"ru
 
 func buildAx181DB(t *testing.T) string {
 	t.Helper()
+	return buildAxDB(t, ax181Data)
+}
+
+// buildAxDB runs the given statements on top of the 1.8.1 schema.
+func buildAxDB(t *testing.T, data string) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "x-ui.db")
 	schema, err := os.ReadFile(filepath.Join("testdata", "ax181_schema.sql"))
 	if err != nil {
@@ -75,7 +81,7 @@ func buildAx181DB(t *testing.T) string {
 		t.Fatal(err)
 	}
 	defer raw.Close()
-	for _, stmt := range strings.Split(string(schema)+ax181Data, ";\n") {
+	for _, stmt := range strings.Split(string(schema)+data, ";\n") {
 		if strings.TrimSpace(stmt) == "" || strings.HasPrefix(strings.TrimSpace(stmt), "--") && !strings.Contains(stmt, "\n") {
 			continue
 		}
@@ -88,9 +94,13 @@ func buildAx181DB(t *testing.T) string {
 
 func migratedAx181(t *testing.T) string {
 	t.Helper()
-	path := buildAx181DB(t)
+	return migratedAxDB(t, buildAx181DB(t))
+}
+
+func migratedAxDB(t *testing.T, path string) string {
+	t.Helper()
 	if err := InitDB(path); err != nil {
-		t.Fatalf("InitDB on a 1.8.1 database: %v", err)
+		t.Fatalf("InitDB on a 1.x database: %v", err)
 	}
 	t.Cleanup(func() { _ = CloseDB() })
 	return path
@@ -371,4 +381,135 @@ func TestUpgradeKeepsTheCombinedInboundsView(t *testing.T) {
 			}
 		}
 	})
+}
+
+// 1.x showed a tunnel inbound's traffic as the sum of its clients; the inbound row
+// itself only held a stale snapshot, which is what the inbounds page reads here.
+func TestAx181TunnelInboundTotalIsItsClientsTraffic(t *testing.T) {
+	migratedAx181(t)
+	if awg := inboundByID(t, 2); awg.Up != 107 || awg.Down != 208 {
+		t.Errorf("AmneziaWG inbound total = up %d down %d, want 107/208 (bob 100/200 + alice 7/8)", awg.Up, awg.Down)
+	}
+	if wg := inboundByID(t, 3); wg.Up != 1 || wg.Down != 2 {
+		t.Errorf("former WireGuard inbound total = up %d down %d, want carol's 1/2", wg.Up, wg.Down)
+	}
+}
+
+// The copy holds every private key and secret of the panel, like x-ui.db itself.
+func TestAx181BackupIsReadableByItsOwnerOnly(t *testing.T) {
+	path := migratedAx181(t)
+	backups, _ := filepath.Glob(path + ".3ax-1x-backup-*")
+	if len(backups) != 1 {
+		t.Fatalf("backups = %v, want exactly one", backups)
+	}
+	info, err := os.Stat(backups[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("backup mode = %o, want 600", mode)
+	}
+}
+
+// ax133Data is a 3AX-UI 1.3.3 panel, from before 1.6.12 merged the per-kind tables
+// into tunnel_*: awg_servers has integer H1-H4, one "dns" column and no MTProto.
+const ax133Data = `
+DROP TABLE tunnel_clients;
+DROP TABLE tunnel_servers;
+DROP TABLE mtproto_clients;
+DROP TABLE awg_servers;
+CREATE TABLE ` + "`awg_servers`" + ` (` + "`id`" + ` integer PRIMARY KEY AUTOINCREMENT,` + "`enable`" + ` numeric DEFAULT false,` + "`interface_name`" + ` text DEFAULT "awg0",` + "`listen_port`" + ` integer DEFAULT 51820,` + "`mtu`" + ` integer DEFAULT 1420,` + "`private_key`" + ` text,` + "`public_key`" + ` text,` + "`ipv4_address`" + ` text DEFAULT "10.66.66.1/24",` + "`ipv4_pool`" + ` text DEFAULT "10.66.66.0/24",` + "`ipv6_enabled`" + ` numeric DEFAULT false,` + "`ipv6_address`" + ` text,` + "`ipv6_pool`" + ` text,` + "`ipv6_gateway`" + ` text,` + "`jc`" + ` integer DEFAULT 4,` + "`jmin`" + ` integer DEFAULT 50,` + "`jmax`" + ` integer DEFAULT 1000,` + "`s1`" + ` integer DEFAULT 0,` + "`s2`" + ` integer DEFAULT 0,` + "`h1`" + ` integer DEFAULT 1,` + "`h2`" + ` integer DEFAULT 2,` + "`h3`" + ` integer DEFAULT 3,` + "`h4`" + ` integer DEFAULT 4,` + "`dns`" + ` text DEFAULT "1.1.1.1,2606:4700:4700::1111",` + "`external_interface`" + ` text DEFAULT "",` + "`ipv6_external_interface`" + ` text DEFAULT "",` + "`post_up`" + ` text,` + "`post_down`" + ` text,` + "`endpoint`" + ` text,` + "`traffic_reset`" + ` text DEFAULT "never",` + "`route_via_xray`" + ` numeric DEFAULT false,` + "`xray_inbound_tag`" + ` text DEFAULT "awg-tproxy-in",` + "`xray_tproxy_port`" + ` integer DEFAULT 12345,` + "`created_at`" + ` integer,` + "`updated_at`" + ` integer);
+INSERT INTO users (username, password) VALUES ('admin', 'x');
+INSERT INTO history_of_seeders (seeder_name) VALUES ('UserPasswordHash');
+INSERT INTO inbounds (id, user_id, up, down, total, all_time, remark, enable, expiry_time, traffic_reset, listen, port, protocol, settings, stream_settings, tag, sniffing, public_port) VALUES
+ (1, 1, 0, 0, 0, 0, 'awg', 1, 0, 'never', '', 51820, 'amneziawg', '{"clients":[{"id":"u-erin","email":"erin","enable":true,"_awgId":1}]}', '', 'inbound-51820', '', 0);
+INSERT INTO client_traffics (inbound_id, enable, email, up, down, all_time, expiry_time, total, reset, last_online) VALUES
+ (1, 1, 'erin', 999, 999, 0, 0, 0, 0, 0);
+INSERT INTO awg_servers (id, enable, interface_name, listen_port, mtu, private_key, public_key, ipv4_address, ipv4_pool, ipv6_enabled,
+  jc, jmin, jmax, s1, s2, h1, h2, h3, h4, dns, external_interface, endpoint, traffic_reset, route_via_xray) VALUES
+ (1, 1, 'awg0', 51820, 1420, 'oldPriv', 'oldPub', '10.66.66.1/24', '10.66.66.0/24', 0,
+  4, 50, 1000, 15, 25, 111, 222, 333, 444, '9.9.9.9, 2620:fe::fe', 'eth0', '', 'never', 0);
+INSERT INTO awg_clients (server_id, uuid, name, email, enable, comment, private_key, public_key, preshared_key, ipv4_address, ipv6_address,
+  allowed_ips, client_allowed_ips, forwarded_ports, persistent_keepalive, upload, download, total_gb, all_time,
+  expiry_time, reset, limit_ip, tg_id, last_online, last_ip, created_at, updated_at) VALUES
+ (1, 'u-erin', 'erin', 'erin', 1, '', 'erinPriv', 'erinPub', 'erinPsk', '10.66.66.2/32', '',
+  '10.66.66.2/32', '0.0.0.0/0,::/0', '', 25, 11, 22, 0, 33,
+  0, 0, 0, 0, 1700000000000, '', 1690000000000, 1690000000000);
+`
+
+// A panel that jumps here from before 1.6.12 never had tunnel_servers; without
+// reading awg_servers its AmneziaWG inbound was deleted as "no server behind it".
+func TestAxPre1612TunnelTablesAreMigrated(t *testing.T) {
+	path := migratedAxDB(t, buildAxDB(t, ax133Data))
+	if backups, _ := filepath.Glob(path + ".3ax-1x-backup-*"); len(backups) != 1 {
+		t.Errorf("backups = %v, want one: the database must be recognised as 1.x", backups)
+	}
+	ib := inboundByID(t, 1)
+	s := awgSettings(t, ib)
+	srv := s.Server
+	if !srv.KernelMode || srv.PrivateKey != "oldPriv" || srv.PublicKey != "oldPub" || srv.SubnetIP != "10.66.66.0" || ib.Port != 51820 {
+		t.Errorf("server identity: port %d %+v", ib.Port, srv)
+	}
+	if srv.Jc != 4 || srv.Jmin != 50 || srv.Jmax != 1000 || srv.S1 != 15 || srv.S2 != 25 || srv.H1 != "111" || srv.H4 != "444" {
+		t.Errorf("obfuscation: %+v", srv)
+	}
+	if err := amneziawg.ValidateServerObfuscation(srv.Obfuscation()); err != nil {
+		t.Errorf("carried obfuscation rejected: %v", err)
+	}
+	if srv.PrimaryDNS != "9.9.9.9" || srv.SecondaryDNS != "2620:fe::fe" {
+		t.Errorf("dns = %q / %q, want the single 1.3 dns column split by family", srv.PrimaryDNS, srv.SecondaryDNS)
+	}
+	erin := clientByEmail(t, s.Clients, "erin")
+	if erin.PrivateKey != "erinPriv" || erin.PublicKey != "erinPub" || erin.PreSharedKey != "erinPsk" || !slices.Equal(erin.AllowedIPs, []string{"10.66.66.2/32"}) {
+		t.Errorf("erin = %+v", erin)
+	}
+	if ct := trafficByEmail(t, "erin"); ct.InboundId != 1 || ct.Up != 11 || ct.Down != 22 || ct.LastOnline != 1700000000000 {
+		t.Errorf("erin traffic = %+v, want awg_clients' 11/22", ct)
+	}
+	var setting model.Setting
+	if err := GetDB().Where("key = ?", AxLegacyHostCleanupKey).First(&setting).Error; err != nil || !strings.Contains(setting.Value, `"awg0"`) {
+		t.Errorf("awg0 not recorded for retiring: %q, %v", setting.Value, err)
+	}
+}
+
+// From 1.6.12 on the merged tables are the live ones and awg_servers is a frozen
+// copy kept for rollback, so it must not win over them.
+func TestAx181FrozenPerKindTablesAreIgnored(t *testing.T) {
+	path := buildAxDB(t, ax181Data+`
+INSERT INTO awg_servers (id, enable, interface_name, listen_port, private_key, public_key) VALUES (1, 1, 'awg0', 40999, 'frozenPriv', 'frozenPub');
+INSERT INTO awg_clients (server_id, uuid, name, email, enable, private_key, public_key, ipv4_address) VALUES (1, 'u-ghost', 'ghost', 'ghost', 1, 'ghostPriv', 'ghostPub', '10.66.66.9/32');
+`)
+	migratedAxDB(t, path)
+	ib := inboundByID(t, 2)
+	s := awgSettings(t, ib)
+	if s.Server.PrivateKey != "awgPriv" || ib.Port != 51820 || len(s.Clients) != 2 {
+		t.Errorf("AmneziaWG inbound = port %d key %q with %d clients, want tunnel_servers' own", ib.Port, s.Server.PrivateKey, len(s.Clients))
+	}
+}
+
+// 1.x never enforced an inbound-level limit on a tunnel (its row's counters were
+// stale); with the real total carried over, a limit already passed would shut it.
+func TestAx181TunnelInboundLimitAlreadyPassedIsDropped(t *testing.T) {
+	const awgRow = "(2, 1, 0, 0, 0, 0, 'awg'"
+	cases := []struct {
+		name      string
+		total     string
+		wantTotal int64
+	}{
+		{name: "limit below the clients' 315 bytes", total: "300", wantTotal: 0},
+		{name: "limit not reached yet", total: "1000", wantTotal: 1000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := strings.Replace(ax181Data, awgRow, "(2, 1, 0, 0, "+tc.total+", 0, 'awg'", 1)
+			if data == ax181Data {
+				t.Fatal("fixture changed: AmneziaWG inbound row not found")
+			}
+			migratedAxDB(t, buildAxDB(t, data))
+			ib := inboundByID(t, 2)
+			if ib.Total != tc.wantTotal || !ib.Enable || ib.Up+ib.Down != 315 {
+				t.Errorf("inbound 2 = total %d enable %v used %d, want total %d, enabled, 315 used", ib.Total, ib.Enable, ib.Up+ib.Down, tc.wantTotal)
+			}
+		})
+	}
 }
