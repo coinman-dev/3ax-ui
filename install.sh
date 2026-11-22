@@ -2031,7 +2031,8 @@ install_x-ui() {
         # lifecycle, so on Linux a stale one can survive the stop and keep holding
         # an inbound port with an outdated secret, silently breaking new clients.
         # The freshly installed panel respawns a clean mtg per inbound on start.
-        pkill -f 'mtg-linux-[^ ]* run ' > /dev/null 2>&1 || true
+        # 3AX-UI: 1.x named its sidecar mtg-multi-linux-<arch>.
+        pkill -f 'mtg(-multi)?-linux-[^ ]* run ' > /dev/null 2>&1 || true
         pkill -f 'tuic-server.*-c .*bin/tuic/tuic_[0-9]+\.json' > /dev/null 2>&1 || true
 
         # bin/ is about to be wiped wholesale by the tar extraction below. The
@@ -2115,7 +2116,7 @@ install_x-ui() {
         while IFS= read -r -d '' f; do
             local rel="${f#"${custom_bin_backup}"/}"
             case "${rel}" in
-                config.json | mtproto | mtproto/* | tuic | tuic/* | tuic-server | tuic-server-*) continue ;;
+                config.json | mtproto | mtproto/* | tuic | tuic/* | tuic-server | tuic-server-* | mtg-multi-linux-*) continue ;;
             esac
             if [[ ! -e "bin/${rel}" ]]; then
                 mkdir -p "bin/$(dirname "${rel}")"

@@ -796,7 +796,8 @@ update_x-ui() {
         # lifecycle, so on Linux a stale one can survive the stop and keep holding
         # an inbound port with an outdated secret, silently breaking new clients.
         # The new panel respawns a clean mtg per inbound on next start.
-        pkill -f 'mtg-linux-[^ ]* run ' > /dev/null 2>&1 || true
+        # 3AX-UI: 1.x named its sidecar mtg-multi-linux-<arch>.
+        pkill -f 'mtg(-multi)?-linux-[^ ]* run ' > /dev/null 2>&1 || true
         pkill -f 'tuic-server.*-c .*bin/tuic/tuic_[0-9]+\.json' > /dev/null 2>&1 || true
         echo -e "${green}Removing old x-ui version...${plain}"
         rm ${xui_folder} -f > /dev/null 2>&1
@@ -808,6 +809,7 @@ update_x-ui() {
         rm ${xui_folder}/x-ui.sh -f > /dev/null 2>&1
         echo -e "${green}Removing old mtg version...${plain}"
         rm ${xui_folder}/bin/mtg-linux-$(arch) -f > /dev/null 2>&1
+        rm ${xui_folder}/bin/mtg-multi-linux-* -f > /dev/null 2>&1
         echo -e "${green}Removing old xray version...${plain}"
         rm ${xui_folder}/bin/xray-linux-$(arch) -f > /dev/null 2>&1
         echo -e "${green}Removing old README and LICENSE file...${plain}"
