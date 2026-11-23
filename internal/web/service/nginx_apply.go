@@ -417,6 +417,9 @@ func (s *NginxService) Reconcile() {
 	}
 	if !changed && !needsMove {
 		s.failures, s.skipTicks = 0, 0
+		if err := nginx.ReloadOnRenewedCertificate(cfg); err != nil {
+			logger.Warning("nginx reconcile: could not load the renewed certificate:", err)
+		}
 		return
 	}
 	if s.skipTicks > 0 {
