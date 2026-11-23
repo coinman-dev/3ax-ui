@@ -1290,7 +1290,7 @@
       "panelPublishNeedsOnly443": "Iba v režime „Iba port 443“ a iba s doménou, ktorá má certifikát.",
       "firewall": "Zatvorenie ostatných portov",
       "firewallSwitch": "Zatvoriť porty, ktoré nikto nepotrebuje",
-      "firewallDesc": "Čo zostane otvorené: SSH — vždy, na porte podľa vlastnej konfigurácie sshd; port panelu, ak nebol zverejnený za portom 443; odbery za rovnakých podmienok; tunely UDP; a DHCP, aby si server ponechal svoju adresu. Prevádzka prichádzajúca cez tunel sa nikdy neobmedzuje, rovnako ako odpovede na všetko, o čo server požiadal sám — jeho vlastné DNS, aktualizácie a hodiny teda fungujú ďalej. Všetko ostatné prestane odpovedať a potom budete požiadaní potvrdiť, že panel je stále dostupný.",
+      "firewallDesc": "Čo zostane otvorené: SSH — vždy, na porte podľa vlastnej konfigurácie sshd; port panelu, ak nebol zverejnený za portom 443; odbery za rovnakých podmienok; tunely UDP; a DHCP, aby si server ponechal svoju adresu. Prevádzka prichádzajúca cez tunel sa nikdy neobmedzuje, rovnako ako odpovede na všetko, o čo server požiadal sám — jeho vlastné DNS, aktualizácie a hodiny teda fungujú ďalej. Všetko ostatné prestane odpovedať a potom budete požiadaní potvrdiť, že panel je stále dostupný. Port 80 tiež zostáva otvorený, aby Let’s Encrypt mohol obnoviť certifikát.",
       "firewallExtra": "Ďalšie porty, ktoré nechať otvorené",
       "firewallExtraDesc": "Čokoľvek ďalšie, za čo musí tento konkrétny server odpovedať — poštový relay, monitorovací agent, resolver slúžiaci niečomu inému než tunelom. Čiarky a rozsahy: 53, 8080, 9000-9100. Zostanú otvorené pre TCP aj UDP.",
       "firewallNeedsOnly443": "Iba v režime „Iba port 443“.",

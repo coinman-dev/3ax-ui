@@ -566,7 +566,9 @@ func (s *NginxService) subAddressChange(in NginxSettings) (from string, to strin
 // before confirming; turning the firewall switch off keeps every port open instead.
 func (s *NginxService) firewallPlan(set NginxSettings) (nginx.Firewall, []NginxChange) {
 	fw := nginx.Firewall{
-		TCP:    nginx.Ports(PublicPort),
+		// 80 for Let's Encrypt's HTTP-01 check, webroot or standalone: without it the
+		// certificate the front-end serves cannot renew. Every real website answers there.
+		TCP:    nginx.Ports(PublicPort, 80),
 		Ifaces: tunnelInterfaces(),
 	}
 

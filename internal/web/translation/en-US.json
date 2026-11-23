@@ -1290,7 +1290,7 @@
       "panelPublishNeedsOnly443": "Only in «Port 443 only», and only with a domain that has a certificate.",
       "firewall": "Closing the other ports",
       "firewallSwitch": "Close the ports nobody needs",
-      "firewallDesc": "What stays open: SSH — always, on whatever port sshd’s own configuration says; the panel’s port, unless it has been published behind 443; the subscriptions, on the same terms; the UDP tunnels; and DHCP, so the server keeps its address. Traffic arriving through a tunnel is never touched, and neither are the answers to anything this server asked for itself — so its own DNS, updates and clock go on working. Everything else stops answering, and you will be asked afterwards to confirm the panel is still reachable.",
+      "firewallDesc": "What stays open: SSH — always, on whatever port sshd’s own configuration says; the panel’s port, unless it has been published behind 443; the subscriptions, on the same terms; the UDP tunnels; and DHCP, so the server keeps its address. Traffic arriving through a tunnel is never touched, and neither are the answers to anything this server asked for itself — so its own DNS, updates and clock go on working. Everything else stops answering, and you will be asked afterwards to confirm the panel is still reachable. Port 80 stays open as well, so Let’s Encrypt can renew the certificate.",
       "firewallExtra": "Other ports to keep open",
       "firewallExtraDesc": "Anything else this particular server has to answer for — a mail relay, a monitoring agent, a resolver serving something other than the tunnels. Commas and ranges: 53, 8080, 9000-9100. Kept open over both TCP and UDP.",
       "firewallNeedsOnly443": "Only in «Port 443 only».",

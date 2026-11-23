@@ -2587,7 +2587,7 @@
       "planKept": "Continuam abertas: {from}",
       "firewallExtraDesc": "Qualquer outra coisa por que este servidor precise responder: um relay de e-mail, um agente de monitoramento, um resolvedor que sirva a algo além dos túneis. Vírgulas e intervalos: 53, 8080, 9000-9100. Ficam abertas tanto em TCP quanto em UDP.",
       "firewallExtra": "Outras portas para manter abertas",
-      "firewallDesc": "O que continua aberto: o SSH, sempre, na porta que a própria configuração do sshd indicar; a porta do painel, a menos que ela tenha sido publicada atrás da 443; as assinaturas, nas mesmas condições; os túneis UDP; e o DHCP, para o servidor não perder o endereço. O tráfego que chega por um túnel não é tocado, nem as respostas ao que o próprio servidor pediu — então o DNS dele, as atualizações e o relógio continuam funcionando. Todo o resto deixa de responder, e depois o painel vai pedir que você confirme que ele continua acessível.",
+      "firewallDesc": "O que continua aberto: o SSH, sempre, na porta que a própria configuração do sshd indicar; a porta do painel, a menos que ela tenha sido publicada atrás da 443; as assinaturas, nas mesmas condições; os túneis UDP; e o DHCP, para o servidor não perder o endereço. O tráfego que chega por um túnel não é tocado, nem as respostas ao que o próprio servidor pediu — então o DNS dele, as atualizações e o relógio continuam funcionando. Todo o resto deixa de responder, e depois o painel vai pedir que você confirme que ele continua acessível. A porta 80 também fica aberta, para que o Let’s Encrypt possa renovar o certificado.",
       "firewallNeedsOnly443": "Somente em «Somente a porta 443».",
       "firewallStateOn": "Portas fechadas",
       "firewallStateOff": "Portas abertas",

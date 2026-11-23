@@ -2587,7 +2587,7 @@
       "planKept": "Tetap terbuka: {from}",
       "firewallExtraDesc": "Apa pun lain yang harus dijawab server ini: relai surat, agen pemantauan, resolver yang melayani selain terowongan. Pakai koma dan rentang: 53, 8080, 9000-9100. Dibiarkan terbuka pada TCP maupun UDP.",
       "firewallExtra": "Port lain yang dibiarkan terbuka",
-      "firewallDesc": "Yang tetap terbuka: SSH — selalu, di port yang tertulis pada konfigurasi sshd sendiri; port panel, kecuali sudah diterbitkan di balik 443; langganan, dengan syarat yang sama; terowongan UDP; dan DHCP, supaya server tidak kehilangan alamatnya. Lalu lintas yang datang lewat terowongan sama sekali tidak disentuh, begitu pula jawaban atas apa pun yang diminta server sendiri — jadi DNS, pembaruan, dan jamnya tetap berjalan. Selebihnya berhenti menjawab, dan sesudah diterapkan panel akan meminta Anda mengonfirmasi bahwa panel masih terjangkau.",
+      "firewallDesc": "Yang tetap terbuka: SSH — selalu, di port yang tertulis pada konfigurasi sshd sendiri; port panel, kecuali sudah diterbitkan di balik 443; langganan, dengan syarat yang sama; terowongan UDP; dan DHCP, supaya server tidak kehilangan alamatnya. Lalu lintas yang datang lewat terowongan sama sekali tidak disentuh, begitu pula jawaban atas apa pun yang diminta server sendiri — jadi DNS, pembaruan, dan jamnya tetap berjalan. Selebihnya berhenti menjawab, dan sesudah diterapkan panel akan meminta Anda mengonfirmasi bahwa panel masih terjangkau. Port 80 juga tetap terbuka agar Let’s Encrypt dapat memperpanjang sertifikat.",
       "firewallNeedsOnly443": "Hanya di «Hanya port 443».",
       "firewallStateOn": "Port tertutup",
       "firewallStateOff": "Port terbuka",

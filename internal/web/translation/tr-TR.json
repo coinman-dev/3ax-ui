@@ -2587,7 +2587,7 @@
       "planKept": "Açık kalıyor: {from}",
       "firewallExtraDesc": "Bu sunucunun yanıt vermesi gereken başka her şey: bir posta aktarıcısı, bir izleme aracısı, tüneller dışına hizmet veren bir çözümleyici. Virgülle ve aralık olarak: 53, 8080, 9000-9100. Hem TCP hem UDP üzerinde açık bırakılır.",
       "firewallExtra": "Açık bırakılacak diğer portlar",
-      "firewallDesc": "Açık kalacaklar: SSH — her zaman, sshd’nin kendi yapılandırmasında yazan portta; panelin portu, 443’ün arkasına yayımlanmadıysa; abonelikler, aynı koşulla; UDP tünelleri; ve sunucunun adresini yitirmemesi için DHCP. Bir tünelden gelen trafiğe hiç dokunulmaz, sunucunun kendi gönderdiği isteklerin yanıtlarına da — yani kendi DNS’i, güncellemeleri ve saati çalışmaya devam eder. Geri kalan her şey yanıt vermeyi bırakır ve uygulamanın ardından panel, kendisine hâlâ erişilebildiğini onaylamanızı ister.",
+      "firewallDesc": "Açık kalacaklar: SSH — her zaman, sshd’nin kendi yapılandırmasında yazan portta; panelin portu, 443’ün arkasına yayımlanmadıysa; abonelikler, aynı koşulla; UDP tünelleri; ve sunucunun adresini yitirmemesi için DHCP. Bir tünelden gelen trafiğe hiç dokunulmaz, sunucunun kendi gönderdiği isteklerin yanıtlarına da — yani kendi DNS’i, güncellemeleri ve saati çalışmaya devam eder. Geri kalan her şey yanıt vermeyi bırakır ve uygulamanın ardından panel, kendisine hâlâ erişilebildiğini onaylamanızı ister. Let’s Encrypt sertifikayı yenileyebilsin diye 80 numaralı port da açık kalır.",
       "firewallNeedsOnly443": "Yalnızca «Yalnızca 443 portu» modunda.",
       "firewallStateOn": "Portlar kapalı",
       "firewallStateOff": "Portlar açık",

@@ -238,3 +238,19 @@ func TestNodeInboundsStayOutOfTheFrontEnd(t *testing.T) {
 		}
 	}
 }
+
+// Let's Encrypt checks a domain over port 80, in webroot and standalone mode alike; with 80
+// dropped the certificate the front-end serves stopped renewing and expired (net-ru, 2026-11).
+func TestOnly443KeepsPort80ForCertificateRenewal(t *testing.T) {
+	svc := newNginxTestServer(t)
+	seedInbounds(t)
+	set := only443(true)
+	set.PanelBehind443, set.SubsBehind443 = true, true
+	fw, _ := svc.firewallPlan(set)
+	if !slices.Contains(fw.TCP, nginx.Port(80)) {
+		t.Errorf("only443 keeps %v/tcp open, want port 80 among them", fw.TCP)
+	}
+	if slices.Contains(fw.UDP, nginx.Port(80)) {
+		t.Errorf("port 80 opened for UDP too: %v", fw.UDP)
+	}
+}
