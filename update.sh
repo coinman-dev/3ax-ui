@@ -147,8 +147,20 @@ ax1x_acme_webroot() {
         grep -q "^Le_Webroot='no'$" "$conf" || continue
         grep -q "^Le_HTTPPort='80'$" "$conf" || continue
         sed -i "s|^Le_Webroot='no'$|Le_Webroot='${root}'|" "$conf"
+        ax1x_acme_switched=1
         echo -e "${green}acme.sh: $(basename "$(dirname "$conf")") now renews through nginx (webroot ${root}).${plain}"
     done
+}
+
+# Renews what came due while standalone renewals failed, instead of leaving an expired
+# certificate to acme.sh's next daily cron. Runs once the panel is up: reload commands restart it.
+ax1x_acme_renew_due() {
+    local acme_home="$1"
+    [[ "${ax1x_acme_switched:-0}" == 1 && -x "$acme_home/acme.sh" ]] || return 0
+    echo -e "${green}acme.sh: renewing certificates that came due...${plain}"
+    if ! "$acme_home/acme.sh" --cron --home "$acme_home" > /dev/null 2>&1; then
+        echo -e "${yellow}acme.sh: a renewal failed; run ${acme_home}/acme.sh --cron --home ${acme_home} to see why.${plain}"
+    fi
 }
 
 # Check command exist function
@@ -957,6 +969,7 @@ update_x-ui() {
     fi
 
     config_after_update
+    ax1x_acme_renew_due /root/.acme.sh
 
     # IP Limit relies on fail2ban; install + configure it now so the feature
     # works out of the box on update too (no-op when XUI_ENABLE_FAIL2BAN=false).
