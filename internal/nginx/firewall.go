@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Chain is ours alone, reached by one jump from INPUT, so hand-written rules are never touched.
@@ -89,6 +90,31 @@ func FirewallActive() bool {
 	return false
 }
 
+// applied is the plan the chain was last built from, shared by every caller in this process.
+var applied struct {
+	sync.Mutex
+	key string
+}
+
+// planKey identifies what a chain lets through, whatever order the caller listed it in.
+func planKey(tcp, udp []PortRange, ifaces []string) string {
+	sorted := slices.Sorted(slices.Values(ifaces))
+	return fmt.Sprint(tcp, udp, slices.Compact(sorted))
+}
+
+// SyncFirewall rebuilds the chain only when the plan differs from the one it was built from or the
+// chain is gone, so reconcile can follow inbounds that move ports without rewriting it every tick.
+func SyncFirewall(fw Firewall) (bool, error) {
+	key := planKey(merge(fw.TCP, Ports(SSHPorts()...)), merge(fw.UDP), fw.Ifaces)
+	applied.Lock()
+	same := applied.key == key
+	applied.Unlock()
+	if same && FirewallActive() {
+		return false, nil
+	}
+	return true, ApplyFirewall(fw)
+}
+
 // ApplyFirewall closes all but the given ports, SSH and essential traffic. It rebuilds the chain
 // each call so reconcile can rerun it; the brief empty chain fails open, the safe direction.
 func ApplyFirewall(fw Firewall) error {
@@ -96,8 +122,11 @@ func ApplyFirewall(fw Firewall) error {
 	// if the caller passed nothing at all.
 	tcp := merge(fw.TCP, Ports(SSHPorts()...))
 	udp := merge(fw.UDP)
+	applied.Lock()
+	defer applied.Unlock()
+	applied.key = ""
 
-	var applied int
+	var built int
 	for _, fam := range families() {
 		if !fam.usable {
 			continue
@@ -105,17 +134,21 @@ func ApplyFirewall(fw Firewall) error {
 		if err := fam.rebuild(tcp, udp, fw.Ifaces); err != nil {
 			return err
 		}
-		applied++
+		built++
 	}
-	if applied == 0 {
+	if built == 0 {
 		return fmt.Errorf("no iptables binary on this machine, so the ports cannot be closed")
 	}
+	applied.key = planKey(tcp, udp, fw.Ifaces)
 	return nil
 }
 
 // RemoveFirewall takes our chain back out. A chain already gone is not an error: the operator
 // asked for the ports to be open and afterwards they are.
 func RemoveFirewall() error {
+	applied.Lock()
+	applied.key = ""
+	applied.Unlock()
 	for _, fam := range families() {
 		if !fam.usable {
 			continue

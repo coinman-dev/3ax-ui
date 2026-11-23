@@ -359,12 +359,14 @@ func (s *NginxService) Reconcile() {
 		logger.Warning("nginx reconcile: could not write the cover page:", err)
 	}
 
-	// Netfilter rules don't survive a reboot, leaving a "closed" server wide open. Restoring the
-	// chain touches nothing else, so it skips Apply and the Xray restart.
-	if closesPorts(set) && !nginx.FirewallActive() {
-		logger.Info("nginx: the firewall chain is gone, putting it back")
-		if err := s.applyFirewall(set); err != nil {
-			logger.Warning("nginx reconcile:", err)
+	// The chain follows the inbounds (a moved port, a new tunnel) and comes back after a reboot
+	// empties netfilter. It touches nothing else, so it skips Apply and the Xray restart.
+	if closesPorts(set) {
+		fw, _ := s.firewallPlan(set)
+		if changed, err := nginx.SyncFirewall(fw); err != nil {
+			logger.Warning("nginx reconcile: the ports could not be closed:", err)
+		} else if changed {
+			logger.Infof("nginx: firewall brought in line: %v/tcp and %v/udp open, plus ssh on %v", fw.TCP, fw.UDP, nginx.SSHPorts())
 		}
 	}
 
