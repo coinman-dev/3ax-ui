@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "Спільний ключ AmneziaWG",
       "amneziaWgAllowedIPs": "Дозволені IP AmneziaWG",
       "amneziaWgAllowedIPsHint": "Залиште порожнім для автопризначення; розділяйте записи комами",
-      "amneziaWgForwardedPorts": "Перенаправлені порти",
+      "amneziaWgForwardedPorts": "Перенаправлені порти AmneziaWG",
       "amneziaWgForwardedPortsHint": "Порти/діапазони, що перенаправляються (DNAT) на цього клієнта, напр. 80, 443, 8000-8100. Залиште порожнім, якщо не потрібно.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "Укажіть секунди числом або діапазоном (наприклад, 15-25). Значення має бути від 0 до 65535; 0 вимикає keepalive.",

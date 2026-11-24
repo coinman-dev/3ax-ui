@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "مفتاح AmneziaWG المشترك مسبقًا",
       "amneziaWgAllowedIPs": "عناوين IP المسموحة لـ AmneziaWG",
       "amneziaWgAllowedIPsHint": "اتركه فارغًا للتعيين التلقائي؛ افصل بين الإدخالات بفواصل",
-      "amneziaWgForwardedPorts": "المنافذ المُعاد توجيهها",
+      "amneziaWgForwardedPorts": "المنافذ المُعاد توجيهها لـ AmneziaWG",
       "amneziaWgForwardedPortsHint": "المنافذ/النطاقات المُعاد توجيهها (DNAT) لهذا العميل، مثل 80, 443, 8000-8100. اتركها فارغة إن لم تكن مطلوبة.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "أدخل الثواني كرقم أو كنطاق (مثل 15-25). يجب أن تكون القيم بين 0 و65535؛ القيمة 0 تعطل الإبقاء على الاتصال.",

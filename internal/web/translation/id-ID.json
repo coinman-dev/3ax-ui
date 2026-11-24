@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "Kunci Pra-Berbagi AmneziaWG",
       "amneziaWgAllowedIPs": "IP yang Diizinkan AmneziaWG",
       "amneziaWgAllowedIPsHint": "Biarkan kosong untuk penetapan otomatis; pisahkan entri dengan koma",
-      "amneziaWgForwardedPorts": "Port yang Diteruskan",
+      "amneziaWgForwardedPorts": "Port yang Diteruskan AmneziaWG",
       "amneziaWgForwardedPortsHint": "Port/rentang yang di-DNAT ke klien ini, mis. 80, 443, 8000-8100. Biarkan kosong jika tidak ada.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "Masukkan detik sebagai angka atau rentang (misalnya, 15-25). Nilai harus antara 0 dan 65535; 0 menonaktifkan keepalive.",

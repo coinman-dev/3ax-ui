@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "Predzdieľaný kľúč AmneziaWG",
       "amneziaWgAllowedIPs": "Povolené IP adresy AmneziaWG",
       "amneziaWgAllowedIPsHint": "Prázdne pole umožní automatické pridelenie. Viac položiek oddeľte čiarkou.",
-      "amneziaWgForwardedPorts": "Presmerované porty",
+      "amneziaWgForwardedPorts": "Presmerované porty AmneziaWG",
       "amneziaWgForwardedPortsHint": "Porty alebo rozsahy presmerované cez DNAT na tohto klienta, napr. 80, 443, 8000-8100. Prázdne pole znamená žiadne presmerovanie.",
       "tunnelKeepAlive": "Udržiavanie spojenia (sekundy)",
       "amneziaWgKeepAliveHint": "Zadajte sekundy ako číslo alebo rozsah (napríklad 15-25). Hodnoty musia byť od 0 do 65535; 0 vypína keepalive.",

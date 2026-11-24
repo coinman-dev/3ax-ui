@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "Chave pré-compartilhada do AmneziaWG",
       "amneziaWgAllowedIPs": "IPs permitidos do AmneziaWG",
       "amneziaWgAllowedIPsHint": "Deixe vazio para atribuir automaticamente; separe as entradas com vírgulas",
-      "amneziaWgForwardedPorts": "Portas encaminhadas",
+      "amneziaWgForwardedPorts": "Portas encaminhadas do AmneziaWG",
       "amneziaWgForwardedPortsHint": "Portas/intervalos redirecionados (DNAT) para este cliente, ex. 80, 443, 8000-8100. Deixe vazio se não aplicável.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "Informe os segundos como número ou intervalo (por exemplo, 15-25). Os valores devem estar entre 0 e 65535; 0 desativa o keepalive.",

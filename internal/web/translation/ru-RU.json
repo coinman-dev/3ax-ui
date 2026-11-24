@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "Общий ключ AmneziaWG",
       "amneziaWgAllowedIPs": "Разрешённые IP AmneziaWG",
       "amneziaWgAllowedIPsHint": "Оставьте пустым для автоназначения; разделяйте записи запятыми",
-      "amneziaWgForwardedPorts": "Проброс портов",
+      "amneziaWgForwardedPorts": "Проброс портов AmneziaWG",
       "amneziaWgForwardedPortsHint": "Порты/диапазоны, DNAT'ящиеся на этого клиента, например 80, 443, 8000-8100. Оставьте пустым, если не нужно.",
       "tunnelKeepAlive": "Keepalive (секунды)",
       "amneziaWgKeepAliveHint": "Укажите секунды числом или диапазоном (например, 15-25). Значение должно быть от 0 до 65535; 0 отключает keepalive.",

@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "Khóa chia sẻ trước AmneziaWG",
       "amneziaWgAllowedIPs": "IP được phép AmneziaWG",
       "amneziaWgAllowedIPsHint": "Để trống để tự động gán; phân tách các mục bằng dấu phẩy",
-      "amneziaWgForwardedPorts": "Cổng chuyển tiếp",
+      "amneziaWgForwardedPorts": "Cổng chuyển tiếp AmneziaWG",
       "amneziaWgForwardedPortsHint": "Cổng/dải cổng được chuyển tiếp (DNAT) đến client này, vd. 80, 443, 8000-8100. Để trống nếu không cần.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "Nhập số giây dưới dạng số hoặc khoảng (ví dụ: 15-25). Giá trị phải từ 0 đến 65535; 0 sẽ tắt keepalive.",

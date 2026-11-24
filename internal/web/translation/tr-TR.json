@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "AmneziaWG Ön Paylaşımlı Anahtar",
       "amneziaWgAllowedIPs": "AmneziaWG İzin Verilen IP'ler",
       "amneziaWgAllowedIPsHint": "Otomatik atama için boş bırakın; girişleri virgülle ayırın",
-      "amneziaWgForwardedPorts": "Yönlendirilen Portlar",
+      "amneziaWgForwardedPorts": "AmneziaWG Yönlendirilen Portlar",
       "amneziaWgForwardedPortsHint": "Bu istemciye DNAT ile yönlendirilen port/aralıklar, örn. 80, 443, 8000-8100. Yoksa boş bırakın.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "Saniyeyi sayı veya aralık olarak girin (ör. 15-25). Değerler 0 ile 65535 arasında olmalıdır; 0 keepalive özelliğini kapatır.",

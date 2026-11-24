@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "AmneziaWG Pre-Shared Key",
       "amneziaWgAllowedIPs": "AmneziaWG Allowed IPs",
       "amneziaWgAllowedIPsHint": "Leave empty to auto-assign; separate entries with commas",
-      "amneziaWgForwardedPorts": "Forwarded Ports",
+      "amneziaWgForwardedPorts": "AmneziaWG Forwarded Ports",
       "amneziaWgForwardedPortsHint": "Ports/ranges DNAT'd to this client, e.g. 80, 443, 8000-8100. Leave empty for none.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "Enter seconds as a number or range (for example, 15-25). Values must be from 0 to 65535; 0 disables keepalive.",

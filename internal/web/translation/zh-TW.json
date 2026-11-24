@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "AmneziaWG 預共用金鑰",
       "amneziaWgAllowedIPs": "AmneziaWG 允許的 IP",
       "amneziaWgAllowedIPsHint": "留空則自動分配；多個條目用逗號分隔",
-      "amneziaWgForwardedPorts": "轉發連接埠",
+      "amneziaWgForwardedPorts": "AmneziaWG 轉發連接埠",
       "amneziaWgForwardedPortsHint": "轉發到此客戶端的連接埠/範圍，例如 80, 443, 8000-8100。留空則不轉發。",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "秒數可輸入數字或範圍（例如 15-25）。數值須介於 0 到 65535；0 表示停用 keepalive。",

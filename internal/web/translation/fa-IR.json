@@ -1028,7 +1028,7 @@
       "amneziaWgPreSharedKey": "کلید پیش‌اشتراکی AmneziaWG",
       "amneziaWgAllowedIPs": "آی‌پی‌های مجاز AmneziaWG",
       "amneziaWgAllowedIPsHint": "برای تخصیص خودکار خالی بگذارید؛ ورودی‌ها را با کاما جدا کنید",
-      "amneziaWgForwardedPorts": "پورت‌های هدایت‌شده",
+      "amneziaWgForwardedPorts": "پورت‌های هدایت‌شده AmneziaWG",
       "amneziaWgForwardedPortsHint": "پورت‌ها/محدوده‌های DNAT شده به این کلاینت، مثلاً 80, 443, 8000-8100. برای غیرفعال بودن خالی بگذارید.",
       "tunnelKeepAlive": "Keepalive (seconds)",
       "amneziaWgKeepAliveHint": "ثانیه را به‌صورت عدد یا بازه (مثلاً 15-25) وارد کنید. مقدار باید بین 0 تا 65535 باشد؛ 0 قابلیت keepalive را غیرفعال می‌کند.",
